@@ -222,6 +222,7 @@ export async function checkInterrupt(text: string): Promise<string> {
   }
 
   const strippedText = text.slice(1).trimStart();
+  const normalizedInterrupt = strippedText.trim().toLowerCase();
 
   if (sessionModule.session.isRunning) {
     console.log("! prefix - interrupting current query");
@@ -230,6 +231,12 @@ export async function checkInterrupt(text: string): Promise<string> {
     await Bun.sleep(100);
     // Clear stopRequested so the new message can proceed
     sessionModule.session.clearStopRequested();
+  }
+
+  // Treat !stop as a pure stop alias (same behavior as /stop):
+  // cancel current work and do not forward "stop" as a new prompt.
+  if (normalizedInterrupt === "stop" || normalizedInterrupt === "/stop") {
+    return "";
   }
 
   return strippedText;
