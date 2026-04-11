@@ -219,9 +219,11 @@ export const RATE_LIMIT_WINDOW = parseInt(
 
 // ============== File Paths ==============
 
-export const SESSION_FILE = "/tmp/claude-telegram-session.json";
-export const RESTART_FILE = "/tmp/claude-telegram-restart.json";
-export const TEMP_DIR = "/tmp/telegram-bot";
+export const SESSION_FILE =
+  process.env.SESSION_FILE_PATH || "/tmp/claude-telegram-session.json";
+export const RESTART_FILE =
+  process.env.RESTART_FILE_PATH || "/tmp/claude-telegram-restart.json";
+export const TEMP_DIR = process.env.TEMP_DIR || "/tmp/telegram-bot";
 
 // Temp paths that are always allowed for bot operations
 export const TEMP_PATHS = ["/tmp/", "/private/tmp/", "/var/folders/"];
