@@ -209,8 +209,6 @@ class ClaudeSession {
     }
 
     // Build SDK V1 options - supports all features
-    const modelToUse = process.env.CLAUDE_MODEL || "claude-sonnet-4-5";
-    console.log(`MODEL: using ${modelToUse}`);
     const options: Options = {
       cwd: WORKING_DIR,
       settingSources: ["user", "project"],
@@ -273,13 +271,6 @@ class ClaudeSession {
           abortController: this.abortController,
         },
       });
-
-      // Set model after query creation (SDK query() ignores model in options)
-      if (modelToUse) {
-        await queryInstance.setModel(modelToUse).catch((e: unknown) =>
-          console.warn(`setModel failed: ${e}`)
-        );
-      }
 
       // Process streaming response
       for await (const event of queryInstance) {
