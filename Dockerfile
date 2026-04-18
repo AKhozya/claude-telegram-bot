@@ -19,7 +19,11 @@ RUN curl -fsSL https://fluxcd.io/install.sh | bash
 RUN apk add --no-cache github-cli
 
 # Claude Code CLI (Agent SDK spawns this as subprocess)
+# Install to user-writable prefix so init container can update on restart
+ENV NPM_CONFIG_PREFIX=/home/akhozya/.npm-global
+ENV PATH="/home/akhozya/.npm-global/bin:$PATH"
 RUN apk add --no-cache nodejs npm && \
+    mkdir -p /home/akhozya/.npm-global && \
     npm install -g @anthropic-ai/claude-code && \
     npm cache clean --force
 
@@ -33,6 +37,9 @@ COPY . .
 # oven/bun:alpine already has UID 1000 as 'bun' user.
 # Create akhozya as alias + home dir for K8s securityContext (runAsUser: 1000)
 RUN deluser bun && adduser -D -u 1000 -h /home/akhozya akhozya
+
+# Make /app and npm prefix writable so init container can update deps on restart
+RUN chown -R akhozya:akhozya /app /home/akhozya/.npm-global
 USER akhozya
 
 CMD ["bun", "run", "src/index.ts"]
