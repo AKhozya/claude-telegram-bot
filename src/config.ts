@@ -217,6 +217,15 @@ export const RATE_LIMIT_WINDOW = parseInt(
   10
 );
 
+// ============== HTTP Trigger ==============
+
+// HTTP trigger lets external systems (e.g. cron, CI) inject a prompt as if
+// the first allowed user sent it. Disabled unless TRIGGER_SECRET is set.
+export const TRIGGER_SECRET = process.env.TRIGGER_SECRET || "";
+export const TRIGGER_PORT = parseInt(process.env.TRIGGER_PORT || "8080", 10);
+export const TRIGGER_HOST = process.env.TRIGGER_HOST || "127.0.0.1";
+export const TRIGGER_ENABLED = !!TRIGGER_SECRET;
+
 // ============== File Paths ==============
 
 export const SESSION_FILE =
