@@ -14,6 +14,7 @@ import {
   RATE_LIMIT_REQUESTS,
   RATE_LIMIT_WINDOW,
   TEMP_PATHS,
+  WORKING_DIR,
 } from "./config";
 
 // ============== Rate Limiter ==============
@@ -130,19 +131,30 @@ export function checkCommandSafety(
   }
 
   // Special handling for rm commands - validate paths
-  if (lowerCommand.includes("rm ")) {
+  // Match rm as a standalone command (not substring like "perform")
+  if (/\brm\s/.test(lowerCommand)) {
     try {
-      // Simple parsing: extract arguments after rm
-      const rmMatch = command.match(/rm\s+(.+)/i);
+      // Extract arguments after rm, stopping at shell operators
+      const rmMatch = command.match(/\brm\s+(.+)/i);
       if (rmMatch) {
-        const args = rmMatch[1]!.split(/\s+/);
-        for (const arg of args) {
-          // Skip flags
+        // Strip trailing shell redirects/operators before splitting
+        const rawArgs = rmMatch[1]!
+          .replace(/\s*[12]?>.*$/, "") // redirects: 2>&1, >/dev/null, etc.
+          .replace(/\s*[;|&].*$/, "") // operators: ; | && ||
+          .split(/\s+/);
+        for (const arg of rawArgs) {
+          // Skip flags and empty tokens
           if (arg.startsWith("-") || arg.length <= 1) continue;
+          // Skip shell globs/variables that can't be resolved
+          if (/[*?$`]/.test(arg)) continue;
 
-          // Check if path is allowed
-          if (!isPathAllowed(arg)) {
-            return [false, `rm target outside allowed paths: ${arg}`];
+          // Resolve relative paths against WORKING_DIR (where Claude runs)
+          const target = arg.startsWith("/") || arg.startsWith("~")
+            ? arg
+            : resolve(WORKING_DIR, arg);
+
+          if (!isPathAllowed(target)) {
+            return [false, `rm target outside allowed paths: ${target}`];
           }
         }
       }
