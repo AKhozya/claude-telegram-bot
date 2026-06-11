@@ -11,6 +11,11 @@ import { InlineKeyboard, InputFile } from "grammy";
 import type { StatusCallback } from "../types";
 import { convertMarkdownToHtml, escapeHtml } from "../formatting";
 import {
+  sendRichMessage,
+  editRichMessage,
+  TELEGRAM_RICH_LIMIT,
+} from "../rich-message";
+import {
   TELEGRAM_MESSAGE_LIMIT,
   TELEGRAM_SAFE_LIMIT,
   STREAMING_THROTTLE_MS,
@@ -202,6 +207,77 @@ async function sendChunkedMessages(
 }
 
 /**
+ * Send Claude markdown as a Bot API 10.1 rich message, degrading on failure:
+ * rich -> HTML -> plain text. Returns the created message, or null if all fail.
+ */
+async function sendRichWithFallback(
+  ctx: Context,
+  content: string
+): Promise<Message | null> {
+  const chatId = ctx.chatId;
+  if (chatId === undefined) return null;
+
+  // Rich path: pass Claude's GFM straight through (headings/tables/lists/code).
+  if (content.length <= TELEGRAM_RICH_LIMIT) {
+    try {
+      return await sendRichMessage(chatId, content);
+    } catch (richError) {
+      console.debug("Rich send failed, falling back to HTML:", richError);
+    }
+  }
+  // Fallback: HTML conversion (truncates), then plain text.
+  const formatted = formatWithinLimit(content);
+  try {
+    return await ctx.reply(formatted, { parse_mode: "HTML" });
+  } catch {
+    try {
+      return await ctx.reply(formatted);
+    } catch (plainError) {
+      console.debug("Plain reply failed:", plainError);
+      return null;
+    }
+  }
+}
+
+/**
+ * Edit a message in place to rich markdown, degrading rich -> HTML -> plain.
+ * Throws "CONTENT_TOO_LONG"/MESSAGE_TOO_LONG so callers can delete + chunk.
+ */
+async function editRichWithFallback(
+  ctx: Context,
+  msg: Message,
+  content: string
+): Promise<void> {
+  // Too long for a single rich message — signal caller to chunk full content.
+  if (content.length > TELEGRAM_RICH_LIMIT) {
+    throw new Error("CONTENT_TOO_LONG");
+  }
+  try {
+    await editRichMessage(msg.chat.id, msg.message_id, content);
+    return;
+  } catch (richError) {
+    console.debug("Rich edit failed, falling back to HTML:", richError);
+  }
+  // Fallback: HTML, then plain. Re-throw too-long so the caller can chunk.
+  const formatted = formatWithinLimit(content);
+  try {
+    await ctx.api.editMessageText(msg.chat.id, msg.message_id, formatted, {
+      parse_mode: "HTML",
+    });
+  } catch (error) {
+    if (String(error).includes("MESSAGE_TOO_LONG")) throw error;
+    try {
+      await ctx.api.editMessageText(msg.chat.id, msg.message_id, formatted);
+    } catch (editError) {
+      // Total failure — propagate so the caller defers/chunks and does NOT
+      // cache this content as delivered (which would skip a later retry).
+      console.debug("Edit message failed:", editError);
+      throw editError;
+    }
+  }
+}
+
+/**
  * Create a status callback for streaming updates.
  */
 export function createStatusCallback(
@@ -227,58 +303,26 @@ export function createStatusCallback(
         const lastEdit = state.lastEditTimes.get(segmentId) || 0;
 
         if (!state.textMessages.has(segmentId)) {
-          // New segment - create message
-          const formatted = formatWithinLimit(content);
-          try {
-            const msg = await ctx.reply(formatted, { parse_mode: "HTML" });
+          // New segment - create rich message (lastContent tracks raw markdown)
+          const msg = await sendRichWithFallback(ctx, content);
+          if (msg) {
             state.textMessages.set(segmentId, msg);
-            state.lastContent.set(segmentId, formatted);
-          } catch (htmlError) {
-            // HTML parse failed, fall back to plain text
-            console.debug("HTML reply failed, using plain text:", htmlError);
-            const msg = await ctx.reply(formatted);
-            state.textMessages.set(segmentId, msg);
-            state.lastContent.set(segmentId, formatted);
+            state.lastContent.set(segmentId, content);
           }
           state.lastEditTimes.set(segmentId, now);
         } else if (now - lastEdit > STREAMING_THROTTLE_MS) {
           // Update existing segment message (throttled)
           const msg = state.textMessages.get(segmentId)!;
-          const formatted = formatWithinLimit(content);
           // Skip if content unchanged
-          if (formatted === state.lastContent.get(segmentId)) {
+          if (content === state.lastContent.get(segmentId)) {
             return;
           }
           try {
-            await ctx.api.editMessageText(
-              msg.chat.id,
-              msg.message_id,
-              formatted,
-              {
-                parse_mode: "HTML",
-              }
-            );
-            state.lastContent.set(segmentId, formatted);
-          } catch (error) {
-            const errorStr = String(error);
-            if (errorStr.includes("MESSAGE_TOO_LONG")) {
-              // Skip this intermediate update - segment_end will chunk properly
-              console.debug(
-                "Streaming edit too long, deferring to segment_end"
-              );
-            } else {
-              console.debug("HTML edit failed, trying plain text:", error);
-              try {
-                await ctx.api.editMessageText(
-                  msg.chat.id,
-                  msg.message_id,
-                  formatted
-                );
-                state.lastContent.set(segmentId, formatted);
-              } catch (editError) {
-                console.debug("Edit message failed:", editError);
-              }
-            }
+            await editRichWithFallback(ctx, msg, content);
+            state.lastContent.set(segmentId, content);
+          } catch {
+            // Too long for an intermediate edit - segment_end will chunk it
+            console.debug("Streaming edit too long, deferring to segment_end");
           }
           state.lastEditTimes.set(segmentId, now);
         }
@@ -286,60 +330,38 @@ export function createStatusCallback(
         if (!content) return;
 
         // Short responses may skip the "text" event (throttle threshold),
-        // so no message exists yet — create one directly
+        // so no message exists yet — create one directly (#12 fix).
         if (!state.textMessages.has(segmentId)) {
-          const formatted = convertMarkdownToHtml(content);
-          try {
-            const msg = await ctx.reply(formatted, { parse_mode: "HTML" });
+          if (content.length > TELEGRAM_RICH_LIMIT) {
+            // Too long for one rich message - chunk the full content as HTML
+            await sendChunkedMessages(ctx, convertMarkdownToHtml(content));
+            return;
+          }
+          const msg = await sendRichWithFallback(ctx, content);
+          if (msg) {
             state.textMessages.set(segmentId, msg);
-          } catch {
-            try { await ctx.reply(content); } catch { /* give up */ }
+            state.lastContent.set(segmentId, content);
           }
           return;
         }
 
-        if (state.textMessages.has(segmentId)) {
-          const msg = state.textMessages.get(segmentId)!;
-          const formatted = convertMarkdownToHtml(content);
+        const msg = state.textMessages.get(segmentId)!;
+        // Skip if content unchanged
+        if (content === state.lastContent.get(segmentId)) {
+          return;
+        }
 
-          // Skip if content unchanged
-          if (formatted === state.lastContent.get(segmentId)) {
-            return;
+        try {
+          await editRichWithFallback(ctx, msg, content);
+          state.lastContent.set(segmentId, content);
+        } catch {
+          // Too long for one message - delete the partial and chunk full content
+          try {
+            await ctx.api.deleteMessage(msg.chat.id, msg.message_id);
+          } catch (delError) {
+            console.debug("Failed to delete for chunking:", delError);
           }
-
-          if (formatted.length <= TELEGRAM_MESSAGE_LIMIT) {
-            try {
-              await ctx.api.editMessageText(
-                msg.chat.id,
-                msg.message_id,
-                formatted,
-                {
-                  parse_mode: "HTML",
-                }
-              );
-            } catch (error) {
-              const errorStr = String(error);
-              if (errorStr.includes("MESSAGE_TOO_LONG")) {
-                // HTML overhead pushed it over - delete and chunk
-                try {
-                  await ctx.api.deleteMessage(msg.chat.id, msg.message_id);
-                } catch (delError) {
-                  console.debug("Failed to delete for chunking:", delError);
-                }
-                await sendChunkedMessages(ctx, formatted);
-              } else {
-                console.debug("Failed to edit final message:", error);
-              }
-            }
-          } else {
-            // Too long - delete and split
-            try {
-              await ctx.api.deleteMessage(msg.chat.id, msg.message_id);
-            } catch (error) {
-              console.debug("Failed to delete message for splitting:", error);
-            }
-            await sendChunkedMessages(ctx, formatted);
-          }
+          await sendChunkedMessages(ctx, convertMarkdownToHtml(content));
         }
       } else if (statusType === "done") {
         // Delete tool messages - text messages stay
