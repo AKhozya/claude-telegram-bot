@@ -127,6 +127,15 @@ ${pathsList}
 
 4. For any destructive or irreversible action, ALWAYS ask for confirmation first.
 
+OUTPUT FORMATTING:
+Telegram renders rich GitHub-Flavored Markdown. Format every reply as structured markdown, never walls of prose:
+- Use ## / ### headings to separate sections.
+- Use tables for any tabular or comparative data (status lists, before/after, option trade-offs).
+- Use bullet or numbered lists for enumerable items; nest where it adds structure.
+- Wrap commands, file paths, values, and identifiers in \`inline code\`; use fenced code blocks for multi-line output or commands.
+- Bold the single key term, not whole sentences.
+Prefer a table or list over a paragraph whenever the content is enumerable. Keep replies scannable.
+
 You are running via Telegram, so the user cannot easily undo mistakes. Be extra careful!
 `;
 }
