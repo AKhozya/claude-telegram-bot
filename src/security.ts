@@ -80,17 +80,7 @@ export const rateLimiter = new RateLimiter();
 
 export function isPathAllowed(path: string): boolean {
   try {
-    // Expand ~ and resolve to absolute path
-    const expanded = path.replace(/^~/, process.env.HOME || "");
-    const normalized = normalize(expanded);
-
-    // Try to resolve symlinks (may fail if path doesn't exist yet)
-    let resolved: string;
-    try {
-      resolved = realpathSync(normalized);
-    } catch {
-      resolved = resolve(normalized);
-    }
+    const resolved = canonicalize(path);
 
     // Always allow temp paths (for bot's own files)
     for (const tempPath of TEMP_PATHS) {
