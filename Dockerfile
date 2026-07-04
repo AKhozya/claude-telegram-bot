@@ -30,6 +30,12 @@ RUN apk add --no-cache github-cli
 # Agent SDK vendors the engine binary in its platform package (…-linux-x64-musl).
 RUN apk add --no-cache nodejs npm
 
+# Codex CLI (pre-commit review gate). The linux-x64 platform dep ships codex's
+# static musl binary (codex publishes musl-only for linux) — alpine-safe.
+# Installs to /usr/bin, outside the /home/akhozya PVC shadow. Pinned; bump deliberately.
+ARG CODEX_VERSION=0.142.5
+RUN npm install -g "@openai/codex@${CODEX_VERSION}" && codex --version
+
 # chezmoi (dotfile sync in init container uses same image)
 RUN sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
 
