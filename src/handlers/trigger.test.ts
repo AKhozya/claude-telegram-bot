@@ -17,4 +17,7 @@ describe("secretMatches", () => {
   test("accepts exact match", () => {
     expect(secretMatches("right-secret", "right-secret")).toBe(true);
   });
+  test("rejects same-length wrong secret", () => {
+    expect(secretMatches("wrong-secret", "right-secret")).toBe(false);
+  });
 });
