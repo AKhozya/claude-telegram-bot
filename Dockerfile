@@ -1,4 +1,4 @@
-FROM oven/bun:1.2-alpine AS deps
+FROM oven/bun:1.3-alpine AS deps
 WORKDIR /app
 # BUILD_TS busts this layer each scheduled rebuild. bun update, not install:
 # install pins to bun.lock and rebuilds refresh nothing (froze SDK at 0.2.119).
@@ -8,7 +8,7 @@ RUN echo "build: $BUILD_TS"
 COPY package.json bun.lock* bunfig.toml ./
 RUN bun update
 
-FROM oven/bun:1.2-alpine
+FROM oven/bun:1.3-alpine
 
 ARG BUILD_TS=local
 
