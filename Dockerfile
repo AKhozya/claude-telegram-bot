@@ -1,9 +1,8 @@
 FROM oven/bun:1.2-alpine AS deps
 WORKDIR /app
-# BUILD_TS busts cache on bi-weekly scheduled rebuilds. `bun update` (not
-# `bun install`) refreshes deps to the newest version in each package.json
-# range — bun install pins to bun.lock, which froze the SDK at build-time of
-# the lock. bunfig.toml carries minimumReleaseAge (7d supply-chain gate).
+# BUILD_TS busts this layer each scheduled rebuild. bun update, not install:
+# install pins to bun.lock and rebuilds refresh nothing (froze SDK at 0.2.119).
+# bunfig.toml = minimumReleaseAge supply-chain gate.
 ARG BUILD_TS=local
 RUN echo "build: $BUILD_TS"
 COPY package.json bun.lock* bunfig.toml ./
@@ -26,10 +25,8 @@ RUN curl -fsSL https://fluxcd.io/install.sh | bash
 # gh CLI
 RUN apk add --no-cache github-cli
 
-# node + npm for plugin hooks / MCP servers spawned at runtime. No separate
-# Claude Code CLI install: the Agent SDK vendors the CLI binary in its
-# platform package (@anthropic-ai/claude-agent-sdk-linux-x64-musl), so the
-# engine version is exactly the SDK version — one source of truth.
+# node + npm for runtime plugin hooks / MCP servers. No CLI install — the
+# Agent SDK vendors the engine binary in its platform package (…-linux-x64-musl).
 RUN apk add --no-cache nodejs npm
 
 # chezmoi (dotfile sync in init container uses same image)
