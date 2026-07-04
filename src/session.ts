@@ -228,7 +228,10 @@ class ClaudeSession {
       allowDangerouslySkipPermissions: true,
       systemPrompt: SAFETY_PROMPT,
       mcpServers: MCP_SERVERS,
-      maxThinkingTokens: thinkingTokens,
+      thinking:
+        thinkingTokens === 0
+          ? { type: "disabled" as const }
+          : { type: "enabled" as const, budgetTokens: thinkingTokens },
       additionalDirectories: ALLOWED_PATHS,
       resume: this.sessionId || undefined,
       hooks: {
