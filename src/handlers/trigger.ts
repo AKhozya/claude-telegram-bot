@@ -23,7 +23,6 @@ import {
 
 interface TriggerBody {
   prompt?: string;
-  chat_id?: number;
 }
 
 /** Constant-time secret comparison; second param injectable for tests. */
@@ -77,7 +76,10 @@ export function startTriggerServer(bot: Bot): { stop: () => void } | null {
         return new Response("missing prompt\n", { status: 400 });
       }
 
-      const chatId = body.chat_id ?? defaultUserId;
+      // Always deliver to the first allowed user's DM. The reply destination is
+      // NOT caller-controllable — a caller-supplied chat_id would let anyone
+      // holding TRIGGER_SECRET exfiltrate Claude's output to an arbitrary chat.
+      const chatId = defaultUserId;
       const userId = defaultUserId;
 
       const update = {
