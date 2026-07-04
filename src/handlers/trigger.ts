@@ -13,6 +13,7 @@
 
 import { timingSafeEqual } from "node:crypto";
 import type { Bot } from "grammy";
+import type { BotContext, BotApi } from "../types";
 import {
   ALLOWED_USERS,
   TRIGGER_ENABLED,
@@ -32,7 +33,9 @@ export function secretMatches(provided: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function startTriggerServer(bot: Bot): { stop: () => void } | null {
+export function startTriggerServer(
+  bot: Bot<BotContext, BotApi>
+): { stop: () => void } | null {
   if (!TRIGGER_ENABLED) {
     console.log("HTTP trigger disabled (TRIGGER_SECRET unset)");
     return null;

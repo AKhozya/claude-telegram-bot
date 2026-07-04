@@ -2,8 +2,9 @@
  * Shared TypeScript types for the Claude Telegram Bot.
  */
 
-import type { Context } from "grammy";
+import type { Context, Api } from "grammy";
 import type { Message } from "grammy/types";
+import type { FileFlavor, FileApiFlavor } from "@grammyjs/files";
 
 // Status callback for streaming updates
 export type StatusCallback = (
@@ -78,5 +79,6 @@ export interface PendingMediaGroup {
   timeout: Timer;
 }
 
-// Bot context with optional message
-export type BotContext = Context;
+// Bot context with optional message, flavored with the files plugin's .download()
+export type BotContext = FileFlavor<Context>;
+export type BotApi = FileApiFlavor<Api>;

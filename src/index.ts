@@ -4,8 +4,10 @@
  * Control Claude Code from your phone via Telegram.
  */
 
-import { Bot } from "grammy";
+import { Bot, Api, Context } from "grammy";
 import { run, sequentialize } from "@grammyjs/runner";
+import { autoRetry } from "@grammyjs/auto-retry";
+import { hydrateFiles, type FileFlavor, type FileApiFlavor } from "@grammyjs/files";
 import { TELEGRAM_TOKEN, WORKING_DIR, ALLOWED_USERS, RESTART_FILE } from "./config";
 import { unlinkSync, readFileSync, existsSync } from "fs";
 import {
@@ -27,7 +29,11 @@ import {
 } from "./handlers";
 
 // Create bot instance
-const bot = new Bot(TELEGRAM_TOKEN);
+const bot = new Bot<FileFlavor<Context>, FileApiFlavor<Api>>(TELEGRAM_TOKEN);
+
+// API transformers — cover EVERY api/ctx.api call (incl. streaming edits & raw).
+bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
+bot.api.config.use(hydrateFiles(bot.token));
 
 // Sequentialize non-command messages per user (prevents race conditions)
 // Commands bypass sequentialization so they work immediately
