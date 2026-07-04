@@ -177,3 +177,43 @@ export function isAuthorized(
   if (allowedUsers.length === 0) return false;
   return allowedUsers.includes(userId);
 }
+
+// ============== Tool Use Gate ==============
+
+export type ToolVerdict = { allowed: true } | { allowed: false; reason: string };
+
+/** Canonicalize: expand ~, follow symlinks when the path exists, resolve ../ otherwise. */
+function canonicalize(path: string): string {
+  const expanded = path.replace(/^~/, process.env.HOME || "");
+  try {
+    return realpathSync(normalize(expanded));
+  } catch {
+    return resolve(normalize(expanded));
+  }
+}
+
+/** Single gate for tool safety — used by the SDK PreToolUse hook and stream checks. */
+export function evaluateToolUse(
+  toolName: string,
+  input: Record<string, unknown>
+): ToolVerdict {
+  if (toolName === "Bash") {
+    const command = String(input.command || "");
+    const [isSafe, reason] = checkCommandSafety(command);
+    if (!isSafe) return { allowed: false, reason: reason ?? "unsafe command" };
+  }
+
+  if (["Read", "Write", "Edit"].includes(toolName)) {
+    const filePath = String(input.file_path || "");
+    if (filePath) {
+      const canonical = canonicalize(filePath);
+      const isClaudeDirRead =
+        toolName === "Read" && canonical.includes("/.claude/");
+      if (!isClaudeDirRead && !isPathAllowed(canonical)) {
+        return { allowed: false, reason: `File access outside allowed paths: ${filePath}` };
+      }
+    }
+  }
+
+  return { allowed: true };
+}

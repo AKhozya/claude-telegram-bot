@@ -18,7 +18,6 @@ import {
   SAFETY_PROMPT,
   SESSION_FILE,
   STREAMING_THROTTLE_MS,
-  TEMP_PATHS,
   THINKING_DEEP_KEYWORDS,
   THINKING_KEYWORDS,
   WORKING_DIR,
@@ -28,7 +27,7 @@ import {
   checkPendingAskUserRequests,
   checkPendingSendFileRequests,
 } from "./handlers/streaming";
-import { checkCommandSafety, isPathAllowed } from "./security";
+import { evaluateToolUse } from "./security";
 import type {
   SavedSession,
   SessionHistory,
@@ -219,6 +218,30 @@ class ClaudeSession {
       maxThinkingTokens: thinkingTokens,
       additionalDirectories: ALLOWED_PATHS,
       resume: this.sessionId || undefined,
+      hooks: {
+        PreToolUse: [
+          {
+            hooks: [
+              async (input) => {
+                if (input.hook_event_name !== "PreToolUse") return {};
+                const verdict = evaluateToolUse(
+                  input.tool_name,
+                  (input.tool_input ?? {}) as Record<string, unknown>
+                );
+                if (verdict.allowed) return {};
+                console.warn(`HOOK BLOCKED ${input.tool_name}: ${verdict.reason}`);
+                return {
+                  hookSpecificOutput: {
+                    hookEventName: "PreToolUse" as const,
+                    permissionDecision: "deny" as const,
+                    permissionDecisionReason: verdict.reason,
+                  },
+                };
+              },
+            ],
+          },
+        ],
+      },
     };
 
     // Add Claude Code executable path if set (required for standalone builds)
@@ -304,35 +327,13 @@ class ClaudeSession {
               const toolName = block.name;
               const toolInput = block.input as Record<string, unknown>;
 
-              // Safety check for Bash commands
-              if (toolName === "Bash") {
-                const command = String(toolInput.command || "");
-                const [isSafe, reason] = checkCommandSafety(command);
-                if (!isSafe) {
-                  console.warn(`BLOCKED: ${reason}`);
-                  await statusCallback("tool", `BLOCKED: ${reason}`);
-                  throw new Error(`Unsafe command blocked: ${reason}`);
-                }
-              }
-
-              // Safety check for file operations
-              if (["Read", "Write", "Edit"].includes(toolName)) {
-                const filePath = String(toolInput.file_path || "");
-                if (filePath) {
-                  // Allow reads from temp paths and .claude directories
-                  const isTmpRead =
-                    toolName === "Read" &&
-                    (TEMP_PATHS.some((p) => filePath.startsWith(p)) ||
-                      filePath.includes("/.claude/"));
-
-                  if (!isTmpRead && !isPathAllowed(filePath)) {
-                    console.warn(
-                      `BLOCKED: File access outside allowed paths: ${filePath}`
-                    );
-                    await statusCallback("tool", `Access denied: ${filePath}`);
-                    throw new Error(`File access blocked: ${filePath}`);
-                  }
-                }
+              // Backstop safety check — the PreToolUse hook above should already
+              // have denied unsafe tool calls before the CLI dispatched them.
+              const verdict = evaluateToolUse(toolName, toolInput);
+              if (!verdict.allowed) {
+                console.warn(`BLOCKED: ${verdict.reason}`);
+                await statusCallback("tool", `BLOCKED: ${verdict.reason}`);
+                throw new Error(`Tool use blocked: ${verdict.reason}`);
               }
 
               // Segment ends when tool starts
