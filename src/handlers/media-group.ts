@@ -5,9 +5,8 @@
  * with configurable processing callbacks.
  */
 
-import type { Context } from "grammy";
 import type { Message } from "grammy/types";
-import type { PendingMediaGroup } from "../types";
+import type { BotContext, PendingMediaGroup } from "../types";
 import { MEDIA_GROUP_TIMEOUT } from "../config";
 import { rateLimiter } from "../security";
 import { auditLogRateLimit } from "../utils";
@@ -29,7 +28,7 @@ export interface MediaGroupConfig {
  * Callback to process a completed media group.
  */
 export type ProcessGroupCallback = (
-  ctx: Context,
+  ctx: BotContext,
   items: string[],
   caption: string | undefined,
   userId: number,
@@ -110,7 +109,7 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
   async function addToGroup(
     mediaGroupId: string,
     itemPath: string,
-    ctx: Context,
+    ctx: BotContext,
     userId: number,
     username: string,
     processCallback: ProcessGroupCallback
@@ -176,7 +175,7 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
  * Cleans up tool messages and sends appropriate error response.
  */
 export async function handleProcessingError(
-  ctx: Context,
+  ctx: BotContext,
   error: unknown,
   toolMessages: Message[]
 ): Promise<void> {

@@ -4,13 +4,14 @@
  * Downloads video files and passes them to video-processing skill for transcription.
  */
 
-import type { Context } from "grammy";
+import type { BotContext } from "../types";
 import { session } from "../session";
 import { ALLOWED_USERS, TEMP_DIR } from "../config";
 import { isAuthorized, rateLimiter } from "../security";
 import { auditLog, auditLogRateLimit, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { handleProcessingError } from "./media-group";
+import { downloadTelegramFile } from "./download";
 
 // Max video size (50MB - reasonable for short clips/voice memos)
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
@@ -18,33 +19,25 @@ const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 /**
  * Download a video and return the local path.
  */
-async function downloadVideo(ctx: Context): Promise<string> {
+async function downloadVideo(ctx: BotContext): Promise<string> {
   const video = ctx.message?.video || ctx.message?.video_note;
   if (!video) {
     throw new Error("No video in message");
   }
 
-  const file = await ctx.getFile();
   const timestamp = Date.now();
 
   // Use mp4 extension for regular videos, mp4 for video notes too
   const extension = ctx.message?.video_note ? "mp4" : "mp4";
   const videoPath = `${TEMP_DIR}/video_${timestamp}.${extension}`;
 
-  // Download
-  const response = await fetch(
-    `https://api.telegram.org/file/bot${ctx.api.token}/${file.file_path}`
-  );
-  const buffer = await response.arrayBuffer();
-  await Bun.write(videoPath, buffer);
-
-  return videoPath;
+  return await downloadTelegramFile(ctx, videoPath);
 }
 
 /**
  * Handle incoming video messages.
  */
-export async function handleVideo(ctx: Context): Promise<void> {
+export async function handleVideo(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
   const chatId = ctx.chat?.id;

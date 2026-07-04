@@ -4,13 +4,14 @@
  * Supports single photos and media groups (albums) with 1s buffering.
  */
 
-import type { Context } from "grammy";
+import type { BotContext } from "../types";
 import { session } from "../session";
 import { ALLOWED_USERS, TEMP_DIR } from "../config";
 import { isAuthorized, rateLimiter } from "../security";
 import { auditLog, auditLogRateLimit, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { createMediaGroupBuffer, handleProcessingError } from "./media-group";
+import { downloadTelegramFile } from "./download";
 
 // Create photo-specific media group buffer
 const photoBuffer = createMediaGroupBuffer({
@@ -22,34 +23,24 @@ const photoBuffer = createMediaGroupBuffer({
 /**
  * Download a photo and return the local path.
  */
-async function downloadPhoto(ctx: Context): Promise<string> {
+async function downloadPhoto(ctx: BotContext): Promise<string> {
   const photos = ctx.message?.photo;
   if (!photos || photos.length === 0) {
     throw new Error("No photo in message");
   }
 
-  // Get the largest photo
-  const file = await ctx.getFile();
-
   const timestamp = Date.now();
   const random = Math.random().toString(36).slice(2, 8);
   const photoPath = `${TEMP_DIR}/photo_${timestamp}_${random}.jpg`;
 
-  // Download
-  const response = await fetch(
-    `https://api.telegram.org/file/bot${ctx.api.token}/${file.file_path}`
-  );
-  const buffer = await response.arrayBuffer();
-  await Bun.write(photoPath, buffer);
-
-  return photoPath;
+  return await downloadTelegramFile(ctx, photoPath);
 }
 
 /**
  * Process photos with Claude.
  */
 async function processPhotos(
-  ctx: Context,
+  ctx: BotContext,
   photoPaths: string[],
   caption: string | undefined,
   userId: number,
@@ -109,7 +100,7 @@ async function processPhotos(
 /**
  * Handle incoming photo messages.
  */
-export async function handlePhoto(ctx: Context): Promise<void> {
+export async function handlePhoto(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
   const chatId = ctx.chat?.id;

@@ -2,7 +2,7 @@
  * Voice message handler for Claude Telegram Bot.
  */
 
-import type { Context } from "grammy";
+import type { BotContext } from "../types";
 import { unlinkSync } from "fs";
 import { session } from "../session";
 import { ALLOWED_USERS, TEMP_DIR, TRANSCRIPTION_AVAILABLE } from "../config";
@@ -14,11 +14,12 @@ import {
   startTypingIndicator,
 } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
+import { downloadTelegramFile } from "./download";
 
 /**
  * Handle incoming voice messages.
  */
-export async function handleVoice(ctx: Context): Promise<void> {
+export async function handleVoice(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
   const chatId = ctx.chat?.id;
@@ -62,16 +63,9 @@ export async function handleVoice(ctx: Context): Promise<void> {
 
   try {
     // 6. Download voice file
-    const file = await ctx.getFile();
     const timestamp = Date.now();
     voicePath = `${TEMP_DIR}/voice_${timestamp}.ogg`;
-
-    // Download the file
-    const downloadRes = await fetch(
-      `https://api.telegram.org/file/bot${ctx.api.token}/${file.file_path}`
-    );
-    const buffer = await downloadRes.arrayBuffer();
-    await Bun.write(voicePath, buffer);
+    await downloadTelegramFile(ctx, voicePath);
 
     // 7. Transcribe
     const statusMsg = await ctx.reply("🎤 Transcribing...");

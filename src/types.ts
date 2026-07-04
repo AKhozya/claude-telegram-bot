@@ -70,15 +70,15 @@ export interface AuditEvent {
   [key: string]: unknown;
 }
 
+// Bot context with optional message, flavored with the files plugin's .download()
+export type BotContext = FileFlavor<Context>;
+export type BotApi = FileApiFlavor<Api>;
+
 // Pending media group for buffering albums
 export interface PendingMediaGroup {
   items: string[];
-  ctx: Context;
+  ctx: BotContext;
   caption?: string;
   statusMsg?: Message;
   timeout: Timer;
 }
-
-// Bot context with optional message, flavored with the files plugin's .download()
-export type BotContext = FileFlavor<Context>;
-export type BotApi = FileApiFlavor<Api>;

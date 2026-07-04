@@ -5,7 +5,7 @@
  * PDF extraction uses pdftotext CLI (install via: brew install poppler)
  */
 
-import type { Context } from "grammy";
+import type { BotContext } from "../types";
 import { session } from "../session";
 import { ALLOWED_USERS, TEMP_DIR } from "../config";
 import { isAuthorized, rateLimiter } from "../security";
@@ -13,6 +13,7 @@ import { auditLog, auditLogRateLimit, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { createMediaGroupBuffer, handleProcessingError } from "./media-group";
 import { isAudioFile, processAudioFile } from "./audio";
+import { downloadTelegramFile } from "./download";
 
 // Supported text file extensions
 const TEXT_EXTENSIONS = [
@@ -55,27 +56,19 @@ const documentBuffer = createMediaGroupBuffer({
 /**
  * Download a document and return the local path.
  */
-async function downloadDocument(ctx: Context): Promise<string> {
+async function downloadDocument(ctx: BotContext): Promise<string> {
   const doc = ctx.message?.document;
   if (!doc) {
     throw new Error("No document in message");
   }
 
-  const file = await ctx.getFile();
   const fileName = doc.file_name || `doc_${Date.now()}`;
 
   // Sanitize filename
   const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
   const docPath = `${TEMP_DIR}/${safeName}`;
 
-  // Download
-  const response = await fetch(
-    `https://api.telegram.org/file/bot${ctx.api.token}/${file.file_path}`
-  );
-  const buffer = await response.arrayBuffer();
-  await Bun.write(docPath, buffer);
-
-  return docPath;
+  return await downloadTelegramFile(ctx, docPath);
 }
 
 /**
@@ -209,7 +202,7 @@ async function extractArchiveContent(
  * Process an archive file.
  */
 async function processArchive(
-  ctx: Context,
+  ctx: BotContext,
   archivePath: string,
   fileName: string,
   caption: string | undefined,
@@ -310,7 +303,7 @@ async function processArchive(
  * Process documents with Claude.
  */
 async function processDocuments(
-  ctx: Context,
+  ctx: BotContext,
   documents: Array<{ path: string; name: string; content: string }>,
   caption: string | undefined,
   userId: number,
@@ -381,7 +374,7 @@ async function processDocuments(
  * Process document paths by extracting text and calling processDocuments.
  */
 async function processDocumentPaths(
-  ctx: Context,
+  ctx: BotContext,
   paths: string[],
   caption: string | undefined,
   userId: number,
@@ -412,7 +405,7 @@ async function processDocumentPaths(
 /**
  * Handle incoming document messages.
  */
-export async function handleDocument(ctx: Context): Promise<void> {
+export async function handleDocument(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
   const chatId = ctx.chat?.id;

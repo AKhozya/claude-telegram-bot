@@ -6,6 +6,7 @@
  */
 
 import type { Context } from "grammy";
+import type { BotContext } from "../types";
 import { unlinkSync } from "fs";
 import { session } from "../session";
 import { ALLOWED_USERS, TEMP_DIR, TRANSCRIPTION_AVAILABLE } from "../config";
@@ -17,6 +18,7 @@ import {
   startTypingIndicator,
 } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
+import { downloadTelegramFile } from "./download";
 
 // Supported audio file extensions
 const AUDIO_EXTENSIONS = [
@@ -148,7 +150,7 @@ export async function processAudioFile(
 /**
  * Handle incoming native Telegram audio messages.
  */
-export async function handleAudio(ctx: Context): Promise<void> {
+export async function handleAudio(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
   const chatId = ctx.chat?.id;
@@ -179,16 +181,10 @@ export async function handleAudio(ctx: Context): Promise<void> {
   // 3. Download audio file
   let audioPath: string;
   try {
-    const file = await ctx.getFile();
     const timestamp = Date.now();
     const ext = audio.file_name?.split(".").pop() || "mp3";
     audioPath = `${TEMP_DIR}/audio_${timestamp}.${ext}`;
-
-    const response = await fetch(
-      `https://api.telegram.org/file/bot${ctx.api.token}/${file.file_path}`
-    );
-    const buffer = await response.arrayBuffer();
-    await Bun.write(audioPath, buffer);
+    await downloadTelegramFile(ctx, audioPath);
   } catch (error) {
     console.error("Failed to download audio:", error);
     await ctx.reply("❌ Failed to download audio file.");
