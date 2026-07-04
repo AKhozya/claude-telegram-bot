@@ -1,11 +1,13 @@
 FROM oven/bun:1.2-alpine AS deps
 WORKDIR /app
-# BUILD_TS busts cache on bi-weekly scheduled rebuilds so caret ranges in
-# package.json resolve to the latest published version (SDK, grammy, etc).
+# BUILD_TS busts cache on bi-weekly scheduled rebuilds. `bun update` (not
+# `bun install`) refreshes deps to the newest version in each package.json
+# range — bun install pins to bun.lock, which froze the SDK at build-time of
+# the lock. bunfig.toml carries minimumReleaseAge (7d supply-chain gate).
 ARG BUILD_TS=local
 RUN echo "build: $BUILD_TS"
-COPY package.json bun.lock* ./
-RUN bun install
+COPY package.json bun.lock* bunfig.toml ./
+RUN bun update
 
 FROM oven/bun:1.2-alpine
 
@@ -24,16 +26,11 @@ RUN curl -fsSL https://fluxcd.io/install.sh | bash
 # gh CLI
 RUN apk add --no-cache github-cli
 
-# Claude Code CLI (Agent SDK spawns this as subprocess).
-# CLI prefix on PVC (chezmoi-init keeps `npm update -g` working at runtime).
-# BUILD_TS busts this layer on scheduled rebuilds → fresh @latest install.
-ENV NPM_CONFIG_PREFIX=/home/akhozya/.npm-global
-ENV PATH="/home/akhozya/.npm-global/bin:$PATH"
-RUN apk add --no-cache nodejs npm && \
-    mkdir -p /home/akhozya/.npm-global && \
-    echo "build: $BUILD_TS" && \
-    npm install -g @anthropic-ai/claude-code@latest && \
-    npm cache clean --force
+# node + npm for plugin hooks / MCP servers spawned at runtime. No separate
+# Claude Code CLI install: the Agent SDK vendors the CLI binary in its
+# platform package (@anthropic-ai/claude-agent-sdk-linux-x64-musl), so the
+# engine version is exactly the SDK version — one source of truth.
+RUN apk add --no-cache nodejs npm
 
 # chezmoi (dotfile sync in init container uses same image)
 RUN sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
@@ -46,8 +43,7 @@ COPY . .
 # Create akhozya as alias + home dir for K8s securityContext (runAsUser: 1000)
 RUN deluser bun && adduser -D -u 1000 -h /home/akhozya akhozya
 
-# Make /app and npm prefix writable so init container can update deps on restart
-RUN chown -R akhozya:akhozya /app /home/akhozya/.npm-global
+RUN chown -R akhozya:akhozya /app
 USER akhozya
 
 CMD ["bun", "run", "src/index.ts"]
