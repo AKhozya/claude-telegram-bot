@@ -15,8 +15,9 @@ ARG BUILD_TS=local
 # System dependencies
 RUN apk add --no-cache git openssh-client curl jq ca-certificates bash
 
-# kubectl
-RUN curl -fsSL "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" \
+# kubectl (pinned — match cluster k3s version; bump deliberately)
+ARG KUBECTL_VERSION=v1.36.1
+RUN curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
     -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl
 
 # flux CLI

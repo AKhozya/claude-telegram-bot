@@ -197,10 +197,12 @@ Multiple layers protect against misuse:
 
 1. **User allowlist** - Only your Telegram IDs can use the bot
 2. **Intent classification** - AI filter blocks dangerous requests
-3. **Path validation** - File access restricted to `ALLOWED_PATHS`
-4. **Command safety** - Destructive patterns like `rm -rf /` are blocked
+3. **Pre-execution tool gate** - A `PreToolUse` SDK hook validates every Bash/file tool call *before* it runs (denies under `bypassPermissions`), restricting file access to `ALLOWED_PATHS`
+4. **Command safety** - Destructive patterns like `rm -rf /` are blocked. This denylist is **best-effort only** — it is trivially bypassable by construction; real containment comes from the pre-execution gate, the path allowlist, and running the bot in a container
 5. **Rate limiting** - Prevents runaway usage
 6. **Audit logging** - All interactions logged to `/tmp/claude-telegram-audit.log`
+
+Because the bot runs the Agent SDK with `permissionMode: bypassPermissions`, layers 3–4 (plus the container boundary) are the enforcing controls — not the advisory system prompt.
 
 ## Troubleshooting
 

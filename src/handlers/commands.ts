@@ -177,7 +177,7 @@ export async function handleResume(ctx: Context): Promise<void> {
   }
 
   if (session.isActive) {
-    await ctx.reply("Sessione già attiva. Usa /new per iniziare da capo.");
+    await ctx.reply("Session already active. Use /new to start over.");
     return;
   }
 
@@ -185,7 +185,7 @@ export async function handleResume(ctx: Context): Promise<void> {
   const sessions = session.getSessionList();
 
   if (sessions.length === 0) {
-    await ctx.reply("❌ Nessuna sessione salvata.");
+    await ctx.reply("❌ No saved session.");
     return;
   }
 
@@ -214,7 +214,7 @@ export async function handleResume(ctx: Context): Promise<void> {
     ];
   });
 
-  await ctx.reply("📋 <b>Sessioni salvate</b>\n\nSeleziona una sessione da riprendere:", {
+  await ctx.reply("📋 <b>Saved sessions</b>\n\nSelect a session to resume:", {
     parse_mode: "HTML",
     reply_markup: {
       inline_keyboard: buttons,

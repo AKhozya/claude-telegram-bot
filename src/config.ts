@@ -154,9 +154,6 @@ export const BLOCKED_PATTERNS = [
   "dd if=",
 ];
 
-// Query timeout (3 minutes)
-export const QUERY_TIMEOUT_MS = 180_000;
-
 // ============== Voice Transcription ==============
 
 const BASE_TRANSCRIPTION_PROMPT = `Transcribe this voice message accurately.
