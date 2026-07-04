@@ -172,7 +172,7 @@ export function isAuthorized(
 
 export type ToolVerdict = { allowed: true } | { allowed: false; reason: string };
 
-/** Canonicalize: expand ~, follow symlinks when the path exists, resolve ../ otherwise. */
+/** Resolve ~ and symlinks; fall back to lexical resolve for non-existent paths. */
 function canonicalize(path: string): string {
   const expanded = path.replace(/^~/, process.env.HOME || "");
   try {
@@ -215,9 +215,8 @@ export function evaluateToolUse(
     }
   }
 
-  // Grep/Glob read file contents/paths via an optional search directory.
-  // Absent path = cwd (allowed); a present path must be inside the allowlist,
-  // else Grep output_mode:"content" reads files outside ALLOWED_PATHS.
+  // Grep/Glob take an optional search dir; a present path outside the allowlist
+  // lets Grep output_mode:"content" read files outside ALLOWED_PATHS. Absent = cwd.
   if (["Grep", "Glob"].includes(toolName)) {
     const rawPath = input.path;
     if (rawPath !== undefined && typeof rawPath !== "string") {

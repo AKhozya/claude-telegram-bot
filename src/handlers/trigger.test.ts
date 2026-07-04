@@ -24,12 +24,9 @@ describe("secretMatches", () => {
 
 describe("startTriggerServer", () => {
   test("delivers to defaultUserId regardless of caller-supplied chat_id", async () => {
-    // config.ts is a module-level singleton already cached (by the import
-    // above, and potentially by other test files sharing this process) with
-    // ALLOWED_USERS=[1] and TRIGGER_SECRET unset. Rather than depend on
-    // import order across the whole test run, mock the config this one
-    // consumer sees and import a fresh instance of trigger.ts (cache-busting
-    // query string forces re-evaluation) so it picks up the mock.
+    // config.ts is a cached module singleton; mock it for this consumer and
+    // re-import trigger.ts via a cache-busting query string so the test is
+    // order-independent (other files may have imported config first).
     mock.module("../config", () => ({
       ALLOWED_USERS: [12345],
       TRIGGER_ENABLED: true,

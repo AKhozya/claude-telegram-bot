@@ -343,13 +343,14 @@ class ClaudeSession {
               const toolName = block.name;
               const toolInput = block.input as Record<string, unknown>;
 
-              // Backstop safety check — the PreToolUse hook above should already
-              // have denied unsafe tool calls before the CLI dispatched them.
+              // Backstop only — the PreToolUse hook already blocked this before
+              // execution. Notify and skip; never throw here, or the turn aborts
+              // instead of letting Claude see the denial and decline.
               const verdict = evaluateToolUse(toolName, toolInput);
               if (!verdict.allowed) {
-                console.warn(`BLOCKED: ${verdict.reason}`);
-                await statusCallback("tool", `BLOCKED: ${verdict.reason}`);
-                throw new Error(`Tool use blocked: ${verdict.reason}`);
+                console.warn(`BLOCKED (hook already denied): ${verdict.reason}`);
+                await statusCallback("tool", `🚫 Blocked: ${verdict.reason}`);
+                continue;
               }
 
               // Segment ends when tool starts

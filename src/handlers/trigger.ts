@@ -25,7 +25,7 @@ interface TriggerBody {
   prompt?: string;
 }
 
-/** Constant-time secret comparison; second param injectable for tests. */
+/** Constant-time secret comparison. */
 export function secretMatches(provided: string, expected: string): boolean {
   const a = Buffer.from(provided);
   const b = Buffer.from(expected);
