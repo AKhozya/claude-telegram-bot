@@ -36,7 +36,7 @@ const bot = new Bot<FileFlavor<Context>, FileApiFlavor<Api>>(TELEGRAM_TOKEN, {
 
 // API transformers — cover EVERY api/ctx.api call (incl. streaming edits & raw).
 bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
-bot.api.config.use(hydrateFiles(bot.token));
+bot.api.config.use(hydrateFiles(bot.token, { apiRoot: process.env.TELEGRAM_API_ROOT }));
 
 // Sequentialize non-command messages per user (prevents race conditions)
 // Commands bypass sequentialization so they work immediately

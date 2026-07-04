@@ -287,6 +287,7 @@ async function editRichWithFallback(
   try {
     await ctx.api.editMessageText(msg.chat.id, msg.message_id, formatted, {
       parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
     });
   } catch (error) {
     if (String(error).includes("MESSAGE_TOO_LONG")) throw error;
