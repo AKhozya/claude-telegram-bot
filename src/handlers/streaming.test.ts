@@ -46,4 +46,23 @@ describe("rich message send via typed grammy api", () => {
     expect(calls[0][0]).toBe(42);
     expect(calls[0][1]).toEqual({ markdown: "# Title\n\nbody", skip_entity_detection: true });
   });
+
+  test("editRichWithFallback edits via typed ctx.api.editMessageText with markdown payload", async () => {
+    const editCalls: any[] = [];
+    const ctx: any = {
+      chatId: 42,
+      api: {
+        sendRichMessage: () => ({ chat: { id: 42 }, message_id: 7 }),
+        editMessageText: (...a: any[]) => { editCalls.push(a); },
+      },
+      reply: () => { throw new Error("should not fall back"); },
+    };
+    const { createStatusCallback, StreamingState } = await import("./streaming");
+    const cb = createStatusCallback(ctx, new StreamingState());
+    await cb("text", "initial", 0); // creates the segment message via sendRichMessage
+    await cb("segment_end", "final content", 0); // edits it -> editRichWithFallback
+    expect(editCalls[0][0]).toBe(42);
+    expect(editCalls[0][1]).toBe(7);
+    expect(editCalls[0][2]).toEqual({ markdown: "final content", skip_entity_detection: true });
+  });
 });

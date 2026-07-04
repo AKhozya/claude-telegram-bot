@@ -28,8 +28,11 @@ import {
   startTriggerServer,
 } from "./handlers";
 
-// Create bot instance
-const bot = new Bot<FileFlavor<Context>, FileApiFlavor<Api>>(TELEGRAM_TOKEN);
+// Create bot instance. TELEGRAM_API_ROOT (unset by default) points every
+// api/ctx.api call at a self-hosted Bot API server — needed for >20MB files.
+const bot = new Bot<FileFlavor<Context>, FileApiFlavor<Api>>(TELEGRAM_TOKEN, {
+  client: { apiRoot: process.env.TELEGRAM_API_ROOT },
+});
 
 // API transformers — cover EVERY api/ctx.api call (incl. streaming edits & raw).
 bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
