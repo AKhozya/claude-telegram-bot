@@ -67,6 +67,21 @@ describe("rich message send via typed grammy api", () => {
   });
 });
 
+describe("link preview suppression", () => {
+  test("HTML fallback reply disables link preview", async () => {
+    const opts: any[] = [];
+    const ctx: any = {
+      chatId: 7,
+      api: { sendRichMessage: async () => { throw new Error("force fallback"); } },
+      reply: async (_t: string, o: any) => { opts.push(o); return { chat: { id: 7 }, message_id: 1 }; },
+    };
+    const { createStatusCallback, StreamingState } = await import("./streaming");
+    const cb = createStatusCallback(ctx, new StreamingState());
+    await cb("text", "see https://example.com and more text over twenty chars", 0);
+    expect(opts[0]).toMatchObject({ parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+  });
+});
+
 describe("ask_user keyboard styling", () => {
   test("ask_user keyboard applies a style to each button", async () => {
     const { createAskUserKeyboard } = await import("./streaming");

@@ -126,6 +126,15 @@ export async function checkPendingSendFileRequests(
         const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
         const inputFile = new InputFile(filePath);
 
+        const action = VIDEO_EXTENSIONS.has(ext)
+          ? "upload_video"
+          : PHOTO_EXTENSIONS.has(ext)
+            ? "upload_photo"
+            : AUDIO_EXTENSIONS.has(ext)
+              ? "upload_voice"
+              : "upload_document";
+        await ctx.replyWithChatAction(action);
+
         if (VIDEO_EXTENSIONS.has(ext)) {
           await ctx.replyWithVideo(inputFile, { caption });
         } else if (PHOTO_EXTENSIONS.has(ext)) {
@@ -197,7 +206,10 @@ async function sendChunkedMessages(
   for (let i = 0; i < content.length; i += TELEGRAM_SAFE_LIMIT) {
     const chunk = content.slice(i, i + TELEGRAM_SAFE_LIMIT);
     try {
-      await ctx.reply(chunk, { parse_mode: "HTML" });
+      await ctx.reply(chunk, {
+        parse_mode: "HTML",
+        link_preview_options: { is_disabled: true },
+      });
     } catch {
       // HTML failed (possibly broken tags from split) - try plain text
       try {
@@ -234,7 +246,10 @@ async function sendRichWithFallback(
   // Fallback: HTML conversion (truncates), then plain text.
   const formatted = formatWithinLimit(content);
   try {
-    return await ctx.reply(formatted, { parse_mode: "HTML" });
+    return await ctx.reply(formatted, {
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
   } catch {
     try {
       return await ctx.reply(formatted);
