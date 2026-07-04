@@ -104,6 +104,16 @@ console.log("Starting bot...");
 const botInfo = await bot.api.getMe();
 console.log(`Bot started: @${botInfo.username}`);
 
+// Register the command menu shown in Telegram's "/" picker
+await bot.api.setMyCommands([
+  { command: "new", description: "Start a new Claude session" },
+  { command: "stop", description: "Stop the current query" },
+  { command: "status", description: "Show session status" },
+  { command: "resume", description: "Resume a saved session" },
+  { command: "retry", description: "Retry the last message" },
+  { command: "restart", description: "Restart the bot process" },
+]);
+
 // Check for pending restart message to update
 if (existsSync(RESTART_FILE)) {
   try {
