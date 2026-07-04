@@ -66,4 +66,25 @@ describe("evaluateToolUse", () => {
     const r = evaluateToolUse("Write", { file_path: ["/tmp/evil", "and-more"] });
     expect(r.allowed).toBe(false);
   });
+
+  test("blocks Grep content read outside allowed paths", () => {
+    const r = evaluateToolUse("Grep", { pattern: "root", path: "/etc", output_mode: "content" });
+    expect(r.allowed).toBe(false);
+  });
+
+  test("blocks Glob outside allowed paths", () => {
+    expect(evaluateToolUse("Glob", { pattern: "*", path: "/etc" }).allowed).toBe(false);
+  });
+
+  test("allows Grep with no path (defaults to cwd)", () => {
+    expect(evaluateToolUse("Grep", { pattern: "x" }).allowed).toBe(true);
+  });
+
+  test("allows Grep within temp paths", () => {
+    expect(evaluateToolUse("Grep", { pattern: "x", path: "/tmp/telegram-bot" }).allowed).toBe(true);
+  });
+
+  test("blocks Grep with non-string path (array)", () => {
+    expect(evaluateToolUse("Grep", { pattern: "x", path: ["/etc"] }).allowed).toBe(false);
+  });
 });

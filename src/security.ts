@@ -215,5 +215,19 @@ export function evaluateToolUse(
     }
   }
 
+  // Grep/Glob read file contents/paths via an optional search directory.
+  // Absent path = cwd (allowed); a present path must be inside the allowlist,
+  // else Grep output_mode:"content" reads files outside ALLOWED_PATHS.
+  if (["Grep", "Glob"].includes(toolName)) {
+    const rawPath = input.path;
+    if (rawPath !== undefined && typeof rawPath !== "string") {
+      return { allowed: false, reason: "non-string search path" };
+    }
+    const searchPath = String(rawPath || "");
+    if (searchPath && !isPathAllowed(canonicalize(searchPath))) {
+      return { allowed: false, reason: `Search outside allowed paths: ${searchPath}` };
+    }
+  }
+
   return { allowed: true };
 }
