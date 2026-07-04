@@ -38,4 +38,32 @@ describe("evaluateToolUse", () => {
   test("blocks fake .claude traversal", () => {
     expect(evaluateToolUse("Read", { file_path: "/etc/.claude/../shadow" }).allowed).toBe(false);
   });
+
+  test("blocks NotebookEdit outside allowed paths", () => {
+    const r = evaluateToolUse("NotebookEdit", { notebook_path: "/etc/evil.ipynb" });
+    expect(r.allowed).toBe(false);
+  });
+
+  test("allows NotebookEdit within temp paths", () => {
+    expect(
+      evaluateToolUse("NotebookEdit", { notebook_path: "/tmp/notebook.ipynb" }).allowed
+    ).toBe(true);
+  });
+
+  test("blocks Bash with non-string command (array)", () => {
+    const r = evaluateToolUse("Bash", { command: ["rm", "-rf", "/tmp/x"] });
+    expect(r.allowed).toBe(false);
+  });
+
+  test("blocks Write with non-string file_path (array)", () => {
+    const r = evaluateToolUse("Write", { file_path: ["/etc/x"] });
+    expect(r.allowed).toBe(false);
+  });
+
+  test("blocks Write with array file_path that would coerce into an allowed-looking temp path", () => {
+    // String(["/tmp/evil", "and-more"]) === "/tmp/evil,and-more" which starts with
+    // an allowed TEMP_PATHS prefix — demonstrates the coercion bypass concretely.
+    const r = evaluateToolUse("Write", { file_path: ["/tmp/evil", "and-more"] });
+    expect(r.allowed).toBe(false);
+  });
 });

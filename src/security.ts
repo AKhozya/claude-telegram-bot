@@ -198,15 +198,25 @@ export function evaluateToolUse(
   input: Record<string, unknown>
 ): ToolVerdict {
   if (toolName === "Bash") {
-    const command = String(input.command || "");
+    const rawCommand = input.command;
+    if (rawCommand !== undefined && typeof rawCommand !== "string") {
+      return { allowed: false, reason: "non-string Bash command" };
+    }
+    const command = String(rawCommand || "");
     const [isSafe, reason] = checkCommandSafety(command);
     if (!isSafe) return { allowed: false, reason: reason ?? "unsafe command" };
   }
 
-  if (["Read", "Write", "Edit"].includes(toolName)) {
-    const filePath = String(input.file_path || "");
+  if (["Read", "Write", "Edit", "NotebookEdit"].includes(toolName)) {
+    const rawPath =
+      toolName === "NotebookEdit" ? input.notebook_path : input.file_path;
+    if (rawPath !== undefined && typeof rawPath !== "string") {
+      return { allowed: false, reason: "non-string file path" };
+    }
+    const filePath = String(rawPath || "");
     if (filePath) {
       const canonical = canonicalize(filePath);
+      // NotebookEdit is a write — no .claude read exemption.
       const isClaudeDirRead =
         toolName === "Read" && canonical.includes("/.claude/");
       if (!isClaudeDirRead && !isPathAllowed(canonical)) {
