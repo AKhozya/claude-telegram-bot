@@ -10,7 +10,8 @@ import {
   type Options,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { readFileSync } from "fs";
+import { readFileSync, renameSync } from "fs";
+import { randomUUID } from "node:crypto";
 import type { Context } from "grammy";
 import {
   ALLOWED_PATHS,
@@ -68,6 +69,18 @@ function getTextFromMessage(msg: SDKMessage): string | null {
     }
   }
   return textParts.length > 0 ? textParts.join("") : null;
+}
+
+/**
+ * Write JSON to disk atomically: write to a unique temp file, then rename.
+ * Rename is atomic on the same filesystem, so a crash mid-write can't leave
+ * a truncated/corrupted file at `path`, and concurrent callers can't clobber
+ * each other's temp file.
+ */
+export async function writeJsonAtomic(path: string, data: unknown): Promise<void> {
+  const tmp = `${path}.${randomUUID()}.tmp`;
+  await Bun.write(tmp, JSON.stringify(data, null, 2));
+  renameSync(tmp, path);
 }
 
 /**
@@ -307,7 +320,7 @@ class ClaudeSession {
         if (!this.sessionId && event.session_id) {
           this.sessionId = event.session_id;
           console.log(`GOT session_id: ${this.sessionId!.slice(0, 8)}...`);
-          this.saveSession();
+          await this.saveSession();
         }
 
         // Handle different message types
@@ -499,7 +512,7 @@ class ClaudeSession {
    * Save session to disk for resume after restart.
    * Saves to multi-session history format.
    */
-  saveSession(): void {
+  async saveSession(): Promise<void> {
     if (!this.sessionId) return;
 
     try {
@@ -529,7 +542,7 @@ class ClaudeSession {
       history.sessions = history.sessions.slice(0, MAX_SESSIONS);
 
       // Save
-      Bun.write(SESSION_FILE, JSON.stringify(history, null, 2));
+      await writeJsonAtomic(SESSION_FILE, history);
       console.log(`Session saved to ${SESSION_FILE}`);
     } catch (error) {
       console.warn(`Failed to save session: ${error}`);
