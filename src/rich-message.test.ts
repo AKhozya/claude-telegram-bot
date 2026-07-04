@@ -105,4 +105,30 @@ describe("rich-message", () => {
     expect(err!.message).not.toContain("TESTTOKEN:abc123");
     expect(err!.message).toContain("<token>");
   });
+
+  it("callTelegram retries once after 429 with retry_after", async () => {
+    const realFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async (_url: string, _init: RequestInit) => {
+      calls++;
+      if (calls === 1)
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            error_code: 429,
+            description: "Too Many Requests",
+            parameters: { retry_after: 0 },
+          }),
+          { status: 429 }
+        );
+      return new Response(JSON.stringify({ ok: true, result: { message_id: 7 } }));
+    }) as typeof fetch;
+    try {
+      const msg = await sendRichMessage(123, "hi");
+      expect(calls).toBe(2);
+      expect((msg as any).message_id).toBe(7);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
 });

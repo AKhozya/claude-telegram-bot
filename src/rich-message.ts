@@ -28,7 +28,8 @@ function redactToken(s: string): string {
 
 async function callTelegram<T>(
   method: string,
-  payload: Record<string, unknown>
+  payload: Record<string, unknown>,
+  retried = false
 ): Promise<T> {
   let res: Response;
   try {
@@ -44,6 +45,14 @@ async function callTelegram<T>(
     );
   }
   const data = (await res.json()) as TelegramResponse<T>;
+  if (!data.ok && data.error_code === 429 && !retried) {
+    const retryAfter = Number(
+      (data as { parameters?: { retry_after?: number } }).parameters
+        ?.retry_after ?? 1
+    );
+    await Bun.sleep(Math.min(retryAfter, 30) * 1000);
+    return callTelegram<T>(method, payload, true); // ponytail: single retry via recursion; cap 30s
+  }
   if (!data.ok) {
     throw new Error(
       `Telegram ${method} failed: ${data.error_code} ${data.description}`
