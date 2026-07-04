@@ -12,8 +12,9 @@ FROM oven/bun:1.3-alpine
 
 ARG BUILD_TS=local
 
-# System dependencies
-RUN apk add --no-cache git openssh-client curl jq ca-certificates bash
+# System dependencies. poppler-utils = pdftotext (text layer) + pdftocairo
+# (page->PNG render for image/scanned/print PDFs, read via Claude vision).
+RUN apk add --no-cache git openssh-client curl jq ca-certificates bash poppler-utils
 
 # kubectl (pinned — match cluster k3s version; bump deliberately)
 ARG KUBECTL_VERSION=v1.36.1

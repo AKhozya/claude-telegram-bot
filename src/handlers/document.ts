@@ -2,7 +2,8 @@
  * Document handler for Claude Telegram Bot.
  *
  * Supports PDFs and text files with media group buffering.
- * PDF extraction uses pdftotext CLI (install via: brew install poppler)
+ * PDFs: pdftotext for the text layer, pdftocairo to render image/scanned PDFs
+ * to page images for Claude vision (poppler-utils; apk in the container image).
  */
 
 import type { BotContext } from "../types";
@@ -13,6 +14,7 @@ import { auditLog, auditLogRateLimit, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { createMediaGroupBuffer, handleProcessingError } from "./media-group";
 import { isAudioFile, processAudioFile } from "./audio";
+import { processPhotos } from "./photo";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markDone, markFailed } from "./reactions";
 
@@ -41,11 +43,75 @@ const TEXT_EXTENSIONS = [
 // Supported archive extensions
 const ARCHIVE_EXTENSIONS = [".zip", ".tar", ".tar.gz", ".tgz"];
 
-// Max file size (10MB)
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+// Max file size (20MB — Telegram getFile ceiling)
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 // Max content from archive (50K chars total)
 const MAX_ARCHIVE_CONTENT = 50000;
+
+// PDF vision fallback tuning
+const PDF_VISION_MAX_PAGES = 10; // cap pages rendered for vision (cost + Telegram)
+const PDF_TEXT_MIN_CHARS = 16; // < this many non-whitespace chars ⇒ image PDF
+
+/**
+ * True if a PDF's extracted text has real content. Scanned / image /
+ * print-to-PDF files yield near-zero non-whitespace chars; those route to the
+ * vision path instead. Pure + exported so it's unit-testable without a real PDF.
+ * ponytail: absolute floor, not per-page — a mixed doc (text cover + scanned
+ * pages) reads as text and Claude only sees the text; send scans on their own.
+ */
+export function pdfHasUsableText(rawText: string): boolean {
+  return rawText.replace(/\s/g, "").length >= PDF_TEXT_MIN_CHARS;
+}
+
+/**
+ * Extract a PDF's text layer, or null if it has ~no usable text
+ * (scanned / print-to-PDF) — caller should render pages to images instead.
+ */
+async function extractPdfText(filePath: string): Promise<string | null> {
+  // timeout: bound pdftotext against XObject/JBIG2 decompression-bomb PDFs.
+  const result = await Bun.$`timeout 30 pdftotext -layout ${filePath} -`.quiet();
+  // Cap like the plain-text branch (:extractText) — a bomb PDF's text layer can
+  // decompress to hundreds of MB within the 20MB file cap.
+  const text = result.text().slice(0, 100000);
+  return pdfHasUsableText(text) ? text : null;
+}
+
+/**
+ * Sort pdftocairo page files (page-1.png … page-10.png) by page number.
+ * Lexicographic sort would put page-10 before page-2. Pure + exported for test.
+ */
+export function sortPdfPagePaths(names: string[]): string[] {
+  const pageNum = (f: string) => parseInt(f.match(/-(\d+)\.png$/)?.[1] ?? "0", 10);
+  return [...names].sort((a, b) => pageNum(a) - pageNum(b));
+}
+
+/**
+ * Render the first PDF_VISION_MAX_PAGES pages of a PDF to PNGs in a unique temp
+ * subdir. Returns the dir and page paths sorted by page number, or [] on failure
+ * (dir is deleted on failure). pdftocairo writes page-1.png, page-2.png…
+ * (research picked it over pdftoppm: same package, better color via cairo+lcms2).
+ * Rendered images on the success path are NOT deleted here — like downloaded
+ * photos they must outlive an ask_user pause that resumes the session later.
+ */
+async function renderPdfToImages(
+  filePath: string
+): Promise<{ dir: string; images: string[] }> {
+  // Random suffix: Date.now() alone collides on concurrent same-ms uploads.
+  const dir = `${TEMP_DIR}/pdf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  await Bun.$`mkdir -p ${dir}`.quiet();
+  try {
+    // timeout: bound pdftocairo against huge-MediaBox / decompression-bomb PDFs.
+    await Bun.$`timeout 60 pdftocairo -png -r 150 -l ${PDF_VISION_MAX_PAGES} ${filePath} ${dir}/page`.quiet();
+    const names = await Array.fromAsync(new Bun.Glob("page*.png").scan({ cwd: dir }));
+    if (names.length === 0) throw new Error("pdftocairo produced no pages");
+    return { dir, images: sortPdfPagePaths(names).map((n) => `${dir}/${n}`) };
+  } catch (error) {
+    console.error("PDF render failed:", error);
+    await Bun.$`rm -rf ${dir}`.quiet(); // don't leak the temp dir on failure
+    return { dir, images: [] };
+  }
+}
 
 // Create document-specific media group buffer
 const documentBuffer = createMediaGroupBuffer({
@@ -65,8 +131,10 @@ async function downloadDocument(ctx: BotContext): Promise<string> {
 
   const fileName = doc.file_name || `doc_${Date.now()}`;
 
-  // Sanitize filename
-  const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  // Sanitize filename. "/" → "_" already blocks traversal; also reject a
+  // dot-only name (".", "..") which would resolve to TEMP_DIR's parent.
+  let safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+  if (/^\.+$/.test(safeName)) safeName = `doc_${Date.now()}`;
   const docPath = `${TEMP_DIR}/${safeName}`;
 
   return await downloadTelegramFile(ctx, docPath);
@@ -82,15 +150,13 @@ async function extractText(
   const fileName = filePath.split("/").pop() || "";
   const extension = "." + (fileName.split(".").pop() || "").toLowerCase();
 
-  // PDF extraction using pdftotext CLI (install: brew install poppler)
+  // PDF text layer via pdftotext (poppler-utils in the container image).
+  // Image/scanned PDFs have no text layer — the single-doc path renders them to
+  // images for vision; in an album we can't, so return an honest note.
   if (mimeType === "application/pdf" || extension === ".pdf") {
-    try {
-      const result = await Bun.$`pdftotext -layout ${filePath} -`.quiet();
-      return result.text();
-    } catch (error) {
-      console.error("PDF parsing failed:", error);
-      return "[PDF parsing failed - ensure pdftotext is installed: brew install poppler]";
-    }
+    const text = await extractPdfText(filePath);
+    if (text !== null) return text;
+    return "[Image-based PDF — no text layer. Send it on its own for page-image analysis.]";
   }
 
   // Text files
@@ -399,6 +465,7 @@ async function processDocumentPaths(
   }
 
   if (documents.length === 0) {
+    await markFailed(ctx);
     await ctx.reply("❌ Failed to extract any documents.");
     return;
   }
@@ -429,7 +496,8 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
 
   // 2. Check file size
   if (doc.file_size && doc.file_size > MAX_FILE_SIZE) {
-    await ctx.reply("❌ File too large. Maximum size is 10MB.");
+    await markFailed(ctx);
+    await ctx.reply("❌ File too large. Maximum size is 20MB.");
     return;
   }
 
@@ -452,6 +520,7 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
       await ctx.reply(
         `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
       );
+      await markFailed(ctx);
       return;
     }
 
@@ -471,6 +540,7 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
   }
 
   if (!isPdf && !isText && !isArchiveFile) {
+    await markFailed(ctx);
     await ctx.reply(
       `❌ Unsupported file type: ${extension || doc.mime_type}\n\n` +
         `Supported: PDF, archives (${ARCHIVE_EXTENSIONS.join(
@@ -500,6 +570,7 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
       await ctx.reply(
         `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
       );
+      await markFailed(ctx);
       return;
     }
 
@@ -525,19 +596,58 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
       await ctx.reply(
         `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
       );
+      await markFailed(ctx);
       return;
     }
 
     try {
-      const content = await extractText(docPath, doc.mime_type);
-      await processDocuments(
-        ctx,
-        [{ path: docPath, name: fileName, content }],
-        ctx.message?.caption,
-        userId,
-        username,
-        chatId
-      );
+      if (isPdf) {
+        // Text-first; fall back to vision on image/scanned/print PDFs.
+        let text: string | null = null;
+        try {
+          text = await extractPdfText(docPath);
+        } catch (error) {
+          // pdftotext failed (corrupt/encrypted) — still try rendering pages.
+          console.error("pdftotext failed, trying render:", error);
+        }
+
+        if (text !== null) {
+          await processDocuments(
+            ctx,
+            [{ path: docPath, name: fileName, content: text }],
+            ctx.message?.caption,
+            userId,
+            username,
+            chatId
+          );
+        } else {
+          const { images } = await renderPdfToImages(docPath);
+          if (images.length === 0) {
+            await markFailed(ctx);
+            await ctx.reply(
+              "❌ Could not read this PDF (no text layer and rendering failed)."
+            );
+            return;
+          }
+          const cap = ctx.message?.caption;
+          const pdfCaption = cap
+            ? `[PDF: ${fileName}] ${cap}`
+            : `[PDF: ${fileName}] Read these page images and analyze the document.`;
+          // Not deleted here: like downloaded photos, the images must outlive an
+          // ask_user pause that resumes the session later. Ephemeral /tmp reaps them.
+          await processPhotos(ctx, images, pdfCaption, userId, username, chatId);
+        }
+      } else {
+        const content = await extractText(docPath, doc.mime_type);
+        await processDocuments(
+          ctx,
+          [{ path: docPath, name: fileName, content }],
+          ctx.message?.caption,
+          userId,
+          username,
+          chatId
+        );
+      }
     } catch (error) {
       console.error("Failed to extract document:", error);
       await markFailed(ctx);

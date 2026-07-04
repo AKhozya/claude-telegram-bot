@@ -123,6 +123,7 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
         await ctx.reply(
           `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
         );
+        await markFailed(ctx);
         return false;
       }
 

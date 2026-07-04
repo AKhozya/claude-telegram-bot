@@ -286,18 +286,23 @@ export async function handleRetry(ctx: Context): Promise<void> {
   const message = session.lastMessage;
   await ctx.reply(`🔄 Retrying: "${message.slice(0, 50)}${message.length > 50 ? "..." : ""}"`);
 
-  // Simulate sending the message again by emitting a fake text message event
-  // We do this by directly calling the text handler logic
+  // Re-run the text handler with the last message.
   const { handleText } = await import("./text");
+  await handleText(withMessageText(ctx as BotContext, message));
+}
 
-  // Create a modified context with the last message
-  const fakeCtx = {
-    ...ctx,
-    message: {
-      ...ctx.message,
-      text: message,
-    },
-  } as BotContext;
-
-  await handleText(fakeCtx);
+/**
+ * Clone a grammy context with its message text swapped. `chat`/`from`/`msg`/
+ * `message`/`reply` are prototype getters/methods reading `update.message.*`,
+ * so a plain `{...ctx}` spread drops them and handleText silently no-op'd on the
+ * `!chatId` guard (broken since 7498057). Object.create keeps the prototype
+ * live; Object.assign copies own props (api/me/update); the last source swaps
+ * the text. Exported for the retry regression test.
+ */
+export function withMessageText(ctx: BotContext, text: string): BotContext {
+  return Object.assign(
+    Object.create(Object.getPrototypeOf(ctx)),
+    ctx,
+    { update: { ...ctx.update, message: { ...ctx.message, text } } }
+  ) as BotContext;
 }

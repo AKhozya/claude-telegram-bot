@@ -33,13 +33,13 @@ export async function handleText(ctx: BotContext): Promise<void> {
     await ctx.reply("Unauthorized. Contact the bot owner for access.");
     return;
   }
-  await markReceived(ctx);
-
-  // 2. Check for interrupt prefix
+  // 2. Check for interrupt prefix. A bare "!stop"/empty interrupt is a pure
+  // stop alias — no reaction. Only real follow-up prompts get 👀.
   message = await checkInterrupt(message);
   if (!message.trim()) {
     return;
   }
+  await markReceived(ctx);
 
   // 3. Rate limit check
   const [allowed, retryAfter] = rateLimiter.check(userId);
@@ -48,6 +48,7 @@ export async function handleText(ctx: BotContext): Promise<void> {
     await ctx.reply(
       `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
     );
+    await markFailed(ctx);
     return;
   }
 

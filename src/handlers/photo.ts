@@ -38,9 +38,10 @@ async function downloadPhoto(ctx: BotContext): Promise<string> {
 }
 
 /**
- * Process photos with Claude.
+ * Process photos with Claude. Exported so the PDF handler can route rendered
+ * page images (image/scanned PDFs) through the same vision flow.
  */
-async function processPhotos(
+export async function processPhotos(
   ctx: BotContext,
   photoPaths: string[],
   caption: string | undefined,
@@ -130,6 +131,7 @@ export async function handlePhoto(ctx: BotContext): Promise<void> {
       await ctx.reply(
         `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
       );
+      await markFailed(ctx);
       return;
     }
 

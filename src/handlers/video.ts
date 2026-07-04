@@ -58,6 +58,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
 
   // 2. Check file size
   if (video.file_size && video.file_size > MAX_VIDEO_SIZE) {
+    await markFailed(ctx);
     await ctx.reply(
       `❌ Video too large. Maximum size is ${MAX_VIDEO_SIZE / 1024 / 1024}MB.`
     );
@@ -71,6 +72,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     await ctx.reply(
       `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
     );
+    await markFailed(ctx);
     return;
   }
 

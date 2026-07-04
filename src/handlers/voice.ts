@@ -42,6 +42,7 @@ export async function handleVoice(ctx: BotContext): Promise<void> {
     await ctx.reply(
       "Voice transcription is not configured. Set OPENAI_API_KEY in .env"
     );
+    await markFailed(ctx);
     return;
   }
 
@@ -52,6 +53,7 @@ export async function handleVoice(ctx: BotContext): Promise<void> {
     await ctx.reply(
       `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
     );
+    await markFailed(ctx);
     return;
   }
 
@@ -79,6 +81,7 @@ export async function handleVoice(ctx: BotContext): Promise<void> {
         statusMsg.message_id,
         "❌ Transcription failed."
       );
+      await markFailed(ctx);
       stopProcessing();
       return;
     }
