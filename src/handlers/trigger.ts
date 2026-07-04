@@ -11,6 +11,7 @@
  * TRIGGER_SECRET is empty.
  */
 
+import { timingSafeEqual } from "node:crypto";
 import type { Bot } from "grammy";
 import {
   ALLOWED_USERS,
@@ -23,6 +24,13 @@ import {
 interface TriggerBody {
   prompt?: string;
   chat_id?: number;
+}
+
+/** Constant-time secret comparison; second param injectable for tests. */
+export function secretMatches(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export function startTriggerServer(bot: Bot): { stop: () => void } | null {
@@ -53,7 +61,7 @@ export function startTriggerServer(bot: Bot): { stop: () => void } | null {
       }
 
       const provided = req.headers.get("x-trigger-secret") || "";
-      if (provided !== TRIGGER_SECRET) {
+      if (!secretMatches(provided, TRIGGER_SECRET)) {
         return new Response("forbidden\n", { status: 403 });
       }
 
