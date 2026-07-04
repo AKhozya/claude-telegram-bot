@@ -12,6 +12,7 @@ import { auditLog, auditLogRateLimit, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { handleProcessingError } from "./media-group";
 import { downloadTelegramFile } from "./download";
+import { markReceived, markDone, markFailed } from "./reactions";
 
 // Max video size (50MB - reasonable for short clips/voice memos)
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
@@ -53,6 +54,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     await ctx.reply("Unauthorized. Contact the bot owner for access.");
     return;
   }
+  await markReceived(ctx);
 
   // 2. Check file size
   if (video.file_size && video.file_size > MAX_VIDEO_SIZE) {
@@ -82,6 +84,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     videoPath = await downloadVideo(ctx);
   } catch (error) {
     console.error("Failed to download video:", error);
+    await markFailed(ctx);
     await ctx.api.editMessageText(
       chatId,
       statusMsg.message_id,
@@ -129,6 +132,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     );
 
     await auditLog(userId, username, "VIDEO", caption || "[video]", response);
+    await markDone(ctx);
 
     // Delete status message
     try {

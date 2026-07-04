@@ -5,6 +5,7 @@
  */
 
 import type { Context } from "grammy";
+import type { BotContext } from "../types";
 import { session } from "../session";
 import { WORKING_DIR, ALLOWED_USERS, RESTART_FILE } from "../config";
 import { isAuthorized } from "../security";
@@ -296,7 +297,7 @@ export async function handleRetry(ctx: Context): Promise<void> {
       ...ctx.message,
       text: message,
     },
-  } as Context;
+  } as BotContext;
 
   await handleText(fakeCtx);
 }

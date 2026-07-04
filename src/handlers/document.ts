@@ -14,6 +14,7 @@ import { StreamingState, createStatusCallback } from "./streaming";
 import { createMediaGroupBuffer, handleProcessingError } from "./media-group";
 import { isAudioFile, processAudioFile } from "./audio";
 import { downloadTelegramFile } from "./download";
+import { markReceived, markDone, markFailed } from "./reactions";
 
 // Supported text file extensions
 const TEXT_EXTENSIONS = [
@@ -272,6 +273,7 @@ async function processArchive(
       `[${fileName}] ${caption || ""}`,
       response
     );
+    await markDone(ctx);
 
     // Cleanup
     await Bun.$`rm -rf ${extractDir}`.quiet();
@@ -284,6 +286,7 @@ async function processArchive(
     }
   } catch (error) {
     console.error("Archive processing error:", error);
+    await markFailed(ctx);
     // Delete status message on error
     try {
       await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id);
@@ -362,6 +365,7 @@ async function processDocuments(
       `[${documents.length} docs] ${caption || ""}`,
       response
     );
+    await markDone(ctx);
   } catch (error) {
     await handleProcessingError(ctx, error, state.toolMessages);
   } finally {
@@ -421,6 +425,7 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
     await ctx.reply("Unauthorized. Contact the bot owner for access.");
     return;
   }
+  await markReceived(ctx);
 
   // 2. Check file size
   if (doc.file_size && doc.file_size > MAX_FILE_SIZE) {
@@ -456,6 +461,7 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
       docPath = await downloadDocument(ctx);
     } catch (error) {
       console.error("Failed to download audio document:", error);
+      await markFailed(ctx);
       await ctx.reply("❌ Failed to download audio file.");
       return;
     }
@@ -480,6 +486,7 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
     docPath = await downloadDocument(ctx);
   } catch (error) {
     console.error("Failed to download document:", error);
+    await markFailed(ctx);
     await ctx.reply("❌ Failed to download document.");
     return;
   }
@@ -533,6 +540,7 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
       );
     } catch (error) {
       console.error("Failed to extract document:", error);
+      await markFailed(ctx);
       await ctx.reply(
         `❌ Failed to process document: ${String(error).slice(0, 100)}`
       );

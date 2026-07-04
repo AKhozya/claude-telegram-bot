@@ -11,6 +11,7 @@ import { MEDIA_GROUP_TIMEOUT } from "../config";
 import { rateLimiter } from "../security";
 import { auditLogRateLimit } from "../utils";
 import { session } from "../session";
+import { markFailed } from "./reactions";
 
 /**
  * Configuration for a media group handler.
@@ -180,6 +181,7 @@ export async function handleProcessingError(
   toolMessages: Message[]
 ): Promise<void> {
   console.error("Error processing media:", error);
+  await markFailed(ctx);
 
   // Clean up tool messages
   for (const toolMsg of toolMessages) {

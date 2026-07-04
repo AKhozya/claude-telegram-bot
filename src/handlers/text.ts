@@ -2,7 +2,7 @@
  * Text message handler for Claude Telegram Bot.
  */
 
-import type { Context } from "grammy";
+import type { BotContext } from "../types";
 import { session } from "../session";
 import { ALLOWED_USERS } from "../config";
 import { isAuthorized, rateLimiter } from "../security";
@@ -13,11 +13,12 @@ import {
   startTypingIndicator,
 } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
+import { markReceived, markDone, markFailed } from "./reactions";
 
 /**
  * Handle incoming text messages.
  */
-export async function handleText(ctx: Context): Promise<void> {
+export async function handleText(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
   const chatId = ctx.chat?.id;
@@ -32,6 +33,7 @@ export async function handleText(ctx: Context): Promise<void> {
     await ctx.reply("Unauthorized. Contact the bot owner for access.");
     return;
   }
+  await markReceived(ctx);
 
   // 2. Check for interrupt prefix
   message = await checkInterrupt(message);
@@ -86,6 +88,7 @@ export async function handleText(ctx: Context): Promise<void> {
 
       // 10. Audit log
       await auditLog(userId, username, "TEXT", message, response);
+      await markDone(ctx);
       break; // Success - exit retry loop
     } catch (error) {
       const errorStr = String(error);
@@ -126,6 +129,7 @@ export async function handleText(ctx: Context): Promise<void> {
       } else {
         await ctx.reply(`❌ Error: ${errorStr.slice(0, 200)}`);
       }
+      await markFailed(ctx);
       break; // Exit loop after handling error
     }
   }

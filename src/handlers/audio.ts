@@ -5,7 +5,6 @@
  * Transcribes using OpenAI (same as voice messages) then processes with Claude.
  */
 
-import type { Context } from "grammy";
 import type { BotContext } from "../types";
 import { unlinkSync } from "fs";
 import { session } from "../session";
@@ -19,6 +18,7 @@ import {
 } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { downloadTelegramFile } from "./download";
+import { markReceived, markDone, markFailed } from "./reactions";
 
 // Supported audio file extensions
 const AUDIO_EXTENSIONS = [
@@ -50,7 +50,7 @@ export function isAudioFile(fileName?: string, mimeType?: string): boolean {
  * Process an audio file: transcribe and send to Claude.
  */
 export async function processAudioFile(
-  ctx: Context,
+  ctx: BotContext,
   filePath: string,
   caption: string | undefined,
   userId: number,
@@ -123,6 +123,7 @@ export async function processAudioFile(
 
     // Audit log
     await auditLog(userId, username, "AUDIO", transcript, claudeResponse);
+    await markDone(ctx);
   } catch (error) {
     console.error("Error processing audio:", error);
 
@@ -134,6 +135,7 @@ export async function processAudioFile(
     } else {
       await ctx.reply(`❌ Error: ${String(error).slice(0, 200)}`);
     }
+    await markFailed(ctx);
   } finally {
     stopProcessing();
     typing.stop();
@@ -165,6 +167,7 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
     await ctx.reply("Unauthorized. Contact the bot owner for access.");
     return;
   }
+  await markReceived(ctx);
 
   // 2. Rate limit check
   const [allowed, retryAfter] = rateLimiter.check(userId);
@@ -187,6 +190,7 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
     await downloadTelegramFile(ctx, audioPath);
   } catch (error) {
     console.error("Failed to download audio:", error);
+    await markFailed(ctx);
     await ctx.reply("❌ Failed to download audio file.");
     return;
   }

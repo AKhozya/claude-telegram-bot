@@ -12,6 +12,7 @@ import { auditLog, auditLogRateLimit, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { createMediaGroupBuffer, handleProcessingError } from "./media-group";
 import { downloadTelegramFile } from "./download";
+import { markReceived, markDone, markFailed } from "./reactions";
 
 // Create photo-specific media group buffer
 const photoBuffer = createMediaGroupBuffer({
@@ -89,6 +90,7 @@ async function processPhotos(
     );
 
     await auditLog(userId, username, "PHOTO", prompt, response);
+    await markDone(ctx);
   } catch (error) {
     await handleProcessingError(ctx, error, state.toolMessages);
   } finally {
@@ -115,6 +117,7 @@ export async function handlePhoto(ctx: BotContext): Promise<void> {
     await ctx.reply("Unauthorized. Contact the bot owner for access.");
     return;
   }
+  await markReceived(ctx);
 
   // 2. For single photos, show status and rate limit early
   let statusMsg: Awaited<ReturnType<typeof ctx.reply>> | null = null;
@@ -140,6 +143,7 @@ export async function handlePhoto(ctx: BotContext): Promise<void> {
     photoPath = await downloadPhoto(ctx);
   } catch (error) {
     console.error("Failed to download photo:", error);
+    await markFailed(ctx);
     if (statusMsg) {
       try {
         await ctx.api.editMessageText(

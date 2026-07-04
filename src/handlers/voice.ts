@@ -15,6 +15,7 @@ import {
 } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { downloadTelegramFile } from "./download";
+import { markReceived, markDone, markFailed } from "./reactions";
 
 /**
  * Handle incoming voice messages.
@@ -34,6 +35,7 @@ export async function handleVoice(ctx: BotContext): Promise<void> {
     await ctx.reply("Unauthorized. Contact the bot owner for access.");
     return;
   }
+  await markReceived(ctx);
 
   // 2. Check if transcription is available
   if (!TRANSCRIPTION_AVAILABLE) {
@@ -116,6 +118,7 @@ export async function handleVoice(ctx: BotContext): Promise<void> {
 
     // 12. Audit log
     await auditLog(userId, username, "VOICE", transcript, claudeResponse);
+    await markDone(ctx);
   } catch (error) {
     console.error("Error processing voice:", error);
 
@@ -128,6 +131,7 @@ export async function handleVoice(ctx: BotContext): Promise<void> {
     } else {
       await ctx.reply(`❌ Error: ${String(error).slice(0, 200)}`);
     }
+    await markFailed(ctx);
   } finally {
     stopProcessing();
     typing.stop();
