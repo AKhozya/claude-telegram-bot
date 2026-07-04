@@ -31,3 +31,19 @@ describe("send-file path gate (isPathAllowed)", () => {
     }
   });
 });
+
+describe("rich message send via typed grammy api", () => {
+  test("sendRichWithFallback uses typed ctx.api.sendRichMessage with markdown payload", async () => {
+    const calls: any[] = [];
+    const ctx: any = {
+      chatId: 42,
+      api: { sendRichMessage: (...a: any[]) => { calls.push(a); return { chat: { id: 42 }, message_id: 1 }; } },
+      reply: () => { throw new Error("should not fall back"); },
+    };
+    const { createStatusCallback, StreamingState } = await import("./streaming");
+    const cb = createStatusCallback(ctx, new StreamingState());
+    await cb("text", "# Title\n\nbody", 0);
+    expect(calls[0][0]).toBe(42);
+    expect(calls[0][1]).toEqual({ markdown: "# Title\n\nbody", skip_entity_detection: true });
+  });
+});

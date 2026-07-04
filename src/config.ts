@@ -203,6 +203,9 @@ export const TELEGRAM_SAFE_LIMIT = 4000; // Safe limit with buffer for formattin
 export const STREAMING_THROTTLE_MS = 500; // Throttle streaming updates
 export const BUTTON_LABEL_MAX_LENGTH = 30; // Max chars for inline button labels
 
+// Rich messages allow up to 32768 UTF-8 chars (plain messages cap at 4096).
+export const TELEGRAM_RICH_LIMIT = 32768;
+
 // ============== Audit Logging ==============
 
 export const AUDIT_LOG_PATH =

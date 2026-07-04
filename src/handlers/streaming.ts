@@ -12,13 +12,9 @@ import type { StatusCallback } from "../types";
 import { isPathAllowed } from "../security";
 import { convertMarkdownToHtml, escapeHtml } from "../formatting";
 import {
-  sendRichMessage,
-  editRichMessage,
-  TELEGRAM_RICH_LIMIT,
-} from "../rich-message";
-import {
   TELEGRAM_MESSAGE_LIMIT,
   TELEGRAM_SAFE_LIMIT,
+  TELEGRAM_RICH_LIMIT,
   STREAMING_THROTTLE_MS,
   BUTTON_LABEL_MAX_LENGTH,
 } from "../config";
@@ -227,7 +223,10 @@ async function sendRichWithFallback(
   // Rich path: pass Claude's GFM straight through (headings/tables/lists/code).
   if (content.length <= TELEGRAM_RICH_LIMIT) {
     try {
-      return await sendRichMessage(chatId, content);
+      return await ctx.api.sendRichMessage(chatId, {
+        markdown: content,
+        skip_entity_detection: true,
+      });
     } catch (richError) {
       console.debug("Rich send failed, falling back to HTML:", richError);
     }
@@ -260,7 +259,10 @@ async function editRichWithFallback(
     throw new Error("CONTENT_TOO_LONG");
   }
   try {
-    await editRichMessage(msg.chat.id, msg.message_id, content);
+    await ctx.api.editMessageText(msg.chat.id, msg.message_id, {
+      markdown: content,
+      skip_entity_detection: true,
+    });
     return;
   } catch (richError) {
     console.debug("Rich edit failed, falling back to HTML:", richError);
