@@ -9,6 +9,7 @@ import type { Context } from "grammy";
 import type { Message } from "grammy/types";
 import { InlineKeyboard, InputFile } from "grammy";
 import type { StatusCallback } from "../types";
+import { isPathAllowed } from "../security";
 import { convertMarkdownToHtml, escapeHtml } from "../formatting";
 import {
   sendRichMessage,
@@ -115,6 +116,12 @@ export async function checkPendingSendFileRequests(
       const caption: string | undefined = data.caption || undefined;
 
       if (!filePath) {
+        try { unlinkSync(filepath); } catch { /* ignore */ }
+        continue;
+      }
+
+      if (!isPathAllowed(filePath)) {
+        console.warn(`send-file BLOCKED (outside allowed paths): ${filePath}`);
         try { unlinkSync(filepath); } catch { /* ignore */ }
         continue;
       }
