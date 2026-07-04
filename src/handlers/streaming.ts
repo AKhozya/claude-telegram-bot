@@ -35,7 +35,7 @@ export function createAskUserKeyboard(
         ? option.slice(0, BUTTON_LABEL_MAX_LENGTH) + "..."
         : option;
     const callbackData = `askuser:${requestId}:${idx}`;
-    keyboard.text(display, callbackData).row();
+    keyboard.add({ text: display, callback_data: callbackData, style: "primary" }).row();
   }
   return keyboard;
 }

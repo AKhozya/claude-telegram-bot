@@ -66,3 +66,12 @@ describe("rich message send via typed grammy api", () => {
     expect(editCalls[0][2]).toEqual({ markdown: "final content", skip_entity_detection: true });
   });
 });
+
+describe("ask_user keyboard styling", () => {
+  test("ask_user keyboard applies a style to each button", async () => {
+    const { createAskUserKeyboard } = await import("./streaming");
+    const kb = createAskUserKeyboard("req1", ["Yes", "No"]);
+    const rows = kb.inline_keyboard;
+    expect(rows[0]![0]).toMatchObject({ text: "Yes", style: "primary" });
+  });
+});
