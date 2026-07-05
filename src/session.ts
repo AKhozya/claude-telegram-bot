@@ -262,7 +262,7 @@ class ClaudeSession {
             hooks: [
               async (input) => {
                 if (input.hook_event_name !== "PreToolUse") return {};
-                const verdict = evaluateToolUse(
+                const verdict = await evaluateToolUse(
                   input.tool_name,
                   (input.tool_input ?? {}) as Record<string, unknown>
                 );
@@ -368,7 +368,7 @@ class ClaudeSession {
               // Backstop only — the PreToolUse hook already blocked this before
               // execution. Notify and skip; never throw here, or the turn aborts
               // instead of letting Claude see the denial and decline.
-              const verdict = evaluateToolUse(toolName, toolInput);
+              const verdict = await evaluateToolUse(toolName, toolInput);
               if (!verdict.allowed) {
                 console.warn(`BLOCKED (hook already denied): ${verdict.reason}`);
                 await statusCallback("tool", `🚫 Blocked: ${verdict.reason}`);

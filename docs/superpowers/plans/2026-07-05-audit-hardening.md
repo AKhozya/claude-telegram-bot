@@ -31,14 +31,18 @@ Bash is a shell by design. Path/command controls = defense-in-depth vs **prompt 
   exec-wrapper), `xargs rm` (stdin targets). Fixed: extract `$(...)`/backtick bodies as pseudo-segments,
   widen the leading-strip class to `[\s({\\'"]`, peel bare exec-wrappers, fail-closed on `xargs rm`.
   Remaining ceiling is unbounded (interpreters, wrappers-with-args, non-rm deleters) → see #12.
-- [ ] **#10 P2 — redirect write-anywhere (non-rm).** `echo x >/etc/passwd` returns safe=true: the
-  redirect-target validation added in #2 only runs inside rm-containing commands (outer `/\brm\b/` gate).
-  A `>`/`>>` on ANY command writes/truncates outside ALLOWED_PATHS. Fix: validate output-redirect targets
-  for every command, not just rm. Distinct feature from #2; needs its own gate + tests.
-- [ ] **#11 P2 — WebFetch SSRF via DNS rebinding.** `isBlockedFetchTarget` (from #1) checks the literal
-  hostname/IP only; an attacker hostname resolving to 127.0.0.1 / 169.254.169.254 passes. Documented ceiling
-  in the code. Fix: resolve host (dns.lookup) then check the resolved IP — async, so the WebFetch gate path
-  must go async. Belongs with #1's SSRF work, not #2.
+- [x] **#10 P2 — redirect write-anywhere (non-rm).** `echo x >/etc/passwd` returned safe=true: the
+  redirect-target validation from #2 only ran inside the rm block (outer `/\brm\b/` gate). Fix: extracted
+  `checkRedirectTargets()` and run it on EVERY command segment (hoisted the normalize/subst-extract/split
+  parse out of the rm gate). Skips fd-dups/std-sinks/process-subst `>(cmd)`; fail-closed on `$`/`` ` ``/`{}`
+  targets. Ceiling (fail-closed over-block): literal `>` in quotes, `[[ a > b ]]`, heredoc body lines → #12.
+  11 tests (security.test.ts).
+- [x] **#11 P2 — WebFetch SSRF via DNS rebinding.** `isBlockedFetchTarget` checked the literal host/IP only;
+  a domain resolving to 127.0.0.1 / 169.254.169.254 passed. Fix: for a domain name, `dns.lookup(host,{all})`
+  then re-check each resolved IP (fail-closed on resolution error). Extracted `isBlockedV6()` (reused for
+  literal + resolved v6). `isBlockedFetchTarget`/`evaluateToolUse` now async; both session.ts call sites
+  await (already in async contexts). Ceiling: ACTIVE rebinding (flip between our lookup and WebFetch's own)
+  needs IP-pinning the SDK doesn't expose → egress policy / #12. 6 tests (dns/promises mocked).
 - [x] **#3 P1 — session singleton race.** callback.ts stop→sleep→restart without markInterrupt/
   clearStopRequested; callbacks bypass sequentialize. `stop()` left `stopRequested=true`, so the button's
   new message hit session.ts:285 `throw "Query cancelled"` (dropped selection); no markInterrupt → spurious
