@@ -201,8 +201,13 @@ export function isUnsafeMemberName(name: string): boolean {
   return name.split(/[\\/]/).some((seg) => seg === "..");
 }
 
-/** List an archive's member names without extracting, for pre-validation. */
-async function listArchiveMembers(
+/**
+ * List an archive's member names without extracting, for pre-validation.
+ * Zip uses `unzip -Z1` (one raw name per line — not evadable by crafted names the
+ * way `-l` column parsing would be). BusyBox's unzip lacks `-Z`, so zip fails closed
+ * in the container image (which ships no full unzip); tar works everywhere.
+ */
+export async function listArchiveMembers(
   archivePath: string,
   ext: string
 ): Promise<string[]> {
@@ -214,19 +219,24 @@ async function listArchiveMembers(
 }
 
 /**
- * Remove every symlink under `root` (recursively). A symlink extracted from an
- * archive is a read-exfil vector — reading it follows the link to a host file
- * (`link -> /etc/passwd`) — and a write vector for a later same-archive member.
- * Deleting the links (not their targets) neutralises both before content is read.
+ * Remove link members under `root` (recursively) before any content is read.
+ * Both are read-exfil vectors to files outside the extraction dir:
+ *   - symlink (`link -> /etc/passwd`): reading it follows the link.
+ *   - hard link (tar linkname to an existing host file): extracts as a regular
+ *     file sharing the target's inode, so lstat reports isFile/nlink>1 — reading
+ *     it returns the target's bytes. protected_hardlinks blocks cross-owner
+ *     targets but not files the bot's own uid can read (.env, keys).
+ * Deleting the entry (not the inode data) neutralises both. A hard link also drops
+ * legit intra-archive dedup, which is fine for text extraction (fail closed).
  */
-export function stripSymlinks(root: string): void {
+export function stripLinks(root: string): void {
   for (const entry of readdirSync(root)) {
     const full = join(root, entry);
     const st = lstatSync(full);
-    if (st.isSymbolicLink()) {
+    if (st.isSymbolicLink() || (st.isFile() && st.nlink > 1)) {
       unlinkSync(full);
     } else if (st.isDirectory()) {
-      stripSymlinks(full);
+      stripLinks(full);
     }
   }
 }
@@ -257,8 +267,8 @@ async function extractArchive(
     throw new Error(`Unknown archive type: ${ext}`);
   }
 
-  // Drop any extracted symlinks before content is read (no-follow containment).
-  stripSymlinks(extractDir);
+  // Drop extracted symlink/hard-link members before content is read (containment).
+  stripLinks(extractDir);
 
   return extractDir;
 }
@@ -289,15 +299,15 @@ async function extractArchiveContent(
 
   for (const relativePath of tree) {
     const fullPath = join(extractDir, relativePath);
-    // lstat (no-follow): only read plain files. Symlinks are already stripped;
-    // this also skips directories and any residual special entry.
+    // lstat (no-follow): only read plain single-link files. Symlinks and hard-link
+    // members are already stripped; nlink>1 is a second guard against link exfil.
     let info;
     try {
       info = lstatSync(fullPath);
     } catch {
       continue;
     }
-    if (!info.isFile() || info.size === 0) continue;
+    if (!info.isFile() || info.nlink > 1 || info.size === 0) continue;
     const size = info.size;
 
     const ext = "." + (relativePath.split(".").pop() || "").toLowerCase();
