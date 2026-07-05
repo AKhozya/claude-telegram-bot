@@ -162,7 +162,7 @@ describe("evaluateToolUse", () => {
     expect((await evaluateToolUse("WebFetch", { url: "https://fd.io/" })).allowed).toBe(true);
   });
 
-  // ── item-#1 codex-review round 2: SSRF encoding bypasses ──
+  // ── SSRF encoding bypasses (decimal-folded IP, trailing dot, IPv4-mapped IPv6) ──
   test("blocks WebFetch to decimal-encoded loopback (URL folds to 127.0.0.1)", async () => {
     expect((await evaluateToolUse("WebFetch", { url: "http://2130706433/" })).allowed).toBe(false);
   });
@@ -341,7 +341,7 @@ describe("checkCommandSafety - chained / obfuscated rm", () => {
     expect(checkCommandSafety("rm /tmp/ok 2>/dev/null")[0]).toBe(true);
   });
 
-  // ── codex round-2 findings: quote-hidden abs path, leading redirect, post-glob .. ──
+  // ── quote-hidden abs path, leading redirect, post-glob .. ──
   test("blocks a quoted absolute out-of-tree target (shell strips the quotes)", () => {
     expect(checkCommandSafety('rm "/etc/passwd"')[0]).toBe(false);
   });
@@ -371,8 +371,7 @@ describe("checkCommandSafety - chained / obfuscated rm", () => {
     expect(checkCommandSafety("rm >/tmp/log /tmp/ok")[0]).toBe(true);
   });
 
-  // ── security-reviewer finding: a redirect `>FILE` is an unchecked write-anywhere
-  // primitive riding on the rm; the target must be path-validated, not discarded. ──
+  // ── a redirect `>FILE` on the rm is a write-anywhere primitive; validate the target ──
   test("blocks rm whose redirect target truncates an out-of-tree file", () => {
     expect(checkCommandSafety('rm "safe" >/etc/passwd')[0]).toBe(false);
   });
@@ -393,7 +392,7 @@ describe("checkCommandSafety - chained / obfuscated rm", () => {
     expect(checkCommandSafety("rm /tmp/ok >/tmp/telegram-bot/o 2>&1")[0]).toBe(true);
   });
 
-  // ── full-PR codex round: redirect glued to the command word, and >| clobber ──
+  // ── redirect glued to the command word, and >| force-clobber ──
   test("blocks rm with a redirect glued to the command word (rm>/dev/null)", () => {
     expect(checkCommandSafety("rm>/dev/null /etc/passwd")[0]).toBe(false);
   });
@@ -415,9 +414,9 @@ describe("checkCommandSafety - chained / obfuscated rm", () => {
     expect(checkCommandSafety("{ rm /etc/shadow; }")[0]).toBe(false);
   });
 
-  // ── round-3 review (codex + ecc:security): command-word obfuscation. The detector
-  // only saw rm as a bare leading word, so rm reached via command substitution, a
-  // backslash-escaped word, or an exec-wrapper slipped straight past to allow. ──
+  // ── command-word obfuscation: the detector only saw rm as a bare leading word, so rm
+  // reached via command substitution, a backslash-escaped word, or an exec-wrapper
+  // slipped straight past to allow. ──
   test("blocks rm inside command substitution $(rm ...)", () => {
     expect(checkCommandSafety("$(rm /etc/passwd)")[0]).toBe(false);
   });
@@ -502,6 +501,25 @@ describe("checkCommandSafety - redirect write-anywhere (non-rm)", () => {
 
   test("allows a plain command with no redirect", () => {
     expect(checkCommandSafety("grep -r pattern /tmp/telegram-bot")[0]).toBe(true);
+  });
+
+  // ── `\S+` captured only the target word's prefix before a space, so a quoted/escaped
+  // target with an internal space + `..` validated as its in-tree prefix while bash
+  // wrote the full out-of-tree path. ──
+  test("blocks a quoted redirect target whose internal space hides a .. escape", () => {
+    expect(checkCommandSafety('echo pwned > "/tmp/x /../../etc/cron.d/evil"')[0]).toBe(false);
+  });
+
+  test("blocks a backslash-escaped-space redirect target that escapes via ..", () => {
+    expect(checkCommandSafety("echo x >>/tmp/y\\ /../../etc/passwd")[0]).toBe(false);
+  });
+
+  test("blocks a glued second redirect (>/tmp/a>/etc/passwd) — the real write target", () => {
+    expect(checkCommandSafety("echo x >/tmp/a>/etc/passwd")[0]).toBe(false);
+  });
+
+  test("still allows a quoted in-tree redirect target with a space", () => {
+    expect(checkCommandSafety('echo ok > "/tmp/telegram-bot/my log.txt"')[0]).toBe(true);
   });
 });
 

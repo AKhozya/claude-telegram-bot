@@ -98,20 +98,21 @@ export function isPathAllowed(path: string): boolean {
 // ============== Command Safety ==============
 
 /**
- * Validate every OUTPUT-redirect target in one command segment as an in-tree path.
- * An output redirect (`>f` `>>f` `2>f`; force-clobber `>|f` is folded to `>f` by the
- * caller) creates/truncates/appends its target and rides past every per-tool path
- * check — `echo x >/etc/passwd` writes /etc/passwd on ANY command, not just rm.
- * Returns a deny reason, or null if all targets are allowed sinks or in-tree.
- * Skips fd-dups (`2>&1`, `>&2`), std sinks (/dev/null|stdout|stderr) and process
- * substitution `>(cmd)` (its inner command is the accepted shell-exec ceiling).
- * ponytail: a literal `>` in quotes (`echo "a > /etc/x"`), a bash `[[ a > b ]]`
- *   string compare, or a `>` inside a heredoc body line is read as a redirect and may
- *   over-block — fail-closed is the correct side for a write gate; rephrase with
- *   `-gt`/escaping if hit.
+ * Deny any OUTPUT redirect (`>f` `>>f` `2>f`, force-clobber `>|f` folded to `>f`) whose
+ * target is outside ALLOWED_PATHS — a write/overwrite primitive that rides past per-tool
+ * path checks (`echo x >/etc/passwd`). Returns a deny reason, or null if every target is
+ * a std sink, fd-dup, process substitution `>(cmd)`, or in-tree.
+ * The target is captured as a full shell word (quoted span, `\`-escaped char, or a run of
+ * non-space/non-`<>` chars): a plain `\S+` stopped at the first space, so a quoted target
+ * whose internal space hid `../../` passed as its in-tree prefix; stopping at `<>` also
+ * splits a glued `>/in/a>/etc/x` rather than swallowing the second redirect.
+ * Over-blocks a literal `>` in quotes / `[[ a > b ]]` / a heredoc body line (fail-closed);
+ * the unbounded write surface is #12.
  */
 function checkRedirectTargets(segment: string): string | null {
-  for (const red of segment.matchAll(/[0-9]*&?>>?\s*(\S+)/g)) {
+  for (const red of segment.matchAll(
+    /[0-9]*&?>>?\s*((?:"[^"]*"|'[^']*'|\\.|[^\s<>])+)/g
+  )) {
     const tgtRaw = red[1]!;
     if (/^&?[0-9]+$/.test(tgtRaw)) continue; // fd dup: 2>&1, >&2
     if (tgtRaw.startsWith("(")) continue; // process substitution >(cmd)
@@ -141,16 +142,12 @@ export function checkCommandSafety(
     }
   }
 
-  // Static best-effort parse of the command's segments. Two write-primitives are
-  // validated against ALLOWED_PATHS: output redirects on ANY command (audit #10) and
-  // rm targets (audit #2).
-  // ponytail: a speed-bump against prompt-injected writes/deletes, NOT a sandbox.
-  //   Known ceiling it does NOT catch: interpreter indirection (`sh -c '...'`, `eval`,
-  //   `python -c`), wrappers that take args before the command (`timeout 5 rm`), non-rm
-  //   / non-redirect writers (`tee`, `dd of=`, `cp`/`mv`, `find -delete`, `truncate`,
-  //   `: >f`), base64-decoded payloads, process substitution `>(cmd)`, and mid-word-
-  //   quoted command words (`r"m"`). The real control is OS-level containment (Claude's
-  //   Bash as a restricted user / read-only mounts outside ALLOWED_PATHS) — audit #12.
+  // Best-effort static parse: validate output-redirect targets on every command (#10)
+  // and rm targets (#2) against ALLOWED_PATHS. A speed-bump against prompt-injected
+  // writes/deletes, not a sandbox — it does NOT catch interpreter indirection (`sh -c`,
+  // `eval`, `python -c`), arg-taking wrappers (`timeout 5 rm`), or non-rm/non-redirect
+  // writers (`tee`, `dd of=`, `cp`/`mv`, `find -delete`). OS-level containment
+  // (restricted user / read-only mounts outside ALLOWED_PATHS) is #12.
   try {
     // Fold the `>|` force-clobber redirect to a plain `>` so its `|` is not taken as a
     // pipe by the operator split below (`rm ok >|/etc/x`, `echo x >|/etc/x`).
@@ -165,8 +162,7 @@ export function checkCommandSafety(
     ].map((m) => m[1] ?? m[2] ?? "");
     const segments = [normalized, ...substBodies].join("\n").split(/[;&|\n]+/);
     for (const segment of segments) {
-      // #10: an output redirect writes/creates/truncates its target on ANY command
-      // (`echo x >/etc/passwd`), so validate every redirect target as an in-tree path.
+      // #10: output-redirect targets — a write-anywhere primitive on any command.
       const redirectReason = checkRedirectTargets(segment);
       if (redirectReason) return [false, redirectReason];
 
@@ -199,11 +195,9 @@ export function checkCommandSafety(
         const arg = raw.replace(/['"]/g, "");
         if (!arg || arg.startsWith("-")) continue; // flags / empty tokens
 
-        // Unresolvable shell expansion ($VAR, `cmd`, $(cmd), ${..}, brace lists):
-        // cannot prove the expansion stays in-tree (it can produce `..`), so DENY.
-        // ponytail: also denies a literal filename that really contains $/`/{}` (e.g.
-        //   a single-quoted `'$x'`). Fail-closed is the correct side for a delete gate;
-        //   allowing these chars back would reopen the variable-expansion bypass.
+        // Unresolvable shell expansion ($VAR, `cmd`, $(cmd), ${..}, brace list) can
+        // produce `..`, so DENY. Also denies a literal filename containing $/`/{} —
+        // fail-closed is the correct side for a delete gate.
         if (/[$`{}]/.test(arg)) {
           return [false, `rm arg with unresolved shell expansion: ${raw}`];
         }
@@ -320,15 +314,12 @@ function isBlockedV6(addr: string): boolean {
 }
 
 /**
- * Best-effort SSRF guard for WebFetch: block loopback / private / link-local
- * targets (cloud-metadata 169.254.169.254, the bot's own trigger port, LAN admin
- * panels) and non-http(s) schemes. For a DOMAIN name, resolve it and re-check the
- * resolved IPs — a hostname whose DNS record points at a private/metadata address
- * (`evil.example.com A 169.254.169.254`) must not slip past the literal check (#11).
- * ponytail: closes STATIC malicious DNS records (the common metadata-SSRF vector).
- *   Active DNS rebinding — host flips public→private between THIS lookup and WebFetch's
- *   own resolution — is NOT closed; that needs IP-pinning the SDK's WebFetch doesn't
- *   expose. Egress network policy / OS containment (#12) is the full fix.
+ * SSRF guard for WebFetch: block non-http(s) schemes and loopback/private/link-local
+ * targets (metadata 169.254.169.254, the bot's own trigger port, LAN panels). For a
+ * domain name, resolve it and re-check the IPs so a DNS record pointing at a private
+ * address (`evil.example.com A 169.254.169.254`) can't slip past the literal check (#11).
+ * Closes static malicious DNS; ACTIVE rebinding (flip between this lookup and WebFetch's
+ * own) needs IP-pinning the SDK doesn't expose → egress policy / #12.
  */
 async function isBlockedFetchTarget(rawUrl: string): Promise<boolean> {
   let host: string;
