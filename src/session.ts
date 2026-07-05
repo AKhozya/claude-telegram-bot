@@ -178,6 +178,24 @@ class ClaudeSession {
   }
 
   /**
+   * Interrupt a running query because a NEW user message is arriving (button tap,
+   * ! prefix). Marks the stop as an interrupt so the preempted query's handler stays
+   * silent (no spurious "🛑 Query stopped."), then clears stopRequested so the
+   * incoming message is not itself cancelled at query start. No-op if nothing runs.
+   *
+   * Canonical dance — call this everywhere a new message preempts a query rather than
+   * re-inlining it; callback.ts drifted from this and dropped the mark + clear.
+   */
+  async interruptForNewMessage(): Promise<void> {
+    if (!this.isRunning) return;
+    this.markInterrupt();
+    await this.stop();
+    // Brief settle so the abort propagates before the new message starts a query.
+    await Bun.sleep(100);
+    this.clearStopRequested();
+  }
+
+  /**
    * Send a message to Claude with streaming updates via callback.
    *
    * @param ctx - grammY context for ask_user button display

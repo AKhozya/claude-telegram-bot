@@ -101,12 +101,12 @@ export async function handleCallback(ctx: Context): Promise<void> {
   // 8. Send the choice to Claude as a message
   const message = selectedOption;
 
-  // Interrupt any running query - button responses are always immediate
+  // Interrupt any running query - button responses are always immediate.
+  // Shared dance: mark interrupt (silence the old query) + clear stopRequested
+  // (so this button message is not cancelled at query start).
   if (session.isRunning) {
     console.log("Interrupting current query for button response");
-    await session.stop();
-    // Small delay to ensure clean interruption
-    await new Promise((resolve) => setTimeout(resolve, 100));
+    await session.interruptForNewMessage();
   }
 
   // Start typing
