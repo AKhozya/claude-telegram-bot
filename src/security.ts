@@ -122,26 +122,44 @@ export function checkCommandSafety(
 
   // Special handling for rm — validate EVERY rm in the command, not just the first,
   // and fail CLOSED on any target we cannot statically resolve to an allowed path.
-  // Match rm as a standalone command (word boundary — not substring like "perform").
-  // ponytail: best-effort static parse. It cannot see through eval, aliases, a
-  //   $(...)-wrapped rm, base64-decoded payloads, or quoted filenames containing shell
-  //   operators. It is defense-in-depth vs prompt injection, NOT a sandbox — the SDK's
-  //   bypassPermissions PreToolUse gate + ALLOWED_PATHS containment are the real control.
+  // ponytail: best-effort static parse — a speed-bump against prompt-injected deletion,
+  //   NOT a sandbox. Known ceiling it does NOT catch: interpreter indirection
+  //   (`sh -c '...'`, `eval`, `python -c`), wrappers that take args before the command
+  //   (`timeout 5 rm`), non-rm deleters (`find -delete`, `truncate`, `: >f`, `mv`),
+  //   base64-decoded payloads, and mid-word-quoted command words (`r"m"`). The real
+  //   control is OS-level containment (Claude's Bash as a restricted user / read-only
+  //   mounts outside ALLOWED_PATHS) — audit item #12. This guard just raises the bar.
   if (/\brm\b/.test(lowerCommand)) {
     try {
-      // Fold the `>|` force-clobber redirect to a plain `>` FIRST, so the `|` in it
-      // is not mistaken for a pipe by the operator split below (`rm ok >|/etc/x`).
+      // Fold the `>|` force-clobber redirect to a plain `>` so its `|` is not taken as a
+      // pipe by the operator split below (`rm ok >|/etc/x`).
       const normalized = command.replace(/>\|/g, ">");
-      // Split into segments on shell operators so a second/chained rm
-      // (`rm ok; rm /etc/x`, `cat x | rm /etc/x`) is scanned too, not just the first.
-      const segments = normalized.split(/[;&|\n]+/);
+      // Pull command-substitution / backtick BODIES out as their own segments — an rm
+      // inside `$(...)` or `` `...` `` runs as a real subshell regardless of what
+      // consumes the output (`ls \`rm /etc/x\``, `x=$(rm /etc/x)`). Non-nested spans
+      // only (deeper nesting is part of the documented ceiling). Then split everything
+      // on shell operators so a chained/piped rm (`rm ok; rm /etc/x`) is scanned too.
+      const substBodies = [
+        ...normalized.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g),
+      ].map((m) => m[1] ?? m[2] ?? "");
+      const segments = [normalized, ...substBodies].join("\n").split(/[;&|\n]+/);
       for (const segment of segments) {
-        // Match rm only as the segment's COMMAND WORD (after leading VAR=val
-        // assignments), not as a substring of some path arg (`cat /tmp/rm x`). `rm\b`
-        // (not `rm\s`) so a redirect glued to the word — `rm>/dev/null` — is still caught.
-        // ponytail: misses wrapper-prefixed rm (`time rm`, `xargs rm`); those targets
-        //   usually come from stdin/find and are unparseable here anyway.
-        const rmMatch = segment.match(/^[\s({]*(?:\w+=\S*\s+)*rm\b(.*)$/i);
+        // rm reached via xargs takes its paths from stdin (`... | xargs rm`), which we
+        // cannot see — fail closed rather than validate an empty arg list and pass.
+        if (
+          /^[\s({\\'"]*(?:\w+=\S*\s+)*xargs\b/i.test(segment) &&
+          /\brm\b/.test(segment)
+        ) {
+          return [false, "rm via xargs: stdin-fed targets cannot be verified"];
+        }
+        // Match rm as the segment's COMMAND WORD, after the shell-strippable leading
+        // chars (grouping `( {`, a backslash `\rm`, quotes `''rm`) and any leading
+        // VAR=val assignments or bare exec-wrappers (`env rm`, `nice rm`). `rm\b` (not
+        // `rm\s`) so a glued redirect `rm>/dev/null` is still caught. Not a path
+        // substring (`cat /tmp/rm x`).
+        const rmMatch = segment.match(
+          /^[\s({\\'"]*(?:(?:\w+=\S*|env|command|builtin|exec|nice|nohup|setsid|stdbuf|time|ionice)\s+)*rm\b(.*)$/i
+        );
         if (!rmMatch) continue;
 
         // An output redirect (`>FILE` / `>>FILE`) on the rm is a write-anywhere
@@ -259,6 +277,9 @@ export type ToolVerdict = { allowed: true } | { allowed: false; reason: string }
 export const DENIED_TOOLS = new Set<string>([
   "REPL", // arbitrary JavaScript execution
   "Monitor", // background shell command
+  "Agent", // spawns a subagent with its OWN Bash/file tools — a second exec surface
+  //          this process's PreToolUse hook never reaches; isolation:"remote" runs
+  //          off-host entirely. checkCommandSafety/isPathAllowed/SSRF gate can't span it.
   "Workflow", // script/agent orchestration (scriptPath never path-checked)
   "Artifact", // publishes a file to claude.ai — exfil channel
   "Projects", // project_write/project_delete — external claude.ai mutation/exfil
