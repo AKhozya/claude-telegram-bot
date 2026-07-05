@@ -289,6 +289,28 @@ describe("checkCommandSafety - chained / obfuscated rm", () => {
   test("allows rm with an fd-dup redirect (2>&1)", () => {
     expect(checkCommandSafety("rm /tmp/ok >/tmp/telegram-bot/o 2>&1")[0]).toBe(true);
   });
+
+  // ── full-PR codex round: redirect glued to the command word, and >| clobber ──
+  test("blocks rm with a redirect glued to the command word (rm>/dev/null)", () => {
+    expect(checkCommandSafety("rm>/dev/null /etc/passwd")[0]).toBe(false);
+  });
+
+  test("blocks rm force-clobber redirect (>|) to an out-of-tree file", () => {
+    expect(checkCommandSafety("rm /tmp/ok >|/etc/passwd")[0]).toBe(false);
+  });
+
+  test("does not treat rm inside another command's path arg as an rm command", () => {
+    // `cat /tmp/rm /home/x` — rm is a path component, not the command word.
+    expect(checkCommandSafety("cat /tmp/rm /home/x")[0]).toBe(true);
+  });
+
+  test("blocks rm inside a subshell group (rm /etc/passwd)", () => {
+    expect(checkCommandSafety("(rm /etc/passwd)")[0]).toBe(false);
+  });
+
+  test("blocks rm inside a brace group { rm /etc/x; }", () => {
+    expect(checkCommandSafety("{ rm /etc/shadow; }")[0]).toBe(false);
+  });
 });
 
 // Tripwire: the tool-gate is a blocklist, so a NEW built-in tool from an SDK bump

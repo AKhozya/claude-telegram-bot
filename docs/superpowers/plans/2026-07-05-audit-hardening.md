@@ -21,11 +21,17 @@ Bash is a shell by design. Path/command controls = defense-in-depth vs **prompt 
   `rm /ok; rm /out/of/tree` + `rm -rf $VAR` pass. Fixed: split on shell operators, scan every rm
   segment, fail-closed on `$`/backtick/brace, glob prefix-check + post-glob `..` reject, dequote args.
   Codex round-1 + ecc:security-reviewer surfaced 4 more (quoted abs path, leading redirect, post-glob `..`,
-  redirect-write `rm ok >/etc/passwd`) — all fixed + regression-tested (63 tests). ~15 rm tests.
+  redirect-write `rm ok >/etc/passwd`). Full-PR codex found 2 MORE (`rm>/dev/null` glued redirect skipped the
+  `\brm\s+` match; `>|` clobber split on `|`) + a false-block (`cat /tmp/rm x`). Fixed: fold `>|`→`>`,
+  anchor rm to the command word `^[\s({]*(VAR=..)*rm\b`. All regression-tested (68 tests). ~21 rm tests.
 - [ ] **#10 P2 — redirect write-anywhere (non-rm).** `echo x >/etc/passwd` returns safe=true: the
   redirect-target validation added in #2 only runs inside rm-containing commands (outer `/\brm\b/` gate).
   A `>`/`>>` on ANY command writes/truncates outside ALLOWED_PATHS. Fix: validate output-redirect targets
   for every command, not just rm. Distinct feature from #2; needs its own gate + tests.
+- [ ] **#11 P2 — WebFetch SSRF via DNS rebinding.** `isBlockedFetchTarget` (from #1) checks the literal
+  hostname/IP only; an attacker hostname resolving to 127.0.0.1 / 169.254.169.254 passes. Documented ceiling
+  in the code. Fix: resolve host (dns.lookup) then check the resolved IP — async, so the WebFetch gate path
+  must go async. Belongs with #1's SSRF work, not #2.
 - [ ] **#3 P1 — session singleton race.** callback.ts stop→sleep→restart without await/clearStopRequested;
   callbacks bypass sequentialize. Lost button + corrupted abortController/sessionId + spurious stop.
   Fix: await settle, markInterrupt, clearStopRequested (mirror checkInterrupt).

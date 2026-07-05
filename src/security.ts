@@ -129,11 +129,19 @@ export function checkCommandSafety(
   //   bypassPermissions PreToolUse gate + ALLOWED_PATHS containment are the real control.
   if (/\brm\b/.test(lowerCommand)) {
     try {
+      // Fold the `>|` force-clobber redirect to a plain `>` FIRST, so the `|` in it
+      // is not mistaken for a pipe by the operator split below (`rm ok >|/etc/x`).
+      const normalized = command.replace(/>\|/g, ">");
       // Split into segments on shell operators so a second/chained rm
       // (`rm ok; rm /etc/x`, `cat x | rm /etc/x`) is scanned too, not just the first.
-      const segments = command.split(/[;&|\n]+/);
+      const segments = normalized.split(/[;&|\n]+/);
       for (const segment of segments) {
-        const rmMatch = segment.match(/\brm\s+(.+)/i);
+        // Match rm only as the segment's COMMAND WORD (after leading VAR=val
+        // assignments), not as a substring of some path arg (`cat /tmp/rm x`). `rm\b`
+        // (not `rm\s`) so a redirect glued to the word — `rm>/dev/null` — is still caught.
+        // ponytail: misses wrapper-prefixed rm (`time rm`, `xargs rm`); those targets
+        //   usually come from stdin/find and are unparseable here anyway.
+        const rmMatch = segment.match(/^[\s({]*(?:\w+=\S*\s+)*rm\b(.*)$/i);
         if (!rmMatch) continue;
 
         // An output redirect (`>FILE` / `>>FILE`) on the rm is a write-anywhere
