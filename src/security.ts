@@ -397,9 +397,12 @@ export function evaluateToolUse(
       // NotebookEdit is a write — no .claude read exemption. Scope the exemption to
       // the user's OWN ~/.claude (config/skills), not any path with "/.claude/" in it
       // (`.includes` matched `/tmp/x/.claude/secret` and let it be read).
-      const claudeHome = `${process.env.HOME || ""}/.claude/`;
+      // Fail CLOSED if HOME is unset (minimal launchd/systemd env): otherwise
+      // claudeHome collapses to "/.claude/" and a real /.claude/secret would satisfy
+      // startsWith and bypass isPathAllowed.
+      const home = process.env.HOME || "";
       const isClaudeDirRead =
-        toolName === "Read" && canonical.startsWith(claudeHome);
+        toolName === "Read" && home !== "" && canonical.startsWith(`${home}/.claude/`);
       if (!isClaudeDirRead && !isPathAllowed(canonical)) {
         return { allowed: false, reason: `File access outside allowed paths: ${filePath}` };
       }

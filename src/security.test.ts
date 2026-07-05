@@ -197,6 +197,20 @@ describe("evaluateToolUse", () => {
     ).toBe(true);
   });
 
+  test("fails closed on the .claude exemption when HOME is unset", () => {
+    // HOME="" would make the exemption `startsWith("/.claude/")` — a real
+    // /.claude/secret must NOT ride past isPathAllowed.
+    const saved = process.env.HOME;
+    delete process.env.HOME;
+    try {
+      expect(
+        evaluateToolUse("Read", { file_path: "/.claude/secret" }).allowed
+      ).toBe(false);
+    } finally {
+      if (saved !== undefined) process.env.HOME = saved;
+    }
+  });
+
   test("denies Agent (subagent spawn is a second, ungated tool-exec surface)", () => {
     // A spawned agent runs its own Bash/file tools; with isolation:"remote" it runs
     // beyond this process's PreToolUse hook entirely. None of checkCommandSafety /
