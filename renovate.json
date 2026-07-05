@@ -5,6 +5,7 @@
     ":automergeRequireAllStatusChecks",
     "schedule:weekly"
   ],
+  "dependencyDashboard": true,
   "timezone": "Europe/London",
   "minimumReleaseAge": "3 days",
   "lockFileMaintenance": {
