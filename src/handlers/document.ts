@@ -6,6 +6,8 @@
  * to page images for Claude vision (poppler-utils; apk in the container image).
  */
 
+import { readdirSync, lstatSync, unlinkSync } from "fs";
+import { join } from "path";
 import type { BotContext } from "../types";
 import { session } from "../session";
 import { ALLOWED_USERS, TEMP_DIR } from "../config";
@@ -190,6 +192,46 @@ function getArchiveExtension(fileName: string): string {
 }
 
 /**
+ * A member name escapes the extraction dir if it is absolute or walks up via
+ * `..` — extracting it would write outside extractDir (zip-slip / tar traversal),
+ * which tar/unzip do not reliably block across busybox/bsdtar/Info-ZIP variants.
+ */
+export function isUnsafeMemberName(name: string): boolean {
+  if (name.startsWith("/") || name.startsWith("~")) return true;
+  return name.split(/[\\/]/).some((seg) => seg === "..");
+}
+
+/** List an archive's member names without extracting, for pre-validation. */
+async function listArchiveMembers(
+  archivePath: string,
+  ext: string
+): Promise<string[]> {
+  const out =
+    ext === ".zip"
+      ? await Bun.$`unzip -Z1 ${archivePath}`.quiet().text()
+      : await Bun.$`tar -tf ${archivePath}`.quiet().text();
+  return out.split("\n").filter(Boolean);
+}
+
+/**
+ * Remove every symlink under `root` (recursively). A symlink extracted from an
+ * archive is a read-exfil vector — reading it follows the link to a host file
+ * (`link -> /etc/passwd`) — and a write vector for a later same-archive member.
+ * Deleting the links (not their targets) neutralises both before content is read.
+ */
+export function stripSymlinks(root: string): void {
+  for (const entry of readdirSync(root)) {
+    const full = join(root, entry);
+    const st = lstatSync(full);
+    if (st.isSymbolicLink()) {
+      unlinkSync(full);
+    } else if (st.isDirectory()) {
+      stripSymlinks(full);
+    }
+  }
+}
+
+/**
  * Extract an archive to a temp directory.
  */
 async function extractArchive(
@@ -200,6 +242,13 @@ async function extractArchive(
   const extractDir = `${TEMP_DIR}/archive_${Date.now()}`;
   await Bun.$`mkdir -p ${extractDir}`;
 
+  // Refuse the whole archive if any member would escape extractDir. Cheaper and
+  // more portable than trusting each extractor's traversal handling.
+  const members = await listArchiveMembers(archivePath, ext);
+  if (members.some(isUnsafeMemberName)) {
+    throw new Error("Archive contains unsafe member paths (absolute or ..)");
+  }
+
   if (ext === ".zip") {
     await Bun.$`unzip -q -o ${archivePath} -d ${extractDir}`.quiet();
   } else if (ext === ".tar" || ext === ".tar.gz" || ext === ".tgz") {
@@ -207,6 +256,9 @@ async function extractArchive(
   } else {
     throw new Error(`Unknown archive type: ${ext}`);
   }
+
+  // Drop any extracted symlinks before content is read (no-follow containment).
+  stripSymlinks(extractDir);
 
   return extractDir;
 }
@@ -236,14 +288,17 @@ async function extractArchiveContent(
   let totalSize = 0;
 
   for (const relativePath of tree) {
-    const fullPath = `${extractDir}/${relativePath}`;
-    const stat = await Bun.file(fullPath).exists();
-    if (!stat) continue;
-
-    // Check if it's a directory
-    const fileInfo = Bun.file(fullPath);
-    const size = fileInfo.size;
-    if (size === 0) continue;
+    const fullPath = join(extractDir, relativePath);
+    // lstat (no-follow): only read plain files. Symlinks are already stripped;
+    // this also skips directories and any residual special entry.
+    let info;
+    try {
+      info = lstatSync(fullPath);
+    } catch {
+      continue;
+    }
+    if (!info.isFile() || info.size === 0) continue;
+    const size = info.size;
 
     const ext = "." + (relativePath.split(".").pop() || "").toLowerCase();
     if (!TEXT_EXTENSIONS.includes(ext)) continue;
@@ -252,7 +307,7 @@ async function extractArchiveContent(
     if (size > 100000) continue;
 
     try {
-      const text = await fileInfo.text();
+      const text = await Bun.file(fullPath).text();
       const truncated = text.slice(0, 10000); // 10K per file max
       if (totalSize + truncated.length > MAX_ARCHIVE_CONTENT) break;
       contents.push({ name: relativePath, content: truncated });
