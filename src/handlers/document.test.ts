@@ -123,24 +123,23 @@ test("stripLinks removes hard-link exfil members but leaves the target file inta
 });
 
 // Integration: exercise listArchiveMembers against the real `tar` binary (the
-// path that runs in the container) so the security gate is tested end-to-end,
-// not just the isUnsafeMemberName predicate in isolation. Portable member naming
-// (no GNU-only --transform): `-C sub ../target` records a real `..` member name.
-test("listArchiveMembers surfaces members (incl. a .. traversal) from a real tar", async () => {
+// path that runs in the container) so the parse — `tar -tf` → split → filter — is
+// covered end-to-end, not mocked. Member names are asserted verbatim, incl. a
+// nested path. (`..`/absolute rejection is covered by isUnsafeMemberName above;
+// crafting a raw `..` member is not portable — GNU tar strips it on create, bsdtar
+// keeps it, BusyBox normalises it on list — so the predicate is unit-tested instead.)
+test("listArchiveMembers lists members from a real tar (tar -tf parse)", async () => {
   const dir = join(tmpdir(), `ctb-tar-${Date.now()}-${process.pid}`);
   mkdirSync(join(dir, "sub", "pkg"), { recursive: true });
   writeFileSync(join(dir, "sub", "a.txt"), "1");
   writeFileSync(join(dir, "sub", "pkg", "b.txt"), "2");
-  writeFileSync(join(dir, "target.txt"), "x"); // sits above sub/
   const tarPath = join(dir, "test.tar");
   try {
-    // Normal members from within sub/, plus one member named `../target.txt`.
-    await Bun.$`tar -cf ${tarPath} -C ${join(dir, "sub")} a.txt pkg/b.txt ../target.txt`.quiet();
+    await Bun.$`tar -cf ${tarPath} -C ${join(dir, "sub")} a.txt pkg/b.txt`.quiet();
     const members = await listArchiveMembers(tarPath, ".tar");
     expect(members).toContain("a.txt");
     expect(members).toContain("pkg/b.txt");
-    // The gate: a real archive's `..` member reaches isUnsafeMemberName and is flagged.
-    expect(members.some(isUnsafeMemberName)).toBe(true);
+    expect(members.every((m) => !isUnsafeMemberName(m))).toBe(true); // all in-tree
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
