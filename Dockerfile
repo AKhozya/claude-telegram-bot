@@ -27,9 +27,13 @@ RUN curl -fsSL https://fluxcd.io/install.sh | bash
 # gh CLI
 RUN apk add --no-cache github-cli
 
-# node + npm for runtime plugin hooks / MCP servers. No CLI install — the
-# Agent SDK vendors the engine binary in its platform package (…-linux-x64-musl).
-RUN apk add --no-cache nodejs npm
+# node + npm for runtime plugin hooks / MCP servers (Bun runs the app itself;
+# Node is only for Node-based MCP/plugin subprocesses + `npm i -g codex` below).
+# The Alpine base pins the major (3.22 ships Node 22 LTS); the "<26" bound turns
+# a future base bump that would cross into a new major into a loud build failure
+# instead of a silent upgrade. No CLI install — the Agent SDK vendors its own
+# engine binary in its platform package (…-linux-x64-musl).
+RUN apk add --no-cache "nodejs<26" npm
 
 # Codex CLI (pre-commit review gate). The linux-x64 platform dep ships codex's
 # static musl binary (codex publishes musl-only for linux) — alpine-safe.
