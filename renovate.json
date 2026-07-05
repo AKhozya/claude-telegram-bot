@@ -1,0 +1,58 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":automergeRequireAllStatusChecks",
+    "schedule:weekly"
+  ],
+  "timezone": "Europe/London",
+  "minimumReleaseAge": "3 days",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "automerge": true
+  },
+  "packageRules": [
+    {
+      "description": "grammY core + plugins move in lockstep: the plugins peer-depend on grammy ^1.x, so a grammy major breaks all three until they ship matching majors.",
+      "matchPackageNames": [
+        "grammy",
+        "@grammyjs/auto-retry",
+        "@grammyjs/files",
+        "@grammyjs/runner"
+      ],
+      "groupName": "grammy"
+    },
+    {
+      "description": "Automerge non-major runtime deps — CI (typecheck + compile + test) gates every merge.",
+      "matchDepTypes": ["dependencies"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": true
+    },
+    {
+      "description": "Automerge devDependencies (types/tooling).",
+      "matchDepTypes": ["devDependencies"],
+      "automerge": true
+    },
+    {
+      "description": "Automerge GitHub Actions bumps.",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "automerge": true
+    },
+    {
+      "description": "Majors get a manual PR — a green test run still misses runtime behavior changes.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "Anthropic Agent SDK stack — grouped + manual. agent-sdk peers @modelcontextprotocol/sdk ^1.29 and zod ^4 (so zod's major is pinned by it); it is 0.x, so minors are breaking, and tests miss runtime paths (setModel saga). Review by hand. Listed last so it overrides the automerge rules above.",
+      "matchPackageNames": [
+        "@anthropic-ai/claude-agent-sdk",
+        "@modelcontextprotocol/sdk",
+        "zod"
+      ],
+      "groupName": "anthropic-ai sdk stack",
+      "automerge": false
+    }
+  ]
+}
