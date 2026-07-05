@@ -28,7 +28,7 @@ import {
   checkPendingAskUserRequests,
   checkPendingSendFileRequests,
 } from "./handlers/streaming";
-import { evaluateToolUse } from "./security";
+import { evaluateToolUse, DENIED_TOOLS } from "./security";
 import type {
   SavedSession,
   SessionHistory,
@@ -226,6 +226,10 @@ class ClaudeSession {
       settingSources: ["user", "project"],
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
+      // Hard-block dangerous exec/publish/scheduling tools at the SDK layer too —
+      // the PreToolUse hook (evaluateToolUse) denies them as well, but this stops
+      // the model from ever emitting them. Single source of truth in security.ts.
+      disallowedTools: [...DENIED_TOOLS],
       systemPrompt: SAFETY_PROMPT,
       mcpServers: MCP_SERVERS,
       thinking:

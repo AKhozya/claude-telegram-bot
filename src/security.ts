@@ -172,6 +172,95 @@ export function isAuthorized(
 
 export type ToolVerdict = { allowed: true } | { allowed: false; reason: string };
 
+/**
+ * Built-in SDK tools that grant code/command execution, external publish, or
+ * scheduled re-entry — with no legitimate use in a phone-controlled Claude Code
+ * session. Denied outright.
+ *
+ * The gate is a blocklist, so an SDK bump can introduce a new dangerous tool that
+ * falls through default-allow (this happened when the SDK grew from 0.2.x → 0.3.x,
+ * audit 2026-07-05). The `SDK tool-surface tripwire` test in security.test.ts fails
+ * on any new unreviewed tool schema — update this set (and that snapshot) together.
+ * Exported so session.ts can also pass it as SDK `disallowedTools` (defense in depth).
+ */
+export const DENIED_TOOLS = new Set<string>([
+  "REPL", // arbitrary JavaScript execution
+  "Monitor", // background shell command
+  "Workflow", // script/agent orchestration (scriptPath never path-checked)
+  "Artifact", // publishes a file to claude.ai — exfil channel
+  "Projects", // project_write/project_delete — external claude.ai mutation/exfil
+  "CronCreate", // schedule future prompts — persistence
+  "CronDelete",
+  "CronList",
+  "ScheduleWakeup", // self-paced re-entry
+  "RemoteTrigger", // trigger remote actions
+  "PushNotification", // external push
+  "EnterWorktree", // switches active workspace (path never gated)
+  "ExitWorktree",
+]);
+
+/** Loopback / this-host / RFC1918-private / link-local IPv4 (a.b are the top octets). */
+function isPrivateV4(a: number, b: number): boolean {
+  if (a === 0 || a === 127 || a === 10) return true; // this-host, loopback, private
+  if (a === 169 && b === 254) return true; // link-local incl. 169.254.169.254 metadata
+  if (a === 172 && b >= 16 && b <= 31) return true; // private
+  if (a === 192 && b === 168) return true; // private
+  return false;
+}
+
+/**
+ * Best-effort SSRF guard for WebFetch: block loopback / private / link-local
+ * targets (cloud-metadata 169.254.169.254, the bot's own trigger port, LAN admin
+ * panels) and non-http(s) schemes.
+ * ponytail: literal-host + IPv4-range check only. DNS rebinding to a private IP is
+ * NOT caught (would need resolve-then-check). Covers the concrete metadata/localhost
+ * cases that matter under bypassPermissions; upgrade to resolve-first if it proves thin.
+ */
+function isBlockedFetchTarget(rawUrl: string): boolean {
+  let host: string;
+  try {
+    const u = new URL(rawUrl);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return true; // file:, gopher:, ...
+    // Strip IPv6 brackets and a trailing dot (`localhost.` / FQDN-root form).
+    // The WHATWG URL parser already folds decimal/octal/hex IPv4 to dotted form.
+    host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  } catch {
+    return true; // unparseable ⇒ block
+  }
+
+  if (
+    host === "localhost" ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    host === "metadata.google.internal"
+  ) {
+    return true;
+  }
+
+  // IPv6 literals (contain ":"). Gate on ":" so hostnames like "fd.io" or
+  // "fc-barcelona.com" aren't misread as IPv6.
+  if (host.includes(":")) {
+    if (host === "::1") return true; // loopback
+    if (/^fe[89ab]/.test(host)) return true; // link-local fe80::/10
+    if (host.startsWith("fc") || host.startsWith("fd")) return true; // unique-local fc00::/7
+    // IPv4-mapped IPv6 — the parser compresses the embedded v4 to hex groups,
+    // e.g. ::ffff:127.0.0.1 → ::ffff:7f00:1, ::ffff:169.254.169.254 → ::ffff:a9fe:a9fe.
+    const mapped = host.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (mapped) {
+      const hi = parseInt(mapped[1]!, 16);
+      if (isPrivateV4(hi >> 8, hi & 0xff)) return true;
+    }
+    return false;
+  }
+
+  // IPv4 literal
+  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) return isPrivateV4(Number(m[1]), Number(m[2]));
+
+  return false;
+}
+
 /** Resolve ~ and symlinks; fall back to lexical resolve for non-existent paths. */
 function canonicalize(path: string): string {
   const expanded = path.replace(/^~/, process.env.HOME || "");
@@ -187,6 +276,23 @@ export function evaluateToolUse(
   toolName: string,
   input: Record<string, unknown>
 ): ToolVerdict {
+  // Dangerous exec/publish/scheduling tools — no place in this bot.
+  if (DENIED_TOOLS.has(toolName)) {
+    return { allowed: false, reason: `Tool not permitted in bot context: ${toolName}` };
+  }
+
+  // WebFetch is legit but SSRF-dangerous under bypassPermissions.
+  if (toolName === "WebFetch") {
+    const rawUrl = input.url;
+    if (rawUrl !== undefined && typeof rawUrl !== "string") {
+      return { allowed: false, reason: "non-string WebFetch url" };
+    }
+    const url = String(rawUrl || "");
+    if (url && isBlockedFetchTarget(url)) {
+      return { allowed: false, reason: `WebFetch to non-public host blocked: ${url}` };
+    }
+  }
+
   if (toolName === "Bash") {
     const rawCommand = input.command;
     if (rawCommand !== undefined && typeof rawCommand !== "string") {
