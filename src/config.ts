@@ -45,23 +45,6 @@ export const ALLOWED_USERS: number[] = (
 export const WORKING_DIR = process.env.CLAUDE_WORKING_DIR || HOME;
 export const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 
-// ============== Claude CLI Path ==============
-
-// Auto-detect from PATH, or use environment override
-function findClaudeCli(): string {
-  const envPath = process.env.CLAUDE_CLI_PATH;
-  if (envPath) return envPath;
-
-  // Try to find claude in PATH using Bun.which
-  const whichResult = Bun.which("claude");
-  if (whichResult) return whichResult;
-
-  // Final fallback
-  return "/usr/local/bin/claude";
-}
-
-export const CLAUDE_CLI_PATH = findClaudeCli();
-
 // ============== MCP Configuration ==============
 
 // MCP servers loaded from mcp-config.ts

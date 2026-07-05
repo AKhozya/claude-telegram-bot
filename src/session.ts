@@ -635,17 +635,6 @@ class ClaudeSession {
     ];
   }
 
-  /**
-   * Resume the last persisted session (legacy method, now resumes most recent).
-   */
-  resumeLast(): [success: boolean, message: string] {
-    const sessions = this.getSessionList();
-    if (sessions.length === 0) {
-      return [false, "No saved session"];
-    }
-
-    return this.resumeSession(sessions[0]!.session_id);
-  }
 }
 
 // Global session instance

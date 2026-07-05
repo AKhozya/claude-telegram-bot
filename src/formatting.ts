@@ -68,18 +68,20 @@ export function convertMarkdownToHtml(text: string): string {
   // Links: [text](url) -> <a href="url">text</a>
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
 
-  // Restore code blocks
+  // Restore code blocks. Use a replacement FUNCTION, not a string — a string
+  // replacement interprets `$$`/`$&`/`` $` ``/`$'` in the code as special patterns
+  // (e.g. code `$&` would re-insert the placeholder), corrupting the output.
   for (let i = 0; i < codeBlocks.length; i++) {
     const escapedCode = escapeHtml(codeBlocks[i]!);
-    text = text.replace(`\x00CODEBLOCK${i}\x00`, `<pre>${escapedCode}</pre>`);
+    text = text.replace(`\x00CODEBLOCK${i}\x00`, () => `<pre>${escapedCode}</pre>`);
   }
 
-  // Restore inline code
+  // Restore inline code (same `$`-in-replacement hazard — use a function).
   for (let i = 0; i < inlineCodes.length; i++) {
     const escapedCode = escapeHtml(inlineCodes[i]!);
     text = text.replace(
       `\x00INLINECODE${i}\x00`,
-      `<code>${escapedCode}</code>`
+      () => `<code>${escapedCode}</code>`
     );
   }
 

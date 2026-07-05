@@ -60,18 +60,6 @@ class RateLimiter {
     return [false, retryAfter];
   }
 
-  getStatus(userId: number): {
-    tokens: number;
-    max: number;
-    refillRate: number;
-  } {
-    const bucket = this.buckets.get(userId);
-    return {
-      tokens: bucket?.tokens ?? this.maxTokens,
-      max: this.maxTokens,
-      refillRate: this.refillRate,
-    };
-  }
 }
 
 export const rateLimiter = new RateLimiter();
@@ -406,9 +394,12 @@ export function evaluateToolUse(
     const filePath = String(rawPath || "");
     if (filePath) {
       const canonical = canonicalize(filePath);
-      // NotebookEdit is a write — no .claude read exemption.
+      // NotebookEdit is a write — no .claude read exemption. Scope the exemption to
+      // the user's OWN ~/.claude (config/skills), not any path with "/.claude/" in it
+      // (`.includes` matched `/tmp/x/.claude/secret` and let it be read).
+      const claudeHome = `${process.env.HOME || ""}/.claude/`;
       const isClaudeDirRead =
-        toolName === "Read" && canonical.includes("/.claude/");
+        toolName === "Read" && canonical.startsWith(claudeHome);
       if (!isClaudeDirRead && !isPathAllowed(canonical)) {
         return { allowed: false, reason: `File access outside allowed paths: ${filePath}` };
       }

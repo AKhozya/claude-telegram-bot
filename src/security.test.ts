@@ -182,6 +182,21 @@ describe("evaluateToolUse", () => {
     expect(evaluateToolUse("EnterWorktree", { path: "/x" }).allowed).toBe(false);
   });
 
+  test("scopes the .claude read exemption to $HOME/.claude, not any /.claude/ path", () => {
+    // `.includes("/.claude/")` used to exempt ANY dir named .claude from the allowlist.
+    expect(
+      evaluateToolUse("Read", { file_path: "/etc/foo/.claude/secret" }).allowed
+    ).toBe(false);
+  });
+
+  test("still allows reading the user's own ~/.claude", () => {
+    expect(
+      evaluateToolUse("Read", {
+        file_path: `${process.env.HOME}/.claude/settings.json`,
+      }).allowed
+    ).toBe(true);
+  });
+
   test("denies Agent (subagent spawn is a second, ungated tool-exec surface)", () => {
     // A spawned agent runs its own Bash/file tools; with isolation:"remote" it runs
     // beyond this process's PreToolUse hook entirely. None of checkCommandSafety /

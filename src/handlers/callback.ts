@@ -51,6 +51,12 @@ export async function handleCallback(ctx: Context): Promise<void> {
   }
 
   const requestId = parts[1]!;
+  // request_id is interpolated into a /tmp path below — restrict to a safe charset so
+  // a crafted value can't traverse (`../`) to read/unlink files outside the ask-user set.
+  if (!/^[A-Za-z0-9_-]+$/.test(requestId)) {
+    await ctx.answerCallbackQuery({ text: "Invalid request id" });
+    return;
+  }
   const optionIndex = parseInt(parts[2]!, 10);
 
   // 3. Load request file
