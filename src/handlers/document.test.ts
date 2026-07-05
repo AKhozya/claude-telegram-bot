@@ -32,6 +32,25 @@ const lexists = (p: string): boolean => {
   }
 };
 
+// Does this host have a real `zip` + Info-ZIP `unzip` (the `-Z1` lister the code
+// needs)? BusyBox-only boxes lack `-Z`; the zip integration test skips there rather
+// than failing, but runs on macOS dev, GitHub ubuntu runners, and the built image.
+const hasInfoZip: boolean = await (async () => {
+  if (!Bun.which("zip") || !Bun.which("unzip")) return false;
+  const d = join(tmpdir(), `ctb-zipprobe-${Date.now()}-${process.pid}`);
+  try {
+    mkdirSync(d, { recursive: true });
+    writeFileSync(join(d, "x.txt"), "1");
+    await Bun.$`sh -c ${`cd ${d} && zip -q probe.zip x.txt`}`.quiet();
+    await Bun.$`unzip -Z1 ${join(d, "probe.zip")}`.quiet();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+})();
+
 test("image/scanned PDF (form-feeds + whitespace only) has no usable text", () => {
   // pdftotext on an image PDF emits page-break \f and nothing else.
   expect(pdfHasUsableText("\f   \n  \f  \n\t")).toBe(false);
@@ -144,3 +163,26 @@ test("listArchiveMembers lists members from a real tar (tar -tf parse)", async (
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// Symmetric real-binary test for the zip path (`unzip -Z1`). Guards against a base
+// image that re-shadows unzip with BusyBox — the exact divergence that broke zip in
+// prod once. Skipped where Info-ZIP isn't present rather than failing.
+test.skipIf(!hasInfoZip)(
+  "listArchiveMembers lists members from a real zip (unzip -Z1 parse)",
+  async () => {
+    const dir = join(tmpdir(), `ctb-zip-${Date.now()}-${process.pid}`);
+    mkdirSync(join(dir, "src", "pkg"), { recursive: true });
+    writeFileSync(join(dir, "src", "a.txt"), "1");
+    writeFileSync(join(dir, "src", "pkg", "b.txt"), "2");
+    const zipPath = join(dir, "test.zip");
+    try {
+      await Bun.$`sh -c ${`cd ${join(dir, "src")} && zip -q -r ${zipPath} a.txt pkg`}`.quiet();
+      const members = await listArchiveMembers(zipPath, ".zip");
+      expect(members).toContain("a.txt");
+      expect(members).toContain("pkg/b.txt");
+      expect(members.every((m) => !isUnsafeMemberName(m))).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+);
