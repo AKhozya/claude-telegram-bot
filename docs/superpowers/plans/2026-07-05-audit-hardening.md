@@ -79,3 +79,10 @@ Bash is a shell by design. Path/command controls = defense-in-depth vs **prompt 
 
 ## Bloat (optional, non-defect)
 Drop archive feature (kills #4); auth check → grammY middleware (~50 lines); voice≈audio dedup (~60).
+
+## Backlog (non-audit, non-urgent)
+- **Drop the OpenAI dependency for voice/audio transcription.** Anthropic models have no
+  native audio input (vision + text only), so voice/audio STT currently requires
+  `OPENAI_API_KEY` (Whisper). Options if we want to shed the external key: local
+  `whisper.cpp`/faster-whisper (offline, no key; adds a binary + ~100MB model weights to the
+  image), or revisit when/if a Claude model gains native audio. Handy, not urgent.
