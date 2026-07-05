@@ -28,9 +28,8 @@ async function downloadVideo(ctx: BotContext): Promise<string> {
 
   const timestamp = Date.now();
 
-  // Use mp4 extension for regular videos, mp4 for video notes too
-  const extension = ctx.message?.video_note ? "mp4" : "mp4";
-  const videoPath = `${TEMP_DIR}/video_${timestamp}.${extension}`;
+  // Telegram delivers both regular videos and video notes as mp4.
+  const videoPath = `${TEMP_DIR}/video_${timestamp}.mp4`;
 
   return await downloadTelegramFile(ctx, videoPath);
 }

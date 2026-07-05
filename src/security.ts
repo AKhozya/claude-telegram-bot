@@ -60,18 +60,6 @@ class RateLimiter {
     return [false, retryAfter];
   }
 
-  getStatus(userId: number): {
-    tokens: number;
-    max: number;
-    refillRate: number;
-  } {
-    const bucket = this.buckets.get(userId);
-    return {
-      tokens: bucket?.tokens ?? this.maxTokens,
-      max: this.maxTokens,
-      refillRate: this.refillRate,
-    };
-  }
 }
 
 export const rateLimiter = new RateLimiter();
@@ -406,9 +394,15 @@ export function evaluateToolUse(
     const filePath = String(rawPath || "");
     if (filePath) {
       const canonical = canonicalize(filePath);
-      // NotebookEdit is a write — no .claude read exemption.
+      // NotebookEdit is a write — no .claude read exemption. Scope the exemption to
+      // the user's OWN ~/.claude (config/skills), not any path with "/.claude/" in it
+      // (`.includes` matched `/tmp/x/.claude/secret` and let it be read).
+      // Fail CLOSED if HOME is unset (minimal launchd/systemd env): otherwise
+      // claudeHome collapses to "/.claude/" and a real /.claude/secret would satisfy
+      // startsWith and bypass isPathAllowed.
+      const home = process.env.HOME || "";
       const isClaudeDirRead =
-        toolName === "Read" && canonical.includes("/.claude/");
+        toolName === "Read" && home !== "" && canonical.startsWith(`${home}/.claude/`);
       if (!isClaudeDirRead && !isPathAllowed(canonical)) {
         return { allowed: false, reason: `File access outside allowed paths: ${filePath}` };
       }

@@ -13,6 +13,7 @@
 
 import { timingSafeEqual } from "node:crypto";
 import type { Bot } from "grammy";
+import type { Update } from "grammy/types";
 import type { BotContext, BotApi } from "../types";
 import {
   ALLOWED_USERS,
@@ -102,7 +103,7 @@ export function startTriggerServer(
       };
 
       // Fire-and-forget: handlers stream replies to Telegram themselves.
-      bot.handleUpdate(update as any).catch((err) => {
+      bot.handleUpdate(update as unknown as Update).catch((err) => {
         console.error("Trigger handleUpdate failed:", err);
       });
 

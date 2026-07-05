@@ -48,14 +48,17 @@ Bash is a shell by design. Path/command controls = defense-in-depth vs **prompt 
   their own clearStopRequested (explicit stops, no markInterrupt — correct).
 - [ ] **#4 P2 — archive traversal.** extractArchive zip-slip (no member containment) + extractArchiveContent
   symlink-follow read. Feature niche + likely broken (no `unzip` in image). DECISION: delete vs harden.
-- [ ] **#5 P2 — formatting $$/$& corruption.** String.replace treats `$$`/`$&` as patterns → NUL leak.
-  Fix: replacement function.
-- [ ] **#6 P3 — over-broad `.claude` read exemption.** `.includes("/.claude/")` matches any dir; redundant.
-  Fix: `startsWith(HOME + "/.claude/")` or drop.
-- [ ] **#7 P3 — request_id traversal (LOW).** Sanitize charset in callback.ts.
-- [ ] **#8 P3 — dead code ~86 lines.** auditLogAuth/Tool/Error, CLAUDE_CLI_PATH+findClaudeCli,
-  RateLimiter.getStatus, session.resumeLast.
-- [ ] **#9 P3 — misc.** ask-user /tmp leak (streaming.ts), video.ts:32 identical ternary, trigger.ts `as any`.
+- [x] **#5 P2 — formatting $$/$& corruption.** String.replace treated `$$`/`$&`/`` $` `` in restored
+  code as replacement patterns. Fixed: replacement FUNCTION in convertMarkdownToHtml (formatting.ts). Tested.
+- [x] **#6 P3 — over-broad `.claude` read exemption.** `.includes("/.claude/")` matched any dir named
+  .claude (`/etc/x/.claude/secret`). Fixed: `startsWith($HOME/.claude/)`. isPathAllowed stays the real gate. Tested.
+- [x] **#7 P3 — request_id traversal (LOW).** callback.ts now charset-validates request_id (`^[A-Za-z0-9_-]+$`)
+  before interpolating it into the /tmp ask-user path.
+- [x] **#8 P3 — dead code.** Removed auditLogAuth/Tool/Error (utils.ts), findClaudeCli+CLAUDE_CLI_PATH
+  (config.ts), RateLimiter.getStatus (security.ts), session.resumeLast. Net −69 lines.
+- [~] **#9 P3 — misc.** Done: video.ts dead `?"mp4":"mp4"` ternary collapsed, trigger.ts `as any` →
+  `as unknown as Update`. DEFERRED: ask-user /tmp leak (streaming.ts) — unanswered request files accumulate;
+  a correct TTL-sweep fix has late-tap edge cases, not trivial. Track separately (low value, /tmp clears on reboot).
 
 - [ ] **#12 P2 — OS-level Bash containment (the real deletion/exfil control).** `checkCommandSafety` is a
   fail-open regex denylist; 3 review rounds each surfaced new command-word/deleter spellings (`$(rm)`, `\rm`,

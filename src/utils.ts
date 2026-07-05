@@ -75,61 +75,6 @@ export async function auditLog(
   await writeAuditLog(event);
 }
 
-export async function auditLogAuth(
-  userId: number,
-  username: string,
-  authorized: boolean
-): Promise<void> {
-  await writeAuditLog({
-    timestamp: new Date().toISOString(),
-    event: "auth",
-    user_id: userId,
-    username,
-    authorized,
-  });
-}
-
-export async function auditLogTool(
-  userId: number,
-  username: string,
-  toolName: string,
-  toolInput: Record<string, unknown>,
-  blocked = false,
-  reason = ""
-): Promise<void> {
-  const event: AuditEvent = {
-    timestamp: new Date().toISOString(),
-    event: "tool_use",
-    user_id: userId,
-    username,
-    tool_name: toolName,
-    tool_input: toolInput,
-    blocked,
-  };
-  if (blocked && reason) {
-    event.reason = reason;
-  }
-  await writeAuditLog(event);
-}
-
-export async function auditLogError(
-  userId: number,
-  username: string,
-  error: string,
-  context = ""
-): Promise<void> {
-  const event: AuditEvent = {
-    timestamp: new Date().toISOString(),
-    event: "error",
-    user_id: userId,
-    username,
-    error,
-  };
-  if (context) {
-    event.context = context;
-  }
-  await writeAuditLog(event);
-}
 
 export async function auditLogRateLimit(
   userId: number,
