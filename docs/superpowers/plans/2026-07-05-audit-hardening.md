@@ -17,8 +17,15 @@ Bash is a shell by design. Path/command controls = defense-in-depth vs **prompt 
   Under bypassPermissions the PreToolUse hook is the only gate. No allowedTools/disallowedTools set.
   Fix: deny dangerous exec/publish/schedule tools in the hook + SDK `disallowedTools`; SSRF-gate WebFetch;
   canary test that fails on a new unclassified SDK tool (kills the recurrence).
-- [ ] **#2 P1 — checkCommandSafety rm bypass.** First-rm-only, strips after `;|&`, skips `$`/`*`/`?`/backtick args.
-  `rm /ok; rm /out/of/tree` + `rm -rf $VAR` pass. Fix: scan all rm; deny (not skip) unresolvable args.
+- [x] **#2 P1 — checkCommandSafety rm bypass.** First-rm-only, strips after `;|&`, skips `$`/`*`/`?`/backtick args.
+  `rm /ok; rm /out/of/tree` + `rm -rf $VAR` pass. Fixed: split on shell operators, scan every rm
+  segment, fail-closed on `$`/backtick/brace, glob prefix-check + post-glob `..` reject, dequote args.
+  Codex round-1 + ecc:security-reviewer surfaced 4 more (quoted abs path, leading redirect, post-glob `..`,
+  redirect-write `rm ok >/etc/passwd`) — all fixed + regression-tested (63 tests). ~15 rm tests.
+- [ ] **#10 P2 — redirect write-anywhere (non-rm).** `echo x >/etc/passwd` returns safe=true: the
+  redirect-target validation added in #2 only runs inside rm-containing commands (outer `/\brm\b/` gate).
+  A `>`/`>>` on ANY command writes/truncates outside ALLOWED_PATHS. Fix: validate output-redirect targets
+  for every command, not just rm. Distinct feature from #2; needs its own gate + tests.
 - [ ] **#3 P1 — session singleton race.** callback.ts stop→sleep→restart without await/clearStopRequested;
   callbacks bypass sequentialize. Lost button + corrupted abortController/sessionId + spurious stop.
   Fix: await settle, markInterrupt, clearStopRequested (mirror checkInterrupt).

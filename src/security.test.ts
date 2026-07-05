@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test";
 process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
 process.env.TELEGRAM_ALLOWED_USERS = "1";
 
-const { evaluateToolUse } = await import("./security");
+const { evaluateToolUse, checkCommandSafety } = await import("./security");
 
 describe("evaluateToolUse", () => {
   test("blocks unsafe Bash command", () => {
@@ -180,6 +180,114 @@ describe("evaluateToolUse", () => {
 
   test("denies EnterWorktree (active-workspace switch)", () => {
     expect(evaluateToolUse("EnterWorktree", { path: "/x" }).allowed).toBe(false);
+  });
+});
+
+// ── #2 audit (2026-07-05): checkCommandSafety validated only the FIRST rm and
+// silently skipped unresolvable args, so a chained/second rm or a variable/glob
+// target escaped the ALLOWED_PATHS containment. These lock the fail-closed rewrite. ──
+describe("checkCommandSafety - chained / obfuscated rm", () => {
+  test("allows a single in-tree rm (baseline)", () => {
+    expect(checkCommandSafety("rm /tmp/ok")[0]).toBe(true);
+  });
+
+  test("allows a non-rm command", () => {
+    expect(checkCommandSafety("ls -la /etc")[0]).toBe(true);
+  });
+
+  test("blocks second rm after ; (was first-rm-only)", () => {
+    expect(checkCommandSafety("rm /tmp/ok; rm /etc/passwd")[0]).toBe(false);
+  });
+
+  test("blocks second rm after && (was stripped as operator tail)", () => {
+    expect(checkCommandSafety("rm /tmp/ok && rm /etc/shadow")[0]).toBe(false);
+  });
+
+  test("blocks rm after a pipe", () => {
+    expect(checkCommandSafety("cat /tmp/x | rm /etc/passwd")[0]).toBe(false);
+  });
+
+  test("blocks rm with a variable target (unresolvable, fail-closed)", () => {
+    // $HOME/$TARGET could expand to anything incl. `..` escapes. Not a BLOCKED_PATTERN.
+    expect(checkCommandSafety("rm -rf $VICTIM_DIR")[0]).toBe(false);
+  });
+
+  test("blocks rm with a command-substitution target", () => {
+    expect(checkCommandSafety("rm -rf `echo /etc`")[0]).toBe(false);
+  });
+
+  test("blocks rm with brace expansion (can smuggle an out-of-tree path)", () => {
+    expect(checkCommandSafety("rm /tmp/a{,/../../etc/passwd}")[0]).toBe(false);
+  });
+
+  // NB: no `-rf` here — `rm -rf /<x>` trips the coarse BLOCKED_PATTERN "rm -rf /"
+  // and would mask whether the glob-prefix logic itself works.
+  test("blocks glob whose fixed prefix is out of tree", () => {
+    expect(checkCommandSafety("rm /etc/*")[0]).toBe(false);
+  });
+
+  test("allows glob whose fixed prefix is in tree", () => {
+    expect(checkCommandSafety("rm /tmp/x/*")[0]).toBe(true);
+  });
+
+  test("blocks glob prefix that escapes via ..", () => {
+    expect(checkCommandSafety("rm /tmp/../etc/*")[0]).toBe(false);
+  });
+
+  test("still strips a legit trailing redirect on an in-tree rm", () => {
+    expect(checkCommandSafety("rm /tmp/ok 2>/dev/null")[0]).toBe(true);
+  });
+
+  // ── codex round-2 findings: quote-hidden abs path, leading redirect, post-glob .. ──
+  test("blocks a quoted absolute out-of-tree target (shell strips the quotes)", () => {
+    expect(checkCommandSafety('rm "/etc/passwd"')[0]).toBe(false);
+  });
+
+  test("blocks single-quoted out-of-tree target", () => {
+    expect(checkCommandSafety("rm '/etc/passwd'")[0]).toBe(false);
+  });
+
+  test("blocks target hidden behind a LEADING redirect (not just trailing)", () => {
+    expect(checkCommandSafety("rm >/dev/null /etc/passwd")[0]).toBe(false);
+  });
+
+  test("blocks target after a spaced leading redirect", () => {
+    expect(checkCommandSafety("rm 2> /tmp/log /etc/shadow")[0]).toBe(false);
+  });
+
+  test("blocks glob that escapes its prefix via post-glob ..", () => {
+    // Prefix /tmp/x is genuinely in-tree, so only the post-glob `..` guard can catch it.
+    expect(checkCommandSafety("rm /tmp/x/probe*/../../../etc/passwd")[0]).toBe(false);
+  });
+
+  test("still allows an in-tree quoted target", () => {
+    expect(checkCommandSafety('rm "/tmp/ok"')[0]).toBe(true);
+  });
+
+  test("still allows an in-tree rm with a leading redirect", () => {
+    expect(checkCommandSafety("rm >/tmp/log /tmp/ok")[0]).toBe(true);
+  });
+
+  // ── security-reviewer finding: a redirect `>FILE` is an unchecked write-anywhere
+  // primitive riding on the rm; the target must be path-validated, not discarded. ──
+  test("blocks rm whose redirect target truncates an out-of-tree file", () => {
+    expect(checkCommandSafety('rm "safe" >/etc/passwd')[0]).toBe(false);
+  });
+
+  test("blocks rm with append redirect to out-of-tree file", () => {
+    expect(checkCommandSafety("rm /tmp/ok >>/etc/crontab")[0]).toBe(false);
+  });
+
+  test("allows rm redirecting to /dev/null (standard sink)", () => {
+    expect(checkCommandSafety("rm /tmp/ok 2>/dev/null")[0]).toBe(true);
+  });
+
+  test("allows rm redirecting to an in-tree file", () => {
+    expect(checkCommandSafety("rm /tmp/ok >/tmp/telegram-bot/out.log")[0]).toBe(true);
+  });
+
+  test("allows rm with an fd-dup redirect (2>&1)", () => {
+    expect(checkCommandSafety("rm /tmp/ok >/tmp/telegram-bot/o 2>&1")[0]).toBe(true);
   });
 });
 
