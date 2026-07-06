@@ -54,9 +54,12 @@ sandbox: {
   filesystem: {
     allowWrite: [ ...ALLOWED_PATHS, SANDBOX_SCRATCH ],   // allowlist → all else NOT writable. NOT ~/.claude, NOT all of /tmp
     denyWrite:  [ ~/.claude, **/.claude/settings*.json, **/.claude/hooks/** ],  // write == code-exec; deny even inside ALLOWED_PATHS
-    allowRead:  [ ...ALLOWED_PATHS, SANDBOX_SCRATCH, ...SYSTEM_READ_SET ],  // reads fail-CLOSED — the exfil-read boundary
-    // deny-all-except enforcement (allowManagedReadPathsOnly or exhaustive allowRead) verified in spike 1/5
-    denyRead:   [ ~/.ssh, ~/.claude/.credentials*, ~/.aws, ~/.config/gh, ~/.config/op, **/.env ],  // secrets INSIDE an allowed-read tree
+    allowRead:  [ ...ALLOWED_PATHS, SANDBOX_SCRATCH ],  // re-allow work dirs within denyRead regions ONLY
+    // Reads are NOT fail-closed: the inline sandbox's allowRead only re-allows within denyRead, and
+    // allowManagedReadPathsOnly is honored solely from managed policy settings, not the query() option
+    // (BOTH probe-verified 2026-07-06). Read containment = this denyRead blocklist + Layer-2 egress.
+    denyRead:   [ ~/.ssh, ~/.aws, ~/.gnupg, ~/.kube, ~/.docker, ~/.config, ~/.claude/.credentials*,
+                  ~/.netrc, ~/.git-credentials, ~/.npmrc, ~/.pypirc, ~/.pgpass, **/.env ],
   },
   // SANDBOX_SCRATCH = one dedicated per-run dir (e.g. /tmp/ctb-sandbox-<pid>/), NOT the broad temp roots.
   credentials: {                    // defense-in-depth only — (a) options.env is the real guarantee
@@ -87,18 +90,19 @@ sandbox: {
   outside-`ALLOWED_PATHS` read/write exception — exposing other processes' temp files AND the bot's own
   session/audit/download files in `/tmp` (readable + corruptible). A scoped scratch dir removes both. The
   bot's own `/tmp` runtime files stay owned by the unsandboxed bot process, outside the scratch dir.
-- **Reads are allowlisted (fail-closed) — the decisive exfil-read boundary.** A write-only allowlist
-  with just a `denyRead` blocklist leaves reading arbitrary secrets open, which doesn't meet the stated
-  boundary. `allowRead` = `ALLOWED_PATHS` + the dedicated scratch dir + a *minimal* `SYSTEM_READ_SET`
-  (TLS certs, shared libs, git config — whatever Claude Code + builds/git/language tools actually need).
-  This is the **highest-calibration-risk knob**: too tight bricks Claude Code. If the minimal read set is
-  hard to pin, the answer is to **widen `allowRead` with specific vetted paths — never drop to a
-  blocklist.** A blocklist is *not* equivalent containment: network-egress control does not make a read
-  secret un-exfiltrable (the Bash sandbox's own permitted egress + indirect write-then-sync channels
-  remain). So a non-allowlisted read state is an honest **ceiling to escalate to the user**, not a silent
-  softening. (The Bash tool-output → Claude → chat channel terminates at the *trusted* user, not an
-  attacker; attacker-exfil requires network egress or a write, both contained separately.) `denyRead`
-  stays regardless, for secrets *inside* an allowed-read tree (e.g. a project's `.env`).
+- **Reads are a `denyRead` blocklist, NOT fail-closed (empirical correction, 2026-07-06).** The intent
+  was fail-closed reads via an `allowRead` allowlist, but a runtime probe showed the inline sandbox does
+  **not** support that: `allowRead` only re-allows paths *within* `denyRead` regions, and
+  `allowManagedReadPathsOnly` (the "only allowRead is readable" switch) is honored solely from managed
+  policy settings — not the `query()` `sandbox` option. Both were tested; a canary outside every allow
+  path was still readable until it was explicitly `denyRead`. So read containment is a **blocklist** of
+  known credential stores (`~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.kube`, `~/.docker`, the whole `~/.config`
+  XDG tree, `~/.claude/.credentials*`, `~/.netrc`, `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`,
+  `~/.pgpass`, `**/.env`) plus **Layer-2 network egress** to stop a read secret from leaving. A blocklist
+  is inherently incomplete — an unlisted store is a documented **ceiling**, not silently softened.
+  Writes remain fail-closed (the `allowWrite` allowlist), which is the primary deletion/overwrite control
+  the plan asked for. Fully fail-closed reads would require driving the sandbox from a managed policy
+  settings file (`allowManagedReadPathsOnly`) — larger change, tracked as future work.
 - **Env secrets: primary control is `options.env`, not `credentials.envVars`.** Both scrub by scanning
   `process.env` at startup for secret-shaped keys (future-proof vs a new token var), but `options.env`
   is the enforced guarantee — the child process is *spawned without* the secrets, so it holds whether or
@@ -150,12 +154,14 @@ against the built image — do not assume this list is complete. (Info-ZIP `unzi
 4. **`options.env` scrub set.** Determine exactly which env vars Claude Code needs to authenticate/operate
    (so the scrub doesn't silently break auth) vs which secrets to strip. Confirm the child truly cannot
    see `OPENAI_API_KEY`/`TELEGRAM_BOT_TOKEN` after scrubbing.
-5. **Read-allowlist calibration (highest risk).** Find the minimal `SYSTEM_READ_SET` Claude Code +
-   git/build/language tools need outside `ALLOWED_PATHS`; widen with specific vetted paths as needed —
-   never drop to a blocklist. If a fail-closed read allowlist genuinely can't cover core operation, STOP
-   and escalate to the user with the exact residual (which paths stay readable) — that's a scoping
-   decision, not a silent softening. Confirm `cat` of a secret outside `ALLOWED_PATHS`/`SYSTEM_READ_SET`
-   is blocked.
+5. **Read model (RESOLVED 2026-07-06 — reads are a blocklist).** Probe confirmed the inline sandbox
+   cannot fail-close reads (see the reads bullet above). So calibrate `denyRead` to cover known credential
+   stores and confirm two things by probe: (a) real Claude Code Bash work (git/bun/node/file-read) still
+   passes, and (b) a canary under a `denyRead` path (e.g. `~/.config/x`) returns `Operation not permitted`.
+   Both verified on macOS; re-confirm in-container at rollout.
+6. **Symlink TOCTOU through an allowed dir.** Create a symlink inside an `ALLOWED_PATH` pointing at a
+   `denyRead`/outside-allowlist file and confirm sandboxed Bash still can't read/write through it (property
+   of the sandbox runtime, not this config — verify empirically).
 
 ## Verification (the proof — repros, not just unit tests)
 | Check | Expect |
@@ -163,7 +169,9 @@ against the built image — do not assume this list is complete. (Info-ZIP `unzi
 | Bash writes outside `ALLOWED_PATHS` (e.g. `>~/evil` or `rm ~/x`) | blocked |
 | Bash writes inside `ALLOWED_PATHS` | works |
 | Bash writes `~/.claude/settings.json` OR project `./.claude/settings.json` | blocked (hook-injection escape) |
-| Bash `cat`s a file outside `ALLOWED_PATHS` + `SYSTEM_READ_SET` + scratch | blocked (fail-closed reads) |
+| **native Write** tool writes `.mcp.json` / project `.claude/settings.json` / `.claude/hooks/*` | blocked by the app hook (`evaluateToolUse`) |
+| Bash `cat`s a file under a `denyRead` path (e.g. `~/.config/x`) | blocked (`Operation not permitted`) |
+| Bash `cat`s an ordinary file outside `ALLOWED_PATHS` not in `denyRead` | **readable** (reads are a blocklist, not fail-closed — ceiling) |
 | `echo $OPENAI_API_KEY` inside Bash | empty |
 | `cat ~/.claude/.credentials.json` inside Bash | denied |
 | Sandbox deps missing (simulate) | bot emits error result, does NOT run bare (fail-closed) |
@@ -175,10 +183,17 @@ later refactor can't silently drop the boundary (same pattern as the #1 tool-gat
 ## Ceiling (documented → future items)
 - **Same kernel.** bubblewrap/Seatbelt share the host kernel; a kernel LPE or sandbox-escape defeats
   layer 1. Layer 2 caps blast radius; only a microVM removes the shared kernel.
+- **Reads are a blocklist, not fail-closed.** An unlisted credential store outside `ALLOWED_PATHS` is
+  readable by injected Bash. Real fail-closed reads need managed policy settings (future work); today the
+  containment is the `denyRead` list + Layer-2 egress stopping the read data from leaving.
 - **Only Bash is contained.** The bot process keeps the secrets + broad network (it's the trusted
-  parent). **MCP tool calls run in the bot process, unsandboxed** — a real exfil path this does NOT
-  close. Track as a separate item.
-- **macOS network is domain-level only** (no NetworkPolicy equivalent); acceptable for a personal dev
-  box, weaker than the container. Note, don't fix here.
+  parent). **`WebFetch` and MCP tool calls run in the bot process, unsandboxed** — a full read→exfil
+  chain (`Read` a secret, `WebFetch` it out) touches Bash never once. On the container, Layer-2 NetworkPolicy
+  is pod-scoped and catches this regardless of originating process; **on macOS there is no NetworkPolicy
+  equivalent, so WebFetch-based exfil is unmitigated there today.** (WebFetch SSRF *into* internal targets
+  is separately blocked by `evaluateToolUse`.) Track as a separate item.
+- **`~/.kube` etc. are `denyRead`-adjacent functional gaps.** kubeconfig is deliberately NOT read-allowed,
+  so Claude-invoked `kubectl`/`flux` via Bash will fail. The fix when that bites is a scoped/short-lived
+  service-account token, NOT adding `~/.kube` to a read-allow (which would reopen credential exposure).
 - **Network denylist now, allowlist later.** Graduating `deniedDomains` → strict `allowedDomains` (and
   the scoped egress NetworkPolicy) is the follow-up that closes arbitrary-host exfil.

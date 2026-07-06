@@ -1,9 +1,13 @@
 import { test, expect } from "bun:test";
+import { symlinkSync, mkdirSync, rmSync, statSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 process.env.TELEGRAM_BOT_TOKEN = "x:y";
 process.env.TELEGRAM_ALLOWED_USERS = "1";
 
-const { buildSandboxSettings, sanitizeEnv, secretEnvNames, SANDBOX_SCRATCH } = await import("./sandbox");
+const { buildSandboxSettings, sanitizeEnv, secretEnvNames, ensureScratchDir, SANDBOX_SCRATCH } =
+  await import("./sandbox");
 
 // Inject allowed paths explicitly — the module-level ALLOWED_PATHS const is frozen at first import,
 // so relying on it here is order-dependent across the full suite. DI keeps the test deterministic.
@@ -23,23 +27,50 @@ test("allowWrite = ALLOWED_PATHS + scratch, not all of /tmp", () => {
   expect(fs.allowWrite).not.toContain("/tmp");
 });
 
-test("denyWrite covers ~/.claude + project .claude control files", () => {
+test("denyWrite covers ~/.claude + project .claude control files + .mcp.json", () => {
   const dw = buildSandboxSettings().filesystem!.denyWrite!;
   expect(dw.some((p) => p.endsWith("/.claude"))).toBe(true);
   expect(dw).toContain("**/.claude/settings*.json");
   expect(dw).toContain("**/.claude/hooks/**");
+  expect(dw).toContain("**/.mcp.json");
 });
 
-test("reads fail-closed: allowRead is an allowlist incl ALLOWED_PATHS + scratch", () => {
+test("ensureScratchDir refuses a pre-planted symlink at the scratch path", () => {
+  const base = join(tmpdir(), `ctb-scr-${Date.now()}-${process.pid}`);
+  mkdirSync(base, { recursive: true });
+  const link = join(base, "scratch");
+  symlinkSync("/etc", link);
+  try {
+    expect(() => ensureScratchDir(link)).toThrow(/symlink/);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("ensureScratchDir creates a private dir (no group/other access)", () => {
+  const dir = join(tmpdir(), `ctb-scr2-${Date.now()}-${process.pid}`);
+  try {
+    ensureScratchDir(dir);
+    expect(statSync(dir).isDirectory()).toBe(true);
+    expect(statSync(dir).mode & 0o077).toBe(0); // owner-only
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("allowRead re-allows work dirs (reads are a denyRead blocklist, not fail-closed)", () => {
   const fs = buildSandboxSettings(ALLOWED).filesystem!;
   expect(fs.allowRead).toContain("/Users/x/Dev");
   expect(fs.allowRead).toContain(SANDBOX_SCRATCH);
 });
 
-test("denyRead lists known secret stores", () => {
+test("denyRead blocklists credential stores incl the broad ~/.config tree", () => {
   const dr = buildSandboxSettings().filesystem!.denyRead!;
   expect(dr).toContain("**/.env");
+  expect(dr).toContain("**/.git-credentials");
   expect(dr.some((p) => p.endsWith("/.ssh"))).toBe(true);
+  expect(dr.some((p) => p.endsWith("/.config"))).toBe(true);
+  expect(dr.some((p) => p.endsWith("/.kube"))).toBe(true);
 });
 
 test("sanitizeEnv strips secret-shaped keys, keeps operational vars", () => {

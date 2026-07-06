@@ -10,7 +10,7 @@ import {
   type Options,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import { readFileSync, renameSync, mkdirSync } from "fs";
+import { readFileSync, renameSync } from "fs";
 import { randomUUID } from "node:crypto";
 import type { Context } from "grammy";
 import {
@@ -24,7 +24,7 @@ import {
   WORKING_DIR,
 } from "./config";
 import { formatToolStatus } from "./formatting";
-import { buildSandboxSettings, sanitizeEnv, SANDBOX_SCRATCH } from "./sandbox";
+import { buildSandboxSettings, sanitizeEnv, ensureScratchDir } from "./sandbox";
 import {
   checkPendingAskUserRequests,
   checkPendingSendFileRequests,
@@ -242,7 +242,7 @@ class ClaudeSession {
     // OS-level Bash containment: confine Claude's shell to ALLOWED_PATHS at the sandbox layer
     // (Seatbelt / bubblewrap), fail-closed. env is scrubbed of secrets so the child never inherits
     // them. This backs the regex denylist, which stays as a pre-sandbox speed-bump.
-    mkdirSync(SANDBOX_SCRATCH, { recursive: true });
+    ensureScratchDir();
 
     // Build SDK V1 options - supports all features
     const options: Options = {
@@ -250,6 +250,10 @@ class ClaudeSession {
       sandbox: buildSandboxSettings(),
       env: sanitizeEnv(),
       settingSources: ["user", "project"],
+      // Load MCP servers ONLY from the mcpServers option above — ignore project .mcp.json, user
+      // settings, plugins, and agent frontmatter. A .mcp.json spawns its command from the parent
+      // process (unsandboxed); injected content must not be able to introduce one on disk.
+      strictMcpConfig: true,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       // Hard-block dangerous exec/publish/scheduling tools at the SDK layer too —

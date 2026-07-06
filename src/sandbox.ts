@@ -1,38 +1,53 @@
 import { homedir } from "os";
+import { lstatSync, mkdirSync } from "fs";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { ALLOWED_PATHS } from "./config";
 
 const HOME = homedir();
 
 // Dedicated Bash scratch — not the broad temp roots. Blanket /tmp would expose other
-// processes' temp files and the bot's own session/audit files. Created at startup in session.ts.
+// processes' temp files and the bot's own session/audit files. Created via ensureScratchDir().
 export const SANDBOX_SCRATCH = "/tmp/ctb-sandbox";
 
-// Reads outside ALLOWED_PATHS that Claude Code + git/build/language tools need to function.
-// Reads are fail-closed: anything not here (nor ALLOWED_PATHS/scratch) is unreadable. Widen with
-// specific vetted paths if a legit read is denied — never fall back to a blocklist.
-export const SYSTEM_READ_SET: string[] = [
-  "/usr",
-  "/bin",
-  "/sbin",
-  "/lib", // Alpine/musl dynamic linker + libc live here (absent on macOS — harmless)
-  "/lib64",
-  "/opt",
-  "/etc",
-  "/private/etc",
-  "/var",
-  "/dev",
-  "/System",
-  "/Library",
-  `${HOME}/.claude`,
-  `${HOME}/.gitconfig`,
-  `${HOME}/.config`,
-  `${HOME}/.bun`,
-  `${HOME}/.local`,
-  `${HOME}/.npm`,
-  `${HOME}/.cache`,
+// Create the scratch dir private (0700), refusing a pre-planted symlink at the path — a local
+// process could otherwise redirect sandbox reads/writes through it. Idempotent.
+export function ensureScratchDir(dir: string = SANDBOX_SCRATCH): void {
+  try {
+    if (lstatSync(dir).isSymbolicLink()) {
+      throw new Error(`refusing to use sandbox scratch ${dir}: pre-existing symlink`);
+    }
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+}
+
+// Credential stores denied to sandboxed Bash. The inline sandbox does NOT fail-close reads (probe-
+// verified: allowRead only re-allows within denyRead regions, and allowManagedReadPathsOnly is honored
+// only from managed policy settings, not the query() option). So read containment is this BLOCKLIST +
+// Layer-2 network egress. A blocklist is inherently incomplete — an unlisted store is a documented
+// ceiling (see spec). Broad dirs (~/.config) are denied wholesale to catch unknown stores under them.
+const READ_DENY: string[] = [
+  `${HOME}/.ssh`,
+  `${HOME}/.aws`,
+  `${HOME}/.gnupg`,
+  `${HOME}/.kube`,
+  `${HOME}/.docker`,
+  `${HOME}/.config`, // gh, op, gcloud, and any other credential store under XDG config
+  `${HOME}/.claude/.credentials*`,
+  `${HOME}/.netrc`,
+  `${HOME}/.git-credentials`,
+  `${HOME}/.npmrc`,
+  `${HOME}/.pypirc`,
+  `${HOME}/.pgpass`,
+  "**/.env",
+  "**/.git-credentials",
+  "**/.npmrc",
 ];
 
+// Heuristic — covers every secret var this repo uses (OPENAI_API_KEY, TELEGRAM_BOT_TOKEN). Ceiling:
+// an oddly-named secret (e.g. GITHUB_PAT, APIKEY — no underscore) slips through; add a case when a real
+// one appears rather than broadening speculatively (false positives on e.g. PUBLIC_KEY_ID cost too).
 const SECRET_ENV_RE = /(_KEY|_TOKEN|_SECRET|PASSWORD|CREDENTIAL)/i;
 // Auth vars the Claude Code child process needs to reach the API. Kept in the child env so auth
 // works, but still denied to sandboxed Bash (secretEnvNames returns them too). Harmless if unset —
@@ -67,20 +82,17 @@ export function buildSandboxSettings(
     allowUnsandboxedCommands: false,
     autoAllowBashIfSandboxed: true,
     filesystem: {
+      // Writes ARE fail-closed: allowWrite is a strict allowlist (probe-verified) — the real control
+      // against injected deletion/overwrite outside ALLOWED_PATHS.
       allowWrite: [...allowedPaths, SANDBOX_SCRATCH],
-      // Write here == code execution (settings.json can define hooks). Deny even inside ALLOWED_PATHS,
-      // where a project's .claude/ is otherwise writable.
-      denyWrite: [`${HOME}/.claude`, "**/.claude/settings*.json", "**/.claude/hooks/**"],
-      allowRead: [...allowedPaths, SANDBOX_SCRATCH, ...SYSTEM_READ_SET],
-      // Secrets that may live inside an allowed-read tree.
-      denyRead: [
-        `${HOME}/.ssh`,
-        `${HOME}/.claude/.credentials*`,
-        `${HOME}/.aws`,
-        `${HOME}/.config/gh`,
-        `${HOME}/.config/op`,
-        "**/.env",
-      ],
+      // Write here == code execution loaded outside the sandbox (settings.json/hooks define hooks,
+      // .mcp.json spawns a subprocess). Denied even inside ALLOWED_PATHS. The native Write/Edit tools
+      // are gated separately in security.ts — this denyWrite only binds Bash.
+      denyWrite: [`${HOME}/.claude`, "**/.claude/settings*.json", "**/.claude/hooks/**", "**/.mcp.json"],
+      // allowRead re-allows the work dirs inside any overlapping denyRead pattern (e.g. a repo's own
+      // .npmrc under ALLOWED_PATHS stays readable for its build). It does NOT make reads fail-closed.
+      allowRead: [...allowedPaths, SANDBOX_SCRATCH],
+      denyRead: READ_DENY,
     },
     credentials: { envVars: secretEnvNames().map((name) => ({ name, mode: "deny" as const })) },
     // Domain-level denylist starts empty; CIDR egress control is the container NetworkPolicy (Layer 2).
