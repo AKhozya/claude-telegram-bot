@@ -370,29 +370,58 @@ async function isBlockedFetchTarget(rawUrl: string): Promise<boolean> {
   return false;
 }
 
-/** Resolve ~ and symlinks to where a read/write would ACTUALLY land — even for a not-yet-existing
- *  leaf reached through a (possibly dangling) symlink or a symlinked ancestor dir. A create/write
- *  follows symlinks, so the path check must too: a purely lexical fallback lets a Bash-planted dangling
- *  symlink redirect a later native Write past isPathAllowed / isProtectedControlFile. */
-function canonicalize(path: string, depth = 0): string {
-  const abs = resolve(normalize(path.replace(/^~/, process.env.HOME || "")));
+/** Resolve ~ and symlinks to where a read/write would ACTUALLY land, tolerant of a not-yet-existing
+ *  tail. CRITICAL: never lexically pre-collapse `..` — `resolve`/`normalize` cancel `..` against a
+ *  preceding *symlink* segment as if it were a real dir, so `<allowed>/link/../x` would be approved
+ *  while the OS follows `link` and writes elsewhere. `..` must apply to the already-RESOLVED physical
+ *  path, exactly as realpath(3)/openat do. */
+function canonicalize(path: string): string {
+  const expanded = path.replace(/^~/, process.env.HOME || "");
+  const abs = expanded.startsWith("/") ? expanded : `${process.cwd()}/${expanded}`;
   try {
-    return realpathSync(abs); // fully exists — symlinks resolved
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== "ENOENT" || depth > 40) return abs;
-  }
-  // Leaf itself is a symlink — a create follows it to the target; resolve that.
-  try {
-    if (lstatSync(abs).isSymbolicLink()) {
-      return canonicalize(resolve(dirname(abs), readlinkSync(abs)), depth + 1);
-    }
+    return realpathSync(abs); // fully exists — the kernel resolves symlinks + `..` correctly
   } catch {
-    /* leaf missing entirely — resolve its ancestors below */
+    return resolvePhysical(abs.split("/"), 0); // missing tail / dangling symlink — resolve by hand
   }
-  // Leaf doesn't exist: resolve ancestor symlinks, then rejoin the leaf name lexically.
-  const parent = dirname(abs);
-  if (parent === abs) return abs; // filesystem root
-  return join(canonicalize(parent, depth + 1), basename(abs));
+}
+
+/** realpath(3) semantics with a missing-tail tolerance: walk segments left-to-right, apply `..` to the
+ *  resolved-so-far physical path, follow symlinks as encountered, and append a non-existent tail only
+ *  once a component is confirmed missing (symlinks can't traverse a path that doesn't exist). */
+function resolvePhysical(segments: string[], depth: number): string {
+  if (depth > 64) return "/" + segments.filter((s) => s && s !== ".").join("/");
+  const stack: string[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (seg === undefined || seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      stack.pop();
+      continue;
+    }
+    const cur = "/" + [...stack, seg].join("/");
+    let st;
+    try {
+      st = lstatSync(cur);
+    } catch {
+      // cur is missing → nothing deeper exists; append remaining segments textually (honoring ./..).
+      stack.push(seg);
+      for (let j = i + 1; j < segments.length; j++) {
+        const s = segments[j];
+        if (s === undefined || s === "" || s === ".") continue;
+        if (s === "..") stack.pop();
+        else stack.push(s);
+      }
+      return "/" + stack.join("/");
+    }
+    if (st.isSymbolicLink()) {
+      const link = readlinkSync(cur);
+      const linkAbs = link.startsWith("/") ? link : "/" + [...stack, link].join("/");
+      const resolvedLink = resolvePhysical(linkAbs.split("/"), depth + 1);
+      return resolvePhysical([...resolvedLink.split("/"), ...segments.slice(i + 1)], depth + 1);
+    }
+    stack.push(seg);
+  }
+  return "/" + stack.join("/");
 }
 
 /**
@@ -420,8 +449,8 @@ export function isProtectedControlFile(canonicalPath: string): boolean {
 // Bash sandbox denyRead only binds Bash — without this, injected Claude reads a secret via the native
 // Read tool instead, defeating the whole read blocklist. Mirrors READ_DENY in sandbox.ts.
 export function isCredentialPath(canonicalPath: string): boolean {
-  const p = canonicalPath;
-  const base = basename(p).toLowerCase();
+  const p = canonicalPath.toLowerCase(); // case-insensitive: APFS resolves .KUBE/.Docker to .kube/.docker
+  const base = basename(p);
   if (
     base === ".env" ||
     base === ".git-credentials" ||
@@ -433,7 +462,7 @@ export function isCredentialPath(canonicalPath: string): boolean {
   ) {
     return true;
   }
-  const home = process.env.HOME || "";
+  const home = (process.env.HOME || "").toLowerCase();
   if (!home) return false;
   const under = (dir: string) => p === dir || p.startsWith(`${dir}/`);
   return (

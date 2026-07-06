@@ -30,6 +30,10 @@ describe("credential-store protection (#12)", () => {
     expect(isCredentialPath("/tmp/proj/.git-credentials")).toBe(true);
     expect(isCredentialPath("/tmp/proj/src/index.ts")).toBe(false);
     expect(isCredentialPath(`${HOME}/.claude/settings.json`)).toBe(false);
+    // case-insensitive dirs (APFS resolves .KUBE/.Docker to .kube/.docker)
+    expect(isCredentialPath(`${HOME}/.KUBE/config`)).toBe(true);
+    expect(isCredentialPath(`${HOME}/.Docker/config.json`)).toBe(true);
+    expect(isCredentialPath(`${HOME}/.Config/gh/hosts.yml`)).toBe(true);
   });
 
   test("native Read of the Claude token / a repo .env is blocked (parity with Bash denyRead)", async () => {
@@ -87,6 +91,20 @@ describe("control-file write protection (#12)", () => {
     symlinkSync("/etc/ctb-nonexistent-evil", link);
     try {
       expect((await evaluateToolUse("Write", { file_path: link })).allowed).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  // `..` must apply to the RESOLVED physical path, not lexically cancel a preceding symlink segment.
+  test("native Write through <symlink>/.. resolves physically (not lexically) and is blocked", async () => {
+    const base = join(tmpdir(), `ctb-sym3-${Date.now()}-${process.pid}`); // temp-allowed
+    mkdirSync(base, { recursive: true });
+    symlinkSync("/etc", join(base, "escape")); // escape -> /etc (exists, outside allowed)
+    try {
+      // lexically base/escape/../pwned = base/pwned (allowed); physically /etc/../pwned = /pwned (denied)
+      const r = await evaluateToolUse("Write", { file_path: join(base, "escape", "..", "pwned.txt") });
+      expect(r.allowed).toBe(false);
     } finally {
       rmSync(base, { recursive: true, force: true });
     }
