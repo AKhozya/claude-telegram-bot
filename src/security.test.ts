@@ -13,7 +13,29 @@ const publicLookup = async (): Promise<Addr[]> => [{ address: "93.184.216.34", f
 let mockLookup: () => Promise<Addr[]> = publicLookup;
 mock.module("dns/promises", () => ({ lookup: async () => mockLookup() }));
 
-const { evaluateToolUse, checkCommandSafety } = await import("./security");
+const { evaluateToolUse, checkCommandSafety, isProtectedControlFile } = await import("./security");
+
+describe("control-file write protection (#12)", () => {
+  test("isProtectedControlFile flags code-exec sinks, not normal files", () => {
+    expect(isProtectedControlFile("/w/proj/.mcp.json")).toBe(true);
+    expect(isProtectedControlFile("/w/proj/.claude/settings.json")).toBe(true);
+    expect(isProtectedControlFile("/w/proj/.claude/settings.local.json")).toBe(true);
+    expect(isProtectedControlFile("/w/proj/.claude/hooks/pre.sh")).toBe(true);
+    expect(isProtectedControlFile("/w/proj/mcp.json")).toBe(false);
+    expect(isProtectedControlFile("/w/proj/src/index.ts")).toBe(false);
+  });
+
+  test("native Write/Edit to a control file is blocked even inside an allowed path", async () => {
+    expect((await evaluateToolUse("Write", { file_path: "/tmp/proj/.mcp.json" })).allowed).toBe(false);
+    expect((await evaluateToolUse("Edit", { file_path: "/tmp/proj/.claude/settings.json" })).allowed).toBe(false);
+    expect((await evaluateToolUse("Write", { file_path: "/tmp/proj/.claude/hooks/x.sh" })).allowed).toBe(false);
+  });
+
+  test("reading a control file is allowed; writing a normal file is allowed", async () => {
+    expect((await evaluateToolUse("Read", { file_path: "/tmp/proj/.mcp.json" })).allowed).toBe(true);
+    expect((await evaluateToolUse("Write", { file_path: "/tmp/proj/normal.txt" })).allowed).toBe(true);
+  });
+});
 
 describe("evaluateToolUse", () => {
   afterEach(() => {

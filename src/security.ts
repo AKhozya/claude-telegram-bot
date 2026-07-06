@@ -385,6 +385,19 @@ function canonicalize(path: string): string {
  * Async because the WebFetch SSRF check resolves DNS (audit #11); every other branch
  * is synchronous and returns without hitting an await.
  */
+// Files whose CONTENT executes outside the Bash sandbox when Claude Code (re)loads project/user
+// config: project `.mcp.json` (its command is spawned from the parent process), and Claude
+// settings/hooks (define hooks that run on tool use). The sandbox denyWrite only binds Bash, so the
+// native Write/Edit tools must be gated here too — else injected content writes one inside
+// ALLOWED_PATHS and gains unsandboxed code execution on the next session.
+export function isProtectedControlFile(canonicalPath: string): boolean {
+  const base = canonicalPath.split("/").pop() ?? "";
+  if (base === ".mcp.json") return true;
+  if (/(?:^|\/)\.claude\/settings[^/]*\.json$/.test(canonicalPath)) return true;
+  if (/(?:^|\/)\.claude\/hooks\//.test(canonicalPath)) return true;
+  return false;
+}
+
 export async function evaluateToolUse(
   toolName: string,
   input: Record<string, unknown>
@@ -425,6 +438,11 @@ export async function evaluateToolUse(
     const filePath = String(rawPath || "");
     if (filePath) {
       const canonical = canonicalize(filePath);
+      // Writing a code-execution control file runs OUTSIDE the Bash sandbox on next load; the
+      // sandbox denyWrite only binds Bash, so block the native write tools here regardless of path.
+      if (toolName !== "Read" && isProtectedControlFile(canonical)) {
+        return { allowed: false, reason: `Write to code-execution control file blocked: ${filePath}` };
+      }
       // NotebookEdit is a write — no .claude read exemption. Scope the exemption to
       // the user's OWN ~/.claude (config/skills), not any path with "/.claude/" in it
       // (`.includes` matched `/tmp/x/.claude/secret` and let it be read).
