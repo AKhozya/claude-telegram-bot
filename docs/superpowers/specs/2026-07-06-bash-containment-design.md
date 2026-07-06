@@ -54,10 +54,11 @@ sandbox: {
   filesystem: {
     allowWrite: [ ...ALLOWED_PATHS, SANDBOX_SCRATCH ],   // allowlist → all else NOT writable. NOT ~/.claude, NOT all of /tmp
     denyWrite:  [ ~/.claude, **/.claude/settings*.json, **/.claude/hooks/** ],  // write == code-exec; deny even inside ALLOWED_PATHS
-    allowRead:  [ ...ALLOWED_PATHS, SANDBOX_SCRATCH ],  // re-allow work dirs within denyRead regions ONLY
-    // Reads are NOT fail-closed: the inline sandbox's allowRead only re-allows within denyRead, and
-    // allowManagedReadPathsOnly is honored solely from managed policy settings, not the query() option
-    // (BOTH probe-verified 2026-07-06). Read containment = this denyRead blocklist + Layer-2 egress.
+    // NO allowRead. It takes PRECEDENCE over denyRead (SDK), and ALLOWED_PATHS defaults to include
+    // $HOME + ~/.claude — re-allowing them would re-open ~/.claude/.credentials + a repo's own .env.
+    // Reads are fail-open by default anyway, so ALLOWED_PATHS stays readable without it. Reads are NOT
+    // fail-closed: allowManagedReadPathsOnly is honored only from managed policy settings, not the
+    // query() option (both probe-verified). Read containment = this denyRead blocklist + Layer-2 egress.
     denyRead:   [ ~/.ssh, ~/.aws, ~/.gnupg, ~/.kube, ~/.docker, ~/.config, ~/.claude/.credentials*,
                   ~/.netrc, ~/.git-credentials, ~/.npmrc, ~/.pypirc, ~/.pgpass, **/.env ],
   },

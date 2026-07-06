@@ -58,10 +58,11 @@ test("ensureScratchDir creates a private dir (no group/other access)", () => {
   }
 });
 
-test("allowRead re-allows work dirs (reads are a denyRead blocklist, not fail-closed)", () => {
+test("no allowRead entry — denyRead stays authoritative over ALLOWED_PATHS", () => {
+  // allowRead OVERRIDES denyRead per the SDK; it must be empty/absent, else a secret inside an allowed
+  // path (a repo's .env, ~/.claude/.credentials when ~/.claude is an allowed path) would be re-opened.
   const fs = buildSandboxSettings(ALLOWED).filesystem!;
-  expect(fs.allowRead).toContain("/Users/x/Dev");
-  expect(fs.allowRead).toContain(SANDBOX_SCRATCH);
+  expect(fs.allowRead ?? []).toHaveLength(0);
 });
 
 test("denyRead blocklists credential stores incl the broad ~/.config tree", () => {
@@ -88,6 +89,14 @@ test("sanitizeEnv strips secret-shaped keys, keeps operational vars", () => {
   expect(e.OPENAI_API_KEY).toBeUndefined();
   expect(e.TELEGRAM_BOT_TOKEN).toBeUndefined();
   expect(e.GH_TOKEN).toBeUndefined();
+});
+
+test("sanitizeEnv strips agent-socket capability vars (not secret-shaped)", () => {
+  const e = sanitizeEnv({ SSH_AUTH_SOCK: "/tmp/a.sock", SSH_AGENT_PID: "1", GPG_AGENT_INFO: "x", PATH: "/bin" });
+  expect(e.SSH_AUTH_SOCK).toBeUndefined();
+  expect(e.SSH_AGENT_PID).toBeUndefined();
+  expect(e.GPG_AGENT_INFO).toBeUndefined();
+  expect(e.PATH).toBe("/bin");
 });
 
 test("secretEnvNames feeds credentials.envVars deny list", () => {

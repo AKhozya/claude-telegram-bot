@@ -54,6 +54,11 @@ const SECRET_ENV_RE = /(_KEY|_TOKEN|_SECRET|PASSWORD|CREDENTIAL)/i;
 // oauth via ~/.claude uses none of these.
 const AUTH_KEEP = new Set(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]);
 
+// Capability-bearing vars that are NOT secret-shaped (no key material) but hand sandboxed Bash live
+// auth: an agent socket lets `ssh`/`gpg` act as the real user without ever reading a key file —
+// invisible to both the path denylist and the name regex. Always stripped from the child.
+const CAP_STRIP = new Set(["SSH_AUTH_SOCK", "SSH_AGENT_PID", "GPG_AGENT_INFO"]);
+
 // Every secret-shaped env key — hidden from sandboxed Bash via credentials.envVars. Deliberately
 // includes AUTH_KEEP vars: the parent process needs them, sandboxed Bash must never read them.
 export function secretEnvNames(src: NodeJS.ProcessEnv = process.env): string[] {
@@ -67,6 +72,7 @@ export function sanitizeEnv(src: NodeJS.ProcessEnv = process.env): Record<string
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(src)) {
     if (v === undefined) continue;
+    if (CAP_STRIP.has(k)) continue;
     if (SECRET_ENV_RE.test(k) && !AUTH_KEEP.has(k)) continue;
     out[k] = v;
   }
@@ -89,9 +95,10 @@ export function buildSandboxSettings(
       // .mcp.json spawns a subprocess). Denied even inside ALLOWED_PATHS. The native Write/Edit tools
       // are gated separately in security.ts — this denyWrite only binds Bash.
       denyWrite: [`${HOME}/.claude`, "**/.claude/settings*.json", "**/.claude/hooks/**", "**/.mcp.json"],
-      // allowRead re-allows the work dirs inside any overlapping denyRead pattern (e.g. a repo's own
-      // .npmrc under ALLOWED_PATHS stays readable for its build). It does NOT make reads fail-closed.
-      allowRead: [...allowedPaths, SANDBOX_SCRATCH],
+      // No allowRead: the SDK gives allowRead PRECEDENCE over denyRead for matching paths, so
+      // re-allowing ALLOWED_PATHS (which defaults to include $HOME + ~/.claude) would re-open a repo's
+      // own .env and ~/.claude/.credentials living inside them. Reads are fail-open by default anyway, so
+      // ALLOWED_PATHS stays readable without an allowRead entry — leaving denyRead authoritative.
       denyRead: READ_DENY,
     },
     credentials: { envVars: secretEnvNames().map((name) => ({ name, mode: "deny" as const })) },

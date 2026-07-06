@@ -1,4 +1,7 @@
 import { describe, expect, test, mock, afterEach } from "bun:test";
+import { symlinkSync, mkdirSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 // config.ts (pulled in transitively) reads these at module-eval time.
 process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
@@ -34,6 +37,39 @@ describe("control-file write protection (#12)", () => {
   test("reading a control file is allowed; writing a normal file is allowed", async () => {
     expect((await evaluateToolUse("Read", { file_path: "/tmp/proj/.mcp.json" })).allowed).toBe(true);
     expect((await evaluateToolUse("Write", { file_path: "/tmp/proj/normal.txt" })).allowed).toBe(true);
+  });
+
+  test("control-file match is case-insensitive (macOS/APFS)", async () => {
+    expect(isProtectedControlFile("/w/proj/.MCP.json")).toBe(true);
+    expect(isProtectedControlFile("/w/proj/.CLAUDE/settings.json")).toBe(true);
+    expect(isProtectedControlFile("/w/proj/.Claude/hooks/x.sh")).toBe(true);
+    expect((await evaluateToolUse("Write", { file_path: "/tmp/proj/.CLAUDE/settings.json" })).allowed).toBe(false);
+  });
+
+  // Real symlink fixture — a Bash-planted dangling symlink must not redirect a native Write past the
+  // gate (canonicalize resolves symlinks even when the target doesn't exist yet).
+  test("native Write through a dangling symlink to a control file is blocked", async () => {
+    const base = join(tmpdir(), `ctb-sym-${Date.now()}-${process.pid}`); // /var/folders → an allowed temp path
+    mkdirSync(base, { recursive: true });
+    const link = join(base, "notes.txt");
+    symlinkSync(join(base, ".claude", "settings.json"), link); // target dir doesn't exist yet
+    try {
+      expect((await evaluateToolUse("Write", { file_path: link })).allowed).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("native Write through a symlink pointing outside allowed paths is blocked", async () => {
+    const base = join(tmpdir(), `ctb-sym2-${Date.now()}-${process.pid}`);
+    mkdirSync(base, { recursive: true });
+    const link = join(base, "innocent.txt");
+    symlinkSync("/etc/ctb-nonexistent-evil", link);
+    try {
+      expect((await evaluateToolUse("Write", { file_path: link })).allowed).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });
 

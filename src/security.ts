@@ -4,8 +4,8 @@
  * Rate limiting, path validation, command safety.
  */
 
-import { resolve, normalize, dirname } from "path";
-import { realpathSync } from "fs";
+import { resolve, normalize, dirname, basename, join } from "path";
+import { realpathSync, lstatSync, readlinkSync } from "fs";
 import { lookup } from "dns/promises";
 import type { RateLimitBucket } from "./types";
 import {
@@ -370,14 +370,29 @@ async function isBlockedFetchTarget(rawUrl: string): Promise<boolean> {
   return false;
 }
 
-/** Resolve ~ and symlinks; fall back to lexical resolve for non-existent paths. */
-function canonicalize(path: string): string {
-  const expanded = path.replace(/^~/, process.env.HOME || "");
+/** Resolve ~ and symlinks to where a read/write would ACTUALLY land — even for a not-yet-existing
+ *  leaf reached through a (possibly dangling) symlink or a symlinked ancestor dir. A create/write
+ *  follows symlinks, so the path check must too: a purely lexical fallback lets a Bash-planted dangling
+ *  symlink redirect a later native Write past isPathAllowed / isProtectedControlFile. */
+function canonicalize(path: string, depth = 0): string {
+  const abs = resolve(normalize(path.replace(/^~/, process.env.HOME || "")));
   try {
-    return realpathSync(normalize(expanded));
-  } catch {
-    return resolve(normalize(expanded));
+    return realpathSync(abs); // fully exists — symlinks resolved
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT" || depth > 40) return abs;
   }
+  // Leaf itself is a symlink — a create follows it to the target; resolve that.
+  try {
+    if (lstatSync(abs).isSymbolicLink()) {
+      return canonicalize(resolve(dirname(abs), readlinkSync(abs)), depth + 1);
+    }
+  } catch {
+    /* leaf missing entirely — resolve its ancestors below */
+  }
+  // Leaf doesn't exist: resolve ancestor symlinks, then rejoin the leaf name lexically.
+  const parent = dirname(abs);
+  if (parent === abs) return abs; // filesystem root
+  return join(canonicalize(parent, depth + 1), basename(abs));
 }
 
 /**
@@ -391,10 +406,13 @@ function canonicalize(path: string): string {
 // native Write/Edit tools must be gated here too — else injected content writes one inside
 // ALLOWED_PATHS and gains unsandboxed code execution on the next session.
 export function isProtectedControlFile(canonicalPath: string): boolean {
-  const base = canonicalPath.split("/").pop() ?? "";
+  // Case-insensitive: macOS/APFS is case-insensitive, so a native Write to `.CLAUDE/settings.json`
+  // creates the same file the CLI loads as `.claude/settings.json` — a case-sensitive match misses it.
+  const p = canonicalPath.toLowerCase();
+  const base = p.split("/").pop() ?? "";
   if (base === ".mcp.json") return true;
-  if (/(?:^|\/)\.claude\/settings[^/]*\.json$/.test(canonicalPath)) return true;
-  if (/(?:^|\/)\.claude\/hooks\//.test(canonicalPath)) return true;
+  if (/(?:^|\/)\.claude\/settings[^/]*\.json$/.test(p)) return true;
+  if (/(?:^|\/)\.claude\/hooks\//.test(p)) return true;
   return false;
 }
 
