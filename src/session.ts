@@ -24,7 +24,7 @@ import {
   WORKING_DIR,
 } from "./config";
 import { formatToolStatus } from "./formatting";
-import { buildSandboxSettings, sanitizeEnv, ensureScratchDir } from "./sandbox";
+import { buildSandboxSettings, sanitizeEnv, ensureScratchDir, bashSandboxEnabled } from "./sandbox";
 import {
   checkPendingAskUserRequests,
   checkPendingSendFileRequests,
@@ -241,13 +241,15 @@ class ClaudeSession {
 
     // OS-level Bash containment: confine Claude's shell to ALLOWED_PATHS at the sandbox layer
     // (Seatbelt / bubblewrap), fail-closed. env is scrubbed of secrets so the child never inherits
-    // them. This backs the regex denylist, which stays as a pre-sandbox speed-bump.
-    ensureScratchDir();
+    // them. This backs the regex denylist, which stays as a pre-sandbox speed-bump. The env scrub and
+    // strictMcpConfig below are independent of the sandbox and stay on even where bwrap can't run.
+    const sandboxEnabled = bashSandboxEnabled();
+    if (sandboxEnabled) ensureScratchDir();
 
     // Build SDK V1 options - supports all features
     const options: Options = {
       cwd: WORKING_DIR,
-      sandbox: buildSandboxSettings(),
+      ...(sandboxEnabled ? { sandbox: buildSandboxSettings() } : {}),
       env: sanitizeEnv(),
       settingSources: ["user", "project"],
       // Load MCP servers ONLY from the mcpServers option above — ignore project .mcp.json, user

@@ -85,6 +85,17 @@ export function sanitizeEnv(src: NodeJS.ProcessEnv = process.env): Record<string
   return out;
 }
 
+// The Linux backend is bubblewrap, which needs unprivileged user namespaces. A locked-down pod
+// (seccompProfile: RuntimeDefault, no CAP_SYS_ADMIN) blocks those, so a fail-closed bwrap can't start
+// and every Bash command would fail. Set BASH_SANDBOX_ENABLED=false in that environment — the pod is
+// the sandbox there (readOnlyRootFilesystem already confines writes to the mounted paths, caps dropped,
+// egress NetworkPolicy). Default ON, and an unrecognized value stays ON (secure default) — only an
+// explicit off value disables. macOS Seatbelt has no userns dependency, so it stays enabled.
+export function bashSandboxEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = (env.BASH_SANDBOX_ENABLED ?? "").trim().toLowerCase();
+  return !["false", "0", "off", "no"].includes(v);
+}
+
 export function buildSandboxSettings(
   allowedPaths: readonly string[] = ALLOWED_PATHS
 ): NonNullable<Options["sandbox"]> {

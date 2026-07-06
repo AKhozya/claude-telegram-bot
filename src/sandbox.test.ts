@@ -6,12 +6,29 @@ import { join } from "path";
 process.env.TELEGRAM_BOT_TOKEN = "x:y";
 process.env.TELEGRAM_ALLOWED_USERS = "1";
 
-const { buildSandboxSettings, sanitizeEnv, secretEnvNames, ensureScratchDir, SANDBOX_SCRATCH } =
-  await import("./sandbox");
+const {
+  buildSandboxSettings,
+  sanitizeEnv,
+  secretEnvNames,
+  ensureScratchDir,
+  bashSandboxEnabled,
+  SANDBOX_SCRATCH,
+} = await import("./sandbox");
 
 // Inject allowed paths explicitly — the module-level ALLOWED_PATHS const is frozen at first import,
 // so relying on it here is order-dependent across the full suite. DI keeps the test deterministic.
 const ALLOWED = ["/Users/x/Dev", "/Users/x/Documents"];
+
+test("bashSandboxEnabled: default on, disables only on explicit off value", () => {
+  expect(bashSandboxEnabled({})).toBe(true);
+  expect(bashSandboxEnabled({ BASH_SANDBOX_ENABLED: "true" })).toBe(true);
+  expect(bashSandboxEnabled({ BASH_SANDBOX_ENABLED: "false" })).toBe(false);
+  expect(bashSandboxEnabled({ BASH_SANDBOX_ENABLED: "off" })).toBe(false);
+  expect(bashSandboxEnabled({ BASH_SANDBOX_ENABLED: "0" })).toBe(false);
+  expect(bashSandboxEnabled({ BASH_SANDBOX_ENABLED: "no" })).toBe(false);
+  // Unrecognized value stays secure (enabled), not silently disabled.
+  expect(bashSandboxEnabled({ BASH_SANDBOX_ENABLED: "flase" })).toBe(true);
+});
 
 test("sandbox is fail-closed", () => {
   const s = buildSandboxSettings();
