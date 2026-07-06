@@ -6,6 +6,8 @@
  * to page images for Claude vision (poppler-utils; apk in the container image).
  */
 
+import { readdirSync, lstatSync, unlinkSync } from "fs";
+import { join } from "path";
 import type { BotContext } from "../types";
 import { session } from "../session";
 import { ALLOWED_USERS, TEMP_DIR } from "../config";
@@ -190,6 +192,56 @@ function getArchiveExtension(fileName: string): string {
 }
 
 /**
+ * A member name escapes the extraction dir if it is absolute or walks up via
+ * `..` — extracting it would write outside extractDir (zip-slip / tar traversal),
+ * which tar/unzip do not reliably block across busybox/bsdtar/Info-ZIP variants.
+ */
+export function isUnsafeMemberName(name: string): boolean {
+  if (name.startsWith("/") || name.startsWith("~")) return true;
+  return name.split(/[\\/]/).some((seg) => seg === "..");
+}
+
+/**
+ * List an archive's member names without extracting, for pre-validation.
+ * Zip uses `unzip -Z1` (one raw name per line — not evadable by crafted names the
+ * way `-l` column parsing would be). BusyBox's unzip lacks `-Z`, so zip fails closed
+ * in the container image (which ships no full unzip); tar works everywhere.
+ */
+export async function listArchiveMembers(
+  archivePath: string,
+  ext: string
+): Promise<string[]> {
+  const out =
+    ext === ".zip"
+      ? await Bun.$`unzip -Z1 ${archivePath}`.quiet().text()
+      : await Bun.$`tar -tf ${archivePath}`.quiet().text();
+  return out.split("\n").filter(Boolean);
+}
+
+/**
+ * Remove link members under `root` (recursively) before any content is read.
+ * Both are read-exfil vectors to files outside the extraction dir:
+ *   - symlink (`link -> /etc/passwd`): reading it follows the link.
+ *   - hard link (tar linkname to an existing host file): extracts as a regular
+ *     file sharing the target's inode, so lstat reports isFile/nlink>1 — reading
+ *     it returns the target's bytes. protected_hardlinks blocks cross-owner
+ *     targets but not files the bot's own uid can read (.env, keys).
+ * Deleting the entry (not the inode data) neutralises both. A hard link also drops
+ * legit intra-archive dedup, which is fine for text extraction (fail closed).
+ */
+export function stripLinks(root: string): void {
+  for (const entry of readdirSync(root)) {
+    const full = join(root, entry);
+    const st = lstatSync(full);
+    if (st.isSymbolicLink() || (st.isFile() && st.nlink > 1)) {
+      unlinkSync(full);
+    } else if (st.isDirectory()) {
+      stripLinks(full);
+    }
+  }
+}
+
+/**
  * Extract an archive to a temp directory.
  */
 async function extractArchive(
@@ -200,6 +252,13 @@ async function extractArchive(
   const extractDir = `${TEMP_DIR}/archive_${Date.now()}`;
   await Bun.$`mkdir -p ${extractDir}`;
 
+  // Refuse the whole archive if any member would escape extractDir. Cheaper and
+  // more portable than trusting each extractor's traversal handling.
+  const members = await listArchiveMembers(archivePath, ext);
+  if (members.some(isUnsafeMemberName)) {
+    throw new Error("Archive contains unsafe member paths (absolute or ..)");
+  }
+
   if (ext === ".zip") {
     await Bun.$`unzip -q -o ${archivePath} -d ${extractDir}`.quiet();
   } else if (ext === ".tar" || ext === ".tar.gz" || ext === ".tgz") {
@@ -207,6 +266,9 @@ async function extractArchive(
   } else {
     throw new Error(`Unknown archive type: ${ext}`);
   }
+
+  // Drop extracted symlink/hard-link members before content is read (containment).
+  stripLinks(extractDir);
 
   return extractDir;
 }
@@ -236,14 +298,17 @@ async function extractArchiveContent(
   let totalSize = 0;
 
   for (const relativePath of tree) {
-    const fullPath = `${extractDir}/${relativePath}`;
-    const stat = await Bun.file(fullPath).exists();
-    if (!stat) continue;
-
-    // Check if it's a directory
-    const fileInfo = Bun.file(fullPath);
-    const size = fileInfo.size;
-    if (size === 0) continue;
+    const fullPath = join(extractDir, relativePath);
+    // lstat (no-follow): only read plain single-link files. Symlinks and hard-link
+    // members are already stripped; nlink>1 is a second guard against link exfil.
+    let info;
+    try {
+      info = lstatSync(fullPath);
+    } catch {
+      continue;
+    }
+    if (!info.isFile() || info.nlink > 1 || info.size === 0) continue;
+    const size = info.size;
 
     const ext = "." + (relativePath.split(".").pop() || "").toLowerCase();
     if (!TEXT_EXTENSIONS.includes(ext)) continue;
@@ -252,7 +317,7 @@ async function extractArchiveContent(
     if (size > 100000) continue;
 
     try {
-      const text = await fileInfo.text();
+      const text = await Bun.file(fullPath).text();
       const truncated = text.slice(0, 10000); // 10K per file max
       if (totalSize + truncated.length > MAX_ARCHIVE_CONTENT) break;
       contents.push({ name: relativePath, content: truncated });

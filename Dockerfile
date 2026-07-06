@@ -14,7 +14,9 @@ ARG BUILD_TS=local
 
 # System dependencies. poppler-utils = pdftotext (text layer) + pdftocairo
 # (page->PNG render for image/scanned/print PDFs, read via Claude vision).
-RUN apk add --no-cache git openssh-client curl jq ca-certificates bash poppler-utils
+# unzip = Info-ZIP (supports `unzip -Z1` member listing); BusyBox's applet does not,
+# so zip archives need this to be listed/validated and extracted in the container.
+RUN apk add --no-cache git openssh-client curl jq ca-certificates bash poppler-utils unzip
 
 # kubectl (pinned — match cluster k3s version; bump deliberately)
 ARG KUBECTL_VERSION=v1.36.1

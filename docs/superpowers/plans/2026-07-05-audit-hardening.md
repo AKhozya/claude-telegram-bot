@@ -50,8 +50,13 @@ Bash is a shell by design. Path/command controls = defense-in-depth vs **prompt 
   mark→stop→settle→clear dance already in utils.ts checkInterrupt), called from callback.ts + checkInterrupt.
   Kills the divergence that caused the drift. Unit-tested (session.test.ts). commands.ts /new,/stop keep
   their own clearStopRequested (explicit stops, no markInterrupt — correct).
-- [ ] **#4 P2 — archive traversal.** extractArchive zip-slip (no member containment) + extractArchiveContent
-  symlink-follow read. Feature niche + likely broken (no `unzip` in image). DECISION: delete vs harden.
+- [x] **#4 P2 — archive traversal (PR #12).** HARDENED in place (user chose harden not delete). Three layers:
+  (1) `listArchiveMembers` (`tar -tf`/`unzip -Z1`) + `isUnsafeMemberName` reject absolute/`..` members before
+  extraction; (2) `stripLinks` removes symlink AND hard-link members (`isFile && nlink>1`) before any read —
+  hard link was a CRITICAL exfil found in review (extracts as regular file sharing a host inode; lstat sees a
+  plain file); (3) read loop lstat no-follow + `nlink>1` guard. Dockerfile `apk add unzip` (Info-ZIP; BusyBox
+  lacks `-Z1`) so zip works+validated in the container. Reviewed: Codex CLEAN, security-reviewer confirmed
+  closed vs the real Alpine image. Tests +6 incl. hard-link exfil + real tar/zip (Info-ZIP-gated) integration.
 - [x] **#5 P2 — formatting $$/$& corruption.** String.replace treated `$$`/`$&`/`` $` `` in restored
   code as replacement patterns. Fixed: replacement FUNCTION in convertMarkdownToHtml (formatting.ts). Tested.
 - [x] **#6 P3 — over-broad `.claude` read exemption.** `.includes("/.claude/")` matched any dir named
@@ -74,3 +79,10 @@ Bash is a shell by design. Path/command controls = defense-in-depth vs **prompt 
 
 ## Bloat (optional, non-defect)
 Drop archive feature (kills #4); auth check → grammY middleware (~50 lines); voice≈audio dedup (~60).
+
+## Backlog (non-audit, non-urgent)
+- **Drop the OpenAI dependency for voice/audio transcription.** Anthropic models have no
+  native audio input (vision + text only), so voice/audio STT currently requires
+  `OPENAI_API_KEY` (Whisper). Options if we want to shed the external key: local
+  `whisper.cpp`/faster-whisper (offline, no key; adds a binary + ~100MB model weights to the
+  image), or revisit when/if a Claude model gains native audio. Handy, not urgent.
