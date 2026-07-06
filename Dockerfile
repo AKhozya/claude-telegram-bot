@@ -16,7 +16,10 @@ ARG BUILD_TS=local
 # (page->PNG render for image/scanned/print PDFs, read via Claude vision).
 # unzip = Info-ZIP (supports `unzip -Z1` member listing); BusyBox's applet does not,
 # so zip archives need this to be listed/validated and extracted in the container.
-RUN apk add --no-cache git openssh-client curl jq ca-certificates bash poppler-utils unzip
+# bubblewrap + socat = the Linux Bash sandbox deps (bwrap = filesystem/process isolation,
+# socat = its network proxy). With the sandbox's failIfUnavailable, a missing dep makes the
+# bot fail-closed (won't run) rather than execute Bash unconfined.
+RUN apk add --no-cache git openssh-client curl jq ca-certificates bash poppler-utils unzip bubblewrap socat
 
 # kubectl (pinned — match cluster k3s version; bump deliberately)
 ARG KUBECTL_VERSION=v1.36.1

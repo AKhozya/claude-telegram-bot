@@ -1,4 +1,7 @@
 import { describe, expect, test, mock, afterEach } from "bun:test";
+import { symlinkSync, mkdirSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 // config.ts (pulled in transitively) reads these at module-eval time.
 process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
@@ -13,7 +16,121 @@ const publicLookup = async (): Promise<Addr[]> => [{ address: "93.184.216.34", f
 let mockLookup: () => Promise<Addr[]> = publicLookup;
 mock.module("dns/promises", () => ({ lookup: async () => mockLookup() }));
 
-const { evaluateToolUse, checkCommandSafety } = await import("./security");
+const { evaluateToolUse, checkCommandSafety, isProtectedControlFile, isCredentialPath } =
+  await import("./security");
+
+describe("credential-store protection (#12)", () => {
+  const HOME = process.env.HOME || "";
+  test("isCredentialPath flags credential stores + files, not config/source", () => {
+    expect(isCredentialPath(`${HOME}/.ssh/id_rsa`)).toBe(true);
+    expect(isCredentialPath(`${HOME}/.aws/credentials`)).toBe(true);
+    expect(isCredentialPath(`${HOME}/.config/gh/hosts.yml`)).toBe(true);
+    expect(isCredentialPath(`${HOME}/.claude/.credentials.json`)).toBe(true);
+    expect(isCredentialPath("/tmp/proj/.env")).toBe(true);
+    expect(isCredentialPath("/tmp/proj/.git-credentials")).toBe(true);
+    expect(isCredentialPath("/tmp/proj/src/index.ts")).toBe(false);
+    expect(isCredentialPath(`${HOME}/.claude/settings.json`)).toBe(false);
+    // case-insensitive dirs (APFS resolves .KUBE/.Docker to .kube/.docker)
+    expect(isCredentialPath(`${HOME}/.KUBE/config`)).toBe(true);
+    expect(isCredentialPath(`${HOME}/.Docker/config.json`)).toBe(true);
+    expect(isCredentialPath(`${HOME}/.Config/gh/hosts.yml`)).toBe(true);
+  });
+
+  test("native Read of the Claude token / a repo .env is blocked (parity with Bash denyRead)", async () => {
+    expect((await evaluateToolUse("Read", { file_path: `${HOME}/.claude/.credentials.json` })).allowed).toBe(false);
+    expect((await evaluateToolUse("Read", { file_path: "/tmp/proj/.env" })).allowed).toBe(false);
+  });
+
+  test("native Read/Write of the bot's audit log + session file is blocked", async () => {
+    const { AUDIT_LOG_PATH, SESSION_FILE } = await import("./config");
+    expect((await evaluateToolUse("Read", { file_path: AUDIT_LOG_PATH })).allowed).toBe(false);
+    expect((await evaluateToolUse("Write", { file_path: SESSION_FILE })).allowed).toBe(false);
+  });
+});
+
+describe("control-file write protection (#12)", () => {
+  test("isProtectedControlFile flags code-exec sinks, not normal files", () => {
+    expect(isProtectedControlFile("/w/proj/.mcp.json")).toBe(true);
+    expect(isProtectedControlFile("/w/proj/.claude/settings.json")).toBe(true);
+    expect(isProtectedControlFile("/w/proj/.claude/settings.local.json")).toBe(true);
+    expect(isProtectedControlFile("/w/proj/.claude/hooks/pre.sh")).toBe(true);
+    expect(isProtectedControlFile("/w/proj/mcp.json")).toBe(false);
+    expect(isProtectedControlFile("/w/proj/src/index.ts")).toBe(false);
+  });
+
+  test("native Write/Edit to a control file is blocked even inside an allowed path", async () => {
+    expect((await evaluateToolUse("Write", { file_path: "/tmp/proj/.mcp.json" })).allowed).toBe(false);
+    expect((await evaluateToolUse("Edit", { file_path: "/tmp/proj/.claude/settings.json" })).allowed).toBe(false);
+    expect((await evaluateToolUse("Write", { file_path: "/tmp/proj/.claude/hooks/x.sh" })).allowed).toBe(false);
+  });
+
+  test("reading a control file is allowed; writing a normal file is allowed", async () => {
+    expect((await evaluateToolUse("Read", { file_path: "/tmp/proj/.mcp.json" })).allowed).toBe(true);
+    expect((await evaluateToolUse("Write", { file_path: "/tmp/proj/normal.txt" })).allowed).toBe(true);
+  });
+
+  test("control-file match is case-insensitive (macOS/APFS)", async () => {
+    expect(isProtectedControlFile("/w/proj/.MCP.json")).toBe(true);
+    expect(isProtectedControlFile("/w/proj/.CLAUDE/settings.json")).toBe(true);
+    expect(isProtectedControlFile("/w/proj/.Claude/hooks/x.sh")).toBe(true);
+    expect((await evaluateToolUse("Write", { file_path: "/tmp/proj/.CLAUDE/settings.json" })).allowed).toBe(false);
+  });
+
+  // Real symlink fixture — a Bash-planted dangling symlink must not redirect a native Write past the
+  // gate (canonicalize resolves symlinks even when the target doesn't exist yet).
+  test("native Write through a dangling symlink to a control file is blocked", async () => {
+    const base = join(tmpdir(), `ctb-sym-${Date.now()}-${process.pid}`); // /var/folders → an allowed temp path
+    mkdirSync(base, { recursive: true });
+    const link = join(base, "notes.txt");
+    symlinkSync(join(base, ".claude", "settings.json"), link); // target dir doesn't exist yet
+    try {
+      expect((await evaluateToolUse("Write", { file_path: link })).allowed).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("native Write through a symlink pointing outside allowed paths is blocked", async () => {
+    const base = join(tmpdir(), `ctb-sym2-${Date.now()}-${process.pid}`);
+    mkdirSync(base, { recursive: true });
+    const link = join(base, "innocent.txt");
+    symlinkSync("/etc/ctb-nonexistent-evil", link);
+    try {
+      expect((await evaluateToolUse("Write", { file_path: link })).allowed).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test("native Write through a symlink loop fails closed (denied, not approved)", async () => {
+    const base = join(tmpdir(), `ctb-loop-${Date.now()}-${process.pid}`);
+    mkdirSync(base, { recursive: true });
+    symlinkSync(join(base, "b"), join(base, "a")); // a -> b
+    symlinkSync(join(base, "a"), join(base, "b")); // b -> a  (cycle)
+    try {
+      // template string, NOT path.join — join would lexically collapse `..` before canonicalize sees it
+      const r = await evaluateToolUse("Write", { file_path: `${base}/a/../pwned.txt` });
+      expect(r.allowed).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  // `..` must apply to the RESOLVED physical path, not lexically cancel a preceding symlink segment.
+  test("native Write through <symlink>/.. resolves physically (not lexically) and is blocked", async () => {
+    const base = join(tmpdir(), `ctb-sym3-${Date.now()}-${process.pid}`); // temp-allowed
+    mkdirSync(base, { recursive: true });
+    symlinkSync("/etc", join(base, "escape")); // escape -> /etc (exists, outside allowed)
+    try {
+      // template string, NOT path.join (which would collapse `..` lexically before canonicalize).
+      // lexically base/escape/../pwned = base/pwned (allowed); physically /etc/../pwned = /pwned (denied)
+      const r = await evaluateToolUse("Write", { file_path: `${base}/escape/../pwned.txt` });
+      expect(r.allowed).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("evaluateToolUse", () => {
   afterEach(() => {

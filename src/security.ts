@@ -4,16 +4,19 @@
  * Rate limiting, path validation, command safety.
  */
 
-import { resolve, normalize, dirname } from "path";
-import { realpathSync } from "fs";
+import { resolve, normalize, dirname, basename, join } from "path";
+import { realpathSync, lstatSync, readlinkSync } from "fs";
 import { lookup } from "dns/promises";
 import type { RateLimitBucket } from "./types";
 import {
   ALLOWED_PATHS,
+  AUDIT_LOG_PATH,
   BLOCKED_PATTERNS,
   RATE_LIMIT_ENABLED,
   RATE_LIMIT_REQUESTS,
   RATE_LIMIT_WINDOW,
+  RESTART_FILE,
+  SESSION_FILE,
   TEMP_PATHS,
   WORKING_DIR,
 } from "./config";
@@ -370,14 +373,60 @@ async function isBlockedFetchTarget(rawUrl: string): Promise<boolean> {
   return false;
 }
 
-/** Resolve ~ and symlinks; fall back to lexical resolve for non-existent paths. */
+/** Resolve ~ and symlinks to where a read/write would ACTUALLY land, tolerant of a not-yet-existing
+ *  tail. CRITICAL: never lexically pre-collapse `..` — `resolve`/`normalize` cancel `..` against a
+ *  preceding *symlink* segment as if it were a real dir, so `<allowed>/link/../x` would be approved
+ *  while the OS follows `link` and writes elsewhere. `..` must apply to the already-RESOLVED physical
+ *  path, exactly as realpath(3)/openat do. */
 function canonicalize(path: string): string {
   const expanded = path.replace(/^~/, process.env.HOME || "");
+  const abs = expanded.startsWith("/") ? expanded : `${process.cwd()}/${expanded}`;
   try {
-    return realpathSync(normalize(expanded));
+    return realpathSync(abs); // fully exists — the kernel resolves symlinks + `..` correctly
   } catch {
-    return resolve(normalize(expanded));
+    return resolvePhysical(abs.split("/"), 0); // missing tail / dangling symlink — resolve by hand
   }
+}
+
+/** realpath(3) semantics with a missing-tail tolerance: walk segments left-to-right, apply `..` to the
+ *  resolved-so-far physical path, follow symlinks as encountered, and append a non-existent tail only
+ *  once a component is confirmed missing (symlinks can't traverse a path that doesn't exist). */
+function resolvePhysical(segments: string[], depth: number): string {
+  // Symlink cycle (or pathological nesting): fail CLOSED. Returning a textual path here could hand back
+  // an approvable path with unresolved `..` for something the kernel would ELOOP on. Callers deny on throw.
+  if (depth > 64) throw new Error("canonicalize: too many symlink levels");
+  const stack: string[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    if (seg === undefined || seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      stack.pop();
+      continue;
+    }
+    const cur = "/" + [...stack, seg].join("/");
+    let st;
+    try {
+      st = lstatSync(cur);
+    } catch {
+      // cur is missing → nothing deeper exists; append remaining segments textually (honoring ./..).
+      stack.push(seg);
+      for (let j = i + 1; j < segments.length; j++) {
+        const s = segments[j];
+        if (s === undefined || s === "" || s === ".") continue;
+        if (s === "..") stack.pop();
+        else stack.push(s);
+      }
+      return "/" + stack.join("/");
+    }
+    if (st.isSymbolicLink()) {
+      const link = readlinkSync(cur);
+      const linkAbs = link.startsWith("/") ? link : "/" + [...stack, link].join("/");
+      const resolvedLink = resolvePhysical(linkAbs.split("/"), depth + 1);
+      return resolvePhysical([...resolvedLink.split("/"), ...segments.slice(i + 1)], depth + 1);
+    }
+    stack.push(seg);
+  }
+  return "/" + stack.join("/");
 }
 
 /**
@@ -385,6 +434,58 @@ function canonicalize(path: string): string {
  * Async because the WebFetch SSRF check resolves DNS (audit #11); every other branch
  * is synchronous and returns without hitting an await.
  */
+// Files whose CONTENT executes outside the Bash sandbox when Claude Code (re)loads project/user
+// config: project `.mcp.json` (its command is spawned from the parent process), and Claude
+// settings/hooks (define hooks that run on tool use). The sandbox denyWrite only binds Bash, so the
+// native Write/Edit tools must be gated here too — else injected content writes one inside
+// ALLOWED_PATHS and gains unsandboxed code execution on the next session.
+export function isProtectedControlFile(canonicalPath: string): boolean {
+  // Case-insensitive: macOS/APFS is case-insensitive, so a native Write to `.CLAUDE/settings.json`
+  // creates the same file the CLI loads as `.claude/settings.json` — a case-sensitive match misses it.
+  const p = canonicalPath.toLowerCase();
+  const base = p.split("/").pop() ?? "";
+  if (base === ".mcp.json") return true;
+  if (/(?:^|\/)\.claude\/settings[^/]*\.json$/.test(p)) return true;
+  if (/(?:^|\/)\.claude\/hooks\//.test(p)) return true;
+  return false;
+}
+
+// Credential stores the native file tools must never read/write, even inside an ALLOWED_PATH. The
+// Bash sandbox denyRead only binds Bash — without this, injected Claude reads a secret via the native
+// Read tool instead, defeating the whole read blocklist. Mirrors READ_DENY in sandbox.ts.
+export function isCredentialPath(canonicalPath: string): boolean {
+  const p = canonicalPath.toLowerCase(); // case-insensitive: APFS resolves .KUBE/.Docker to .kube/.docker
+  const base = basename(p);
+  if (
+    base === ".env" ||
+    base === ".git-credentials" ||
+    base === ".npmrc" ||
+    base === ".pypirc" ||
+    base === ".pgpass" ||
+    base === ".netrc" ||
+    base.startsWith(".credentials")
+  ) {
+    return true;
+  }
+  const home = (process.env.HOME || "").toLowerCase();
+  if (!home) return false;
+  const under = (dir: string) => p === dir || p.startsWith(`${dir}/`);
+  return (
+    under(`${home}/.ssh`) ||
+    under(`${home}/.aws`) ||
+    under(`${home}/.gnupg`) ||
+    under(`${home}/.kube`) ||
+    under(`${home}/.docker`) ||
+    under(`${home}/.config`) // gh, op, gcloud, and any other credential store under XDG config
+  );
+}
+
+// The bot's own runtime files live in /tmp (native-tool-accessible). Reading the audit log exfils past
+// conversation content; writing session/restart files is a DoS. Canonicalized once at load.
+const BOT_RUNTIME_FILES = new Set(
+  [AUDIT_LOG_PATH, SESSION_FILE, RESTART_FILE].map((p) => canonicalize(p))
+);
+
 export async function evaluateToolUse(
   toolName: string,
   input: Record<string, unknown>
@@ -424,7 +525,25 @@ export async function evaluateToolUse(
     }
     const filePath = String(rawPath || "");
     if (filePath) {
-      const canonical = canonicalize(filePath);
+      let canonical: string;
+      try {
+        canonical = canonicalize(filePath);
+      } catch {
+        return { allowed: false, reason: `Unresolvable path (symlink loop?): ${filePath}` };
+      }
+      // Writing a code-execution control file runs OUTSIDE the Bash sandbox on next load; the
+      // sandbox denyWrite only binds Bash, so block the native write tools here regardless of path.
+      if (toolName !== "Read" && isProtectedControlFile(canonical)) {
+        return { allowed: false, reason: `Write to code-execution control file blocked: ${filePath}` };
+      }
+      // Credential stores: deny native read AND write, even inside an ALLOWED_PATH (~/.claude is one).
+      if (isCredentialPath(canonical)) {
+        return { allowed: false, reason: `Access to credential store blocked: ${filePath}` };
+      }
+      // The bot's own audit log / session state (in /tmp) — reading exfils conversations, writing is DoS.
+      if (BOT_RUNTIME_FILES.has(canonical)) {
+        return { allowed: false, reason: `Access to bot runtime file blocked: ${filePath}` };
+      }
       // NotebookEdit is a write — no .claude read exemption. Scope the exemption to
       // the user's OWN ~/.claude (config/skills), not any path with "/.claude/" in it
       // (`.includes` matched `/tmp/x/.claude/secret` and let it be read).
@@ -448,7 +567,8 @@ export async function evaluateToolUse(
       return { allowed: false, reason: "non-string search path" };
     }
     const searchPath = String(rawPath || "");
-    if (searchPath && !isPathAllowed(canonicalize(searchPath))) {
+    // isPathAllowed canonicalizes internally and denies on a resolver throw (symlink loop) — fail-closed.
+    if (searchPath && !isPathAllowed(searchPath)) {
       return { allowed: false, reason: `Search outside allowed paths: ${searchPath}` };
     }
   }
