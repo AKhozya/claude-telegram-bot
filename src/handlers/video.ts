@@ -6,8 +6,8 @@
 
 import type { BotContext } from "../types";
 import { session } from "../session";
-import { ALLOWED_USERS, TEMP_DIR } from "../config";
-import { isAuthorized, rateLimiter } from "../security";
+import { TEMP_DIR } from "../config";
+import { rateLimiter } from "../security";
 import { auditLog, auditLogRateLimit, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { handleProcessingError } from "./media-group";
@@ -48,11 +48,6 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // 1. Authorization check
-  if (!isAuthorized(userId, ALLOWED_USERS)) {
-    await ctx.reply("Unauthorized. Contact the bot owner for access.");
-    return;
-  }
   await markReceived(ctx);
 
   // 2. Check file size

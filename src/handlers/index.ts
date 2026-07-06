@@ -11,6 +11,7 @@ export {
   handleRestart,
   handleRetry,
 } from "./commands";
+export { authGate } from "./auth";
 export { handleText } from "./text";
 export { handlePhoto } from "./photo";
 export { handleDocument } from "./document";

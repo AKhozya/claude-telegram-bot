@@ -4,8 +4,7 @@
 
 import type { BotContext } from "../types";
 import { session } from "../session";
-import { ALLOWED_USERS } from "../config";
-import { isAuthorized, rateLimiter } from "../security";
+import { rateLimiter } from "../security";
 import {
   auditLog,
   auditLogRateLimit,
@@ -28,11 +27,6 @@ export async function handleText(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // 1. Authorization check
-  if (!isAuthorized(userId, ALLOWED_USERS)) {
-    await ctx.reply("Unauthorized. Contact the bot owner for access.");
-    return;
-  }
   // 2. Check for interrupt prefix. A bare "!stop"/empty interrupt is a pure
   // stop alias — no reaction. Only real follow-up prompts get 👀.
   message = await checkInterrupt(message);
