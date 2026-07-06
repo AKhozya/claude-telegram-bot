@@ -392,7 +392,9 @@ function canonicalize(path: string): string {
  *  resolved-so-far physical path, follow symlinks as encountered, and append a non-existent tail only
  *  once a component is confirmed missing (symlinks can't traverse a path that doesn't exist). */
 function resolvePhysical(segments: string[], depth: number): string {
-  if (depth > 64) return "/" + segments.filter((s) => s && s !== ".").join("/");
+  // Symlink cycle (or pathological nesting): fail CLOSED. Returning a textual path here could hand back
+  // an approvable path with unresolved `..` for something the kernel would ELOOP on. Callers deny on throw.
+  if (depth > 64) throw new Error("canonicalize: too many symlink levels");
   const stack: string[] = [];
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
@@ -523,7 +525,12 @@ export async function evaluateToolUse(
     }
     const filePath = String(rawPath || "");
     if (filePath) {
-      const canonical = canonicalize(filePath);
+      let canonical: string;
+      try {
+        canonical = canonicalize(filePath);
+      } catch {
+        return { allowed: false, reason: `Unresolvable path (symlink loop?): ${filePath}` };
+      }
       // Writing a code-execution control file runs OUTSIDE the Bash sandbox on next load; the
       // sandbox denyWrite only binds Bash, so block the native write tools here regardless of path.
       if (toolName !== "Read" && isProtectedControlFile(canonical)) {
@@ -560,7 +567,8 @@ export async function evaluateToolUse(
       return { allowed: false, reason: "non-string search path" };
     }
     const searchPath = String(rawPath || "");
-    if (searchPath && !isPathAllowed(canonicalize(searchPath))) {
+    // isPathAllowed canonicalizes internally and denies on a resolver throw (symlink loop) — fail-closed.
+    if (searchPath && !isPathAllowed(searchPath)) {
       return { allowed: false, reason: `Search outside allowed paths: ${searchPath}` };
     }
   }

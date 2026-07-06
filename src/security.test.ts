@@ -102,6 +102,19 @@ describe("control-file write protection (#12)", () => {
     }
   });
 
+  test("native Write through a symlink loop fails closed (denied, not approved)", async () => {
+    const base = join(tmpdir(), `ctb-loop-${Date.now()}-${process.pid}`);
+    mkdirSync(base, { recursive: true });
+    symlinkSync(join(base, "b"), join(base, "a")); // a -> b
+    symlinkSync(join(base, "a"), join(base, "b")); // b -> a  (cycle)
+    try {
+      const r = await evaluateToolUse("Write", { file_path: join(base, "a", "..", "pwned.txt") });
+      expect(r.allowed).toBe(false);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
   // `..` must apply to the RESOLVED physical path, not lexically cancel a preceding symlink segment.
   test("native Write through <symlink>/.. resolves physically (not lexically) and is blocked", async () => {
     const base = join(tmpdir(), `ctb-sym3-${Date.now()}-${process.pid}`); // temp-allowed
