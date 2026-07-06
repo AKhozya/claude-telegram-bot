@@ -416,6 +416,36 @@ export function isProtectedControlFile(canonicalPath: string): boolean {
   return false;
 }
 
+// Credential stores the native file tools must never read/write, even inside an ALLOWED_PATH. The
+// Bash sandbox denyRead only binds Bash — without this, injected Claude reads a secret via the native
+// Read tool instead, defeating the whole read blocklist. Mirrors READ_DENY in sandbox.ts.
+export function isCredentialPath(canonicalPath: string): boolean {
+  const p = canonicalPath;
+  const base = basename(p).toLowerCase();
+  if (
+    base === ".env" ||
+    base === ".git-credentials" ||
+    base === ".npmrc" ||
+    base === ".pypirc" ||
+    base === ".pgpass" ||
+    base === ".netrc" ||
+    base.startsWith(".credentials")
+  ) {
+    return true;
+  }
+  const home = process.env.HOME || "";
+  if (!home) return false;
+  const under = (dir: string) => p === dir || p.startsWith(`${dir}/`);
+  return (
+    under(`${home}/.ssh`) ||
+    under(`${home}/.aws`) ||
+    under(`${home}/.gnupg`) ||
+    under(`${home}/.kube`) ||
+    under(`${home}/.docker`) ||
+    under(`${home}/.config`) // gh, op, gcloud, and any other credential store under XDG config
+  );
+}
+
 export async function evaluateToolUse(
   toolName: string,
   input: Record<string, unknown>
@@ -460,6 +490,10 @@ export async function evaluateToolUse(
       // sandbox denyWrite only binds Bash, so block the native write tools here regardless of path.
       if (toolName !== "Read" && isProtectedControlFile(canonical)) {
         return { allowed: false, reason: `Write to code-execution control file blocked: ${filePath}` };
+      }
+      // Credential stores: deny native read AND write, even inside an ALLOWED_PATH (~/.claude is one).
+      if (isCredentialPath(canonical)) {
+        return { allowed: false, reason: `Access to credential store blocked: ${filePath}` };
       }
       // NotebookEdit is a write — no .claude read exemption. Scope the exemption to
       // the user's OWN ~/.claude (config/skills), not any path with "/.claude/" in it

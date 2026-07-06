@@ -187,12 +187,19 @@ later refactor can't silently drop the boundary (same pattern as the #1 tool-gat
 - **Reads are a blocklist, not fail-closed.** An unlisted credential store outside `ALLOWED_PATHS` is
   readable by injected Bash. Real fail-closed reads need managed policy settings (future work); today the
   containment is the `denyRead` list + Layer-2 egress stopping the read data from leaving.
-- **Only Bash is contained.** The bot process keeps the secrets + broad network (it's the trusted
-  parent). **`WebFetch` and MCP tool calls run in the bot process, unsandboxed** — a full read→exfil
-  chain (`Read` a secret, `WebFetch` it out) touches Bash never once. On the container, Layer-2 NetworkPolicy
-  is pod-scoped and catches this regardless of originating process; **on macOS there is no NetworkPolicy
-  equivalent, so WebFetch-based exfil is unmitigated there today.** (WebFetch SSRF *into* internal targets
-  is separately blocked by `evaluateToolUse`.) Track as a separate item.
+- **The sandbox binds only Bash; the native file tools are gated separately (and now consistently).**
+  `Read`/`Write`/`Edit`/`NotebookEdit` don't go through bwrap/Seatbelt — their containment is the
+  `evaluateToolUse` app hook (`security.ts`), which now enforces the SAME controls as the Bash sandbox:
+  `isPathAllowed` (symlink-resolved via the fixed `canonicalize`), `isCredentialPath` (the credential
+  denylist, so native Read can't exfil a secret Bash is denied), and `isProtectedControlFile` (hook/MCP
+  code-exec sinks). So native-tool file *read/write* is contained. **What remains unsandboxed: `WebFetch`
+  and MCP-server subprocess network.** A read→exfil chain still needs a network egress — on the container
+  Layer-2 NetworkPolicy is pod-scoped and catches it; **on macOS there is no NetworkPolicy equivalent, so
+  WebFetch-based exfil is unmitigated there today** (WebFetch SSRF *into* internal targets is separately
+  blocked). Track as a separate item.
+- **TOCTOU residual.** `canonicalize` resolves symlinks at check time; a symlink swapped between the check
+  and the SDK's actual write is a classic TOCTOU. Hard to hit via sequential tool calls (no concurrency),
+  but a genuine ceiling — closed only by the OS sandbox re-resolving at write time.
 - **`~/.kube` etc. are `denyRead`-adjacent functional gaps.** kubeconfig is deliberately NOT read-allowed,
   so Claude-invoked `kubectl`/`flux` via Bash will fail. The fix when that bites is a scoped/short-lived
   service-account token, NOT adding `~/.kube` to a read-allow (which would reopen credential exposure).

@@ -16,7 +16,27 @@ const publicLookup = async (): Promise<Addr[]> => [{ address: "93.184.216.34", f
 let mockLookup: () => Promise<Addr[]> = publicLookup;
 mock.module("dns/promises", () => ({ lookup: async () => mockLookup() }));
 
-const { evaluateToolUse, checkCommandSafety, isProtectedControlFile } = await import("./security");
+const { evaluateToolUse, checkCommandSafety, isProtectedControlFile, isCredentialPath } =
+  await import("./security");
+
+describe("credential-store protection (#12)", () => {
+  const HOME = process.env.HOME || "";
+  test("isCredentialPath flags credential stores + files, not config/source", () => {
+    expect(isCredentialPath(`${HOME}/.ssh/id_rsa`)).toBe(true);
+    expect(isCredentialPath(`${HOME}/.aws/credentials`)).toBe(true);
+    expect(isCredentialPath(`${HOME}/.config/gh/hosts.yml`)).toBe(true);
+    expect(isCredentialPath(`${HOME}/.claude/.credentials.json`)).toBe(true);
+    expect(isCredentialPath("/tmp/proj/.env")).toBe(true);
+    expect(isCredentialPath("/tmp/proj/.git-credentials")).toBe(true);
+    expect(isCredentialPath("/tmp/proj/src/index.ts")).toBe(false);
+    expect(isCredentialPath(`${HOME}/.claude/settings.json`)).toBe(false);
+  });
+
+  test("native Read of the Claude token / a repo .env is blocked (parity with Bash denyRead)", async () => {
+    expect((await evaluateToolUse("Read", { file_path: `${HOME}/.claude/.credentials.json` })).allowed).toBe(false);
+    expect((await evaluateToolUse("Read", { file_path: "/tmp/proj/.env" })).allowed).toBe(false);
+  });
+});
 
 describe("control-file write protection (#12)", () => {
   test("isProtectedControlFile flags code-exec sinks, not normal files", () => {
