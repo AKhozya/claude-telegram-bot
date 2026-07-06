@@ -43,7 +43,6 @@ export const ALLOWED_USERS: number[] = (
   .filter((x) => !isNaN(x));
 
 export const WORKING_DIR = process.env.CLAUDE_WORKING_DIR || HOME;
-export const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 
 // ============== MCP Configuration ==============
 
@@ -136,30 +135,6 @@ export const BLOCKED_PATTERNS = [
   "mkfs.",
   "dd if=",
 ];
-
-// ============== Voice Transcription ==============
-
-const BASE_TRANSCRIPTION_PROMPT = `Transcribe this voice message accurately.
-The speaker may use multiple languages (English, and possibly others).
-Focus on accuracy for proper nouns, technical terms, and commands.`;
-
-let TRANSCRIPTION_CONTEXT = "";
-if (process.env.TRANSCRIPTION_CONTEXT_FILE) {
-  try {
-    const file = Bun.file(process.env.TRANSCRIPTION_CONTEXT_FILE);
-    if (await file.exists()) {
-      TRANSCRIPTION_CONTEXT = (await file.text()).trim();
-    }
-  } catch {
-    // File not found or unreadable — proceed without context
-  }
-}
-
-export const TRANSCRIPTION_PROMPT = TRANSCRIPTION_CONTEXT
-  ? `${BASE_TRANSCRIPTION_PROMPT}\n\nAdditional context:\n${TRANSCRIPTION_CONTEXT}`
-  : BASE_TRANSCRIPTION_PROMPT;
-
-export const TRANSCRIPTION_AVAILABLE = !!OPENAI_API_KEY;
 
 // ============== Thinking Keywords ==============
 

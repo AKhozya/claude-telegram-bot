@@ -15,7 +15,6 @@ import { isAuthorized, rateLimiter } from "../security";
 import { auditLog, auditLogRateLimit, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { createMediaGroupBuffer, handleProcessingError } from "./media-group";
-import { isAudioFile, processAudioFile } from "./audio";
 import { processPhotos } from "./photo";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markDone, markFailed } from "./reactions";
@@ -573,36 +572,6 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
   const isText =
     TEXT_EXTENSIONS.includes(extension) || doc.mime_type?.startsWith("text/");
   const isArchiveFile = isArchive(fileName);
-
-  // Check if it's an audio file sent as a document
-  if (!isPdf && !isText && !isArchiveFile && isAudioFile(fileName, doc.mime_type)) {
-    console.log(`Received audio document: ${fileName} from @${username}`);
-
-    // Rate limit check
-    const [allowed, retryAfter] = rateLimiter.check(userId);
-    if (!allowed) {
-      await auditLogRateLimit(userId, username, retryAfter!);
-      await ctx.reply(
-        `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
-      );
-      await markFailed(ctx);
-      return;
-    }
-
-    // Download and process as audio
-    let docPath: string;
-    try {
-      docPath = await downloadDocument(ctx);
-    } catch (error) {
-      console.error("Failed to download audio document:", error);
-      await markFailed(ctx);
-      await ctx.reply("❌ Failed to download audio file.");
-      return;
-    }
-
-    await processAudioFile(ctx, docPath, ctx.message?.caption, userId, username, chatId);
-    return;
-  }
 
   if (!isPdf && !isText && !isArchiveFile) {
     await markFailed(ctx);

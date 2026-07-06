@@ -39,7 +39,7 @@ export async function handleStart(ctx: Context): Promise<void> {
       `<b>Tips:</b>\n` +
       `• Prefix with <code>!</code> to interrupt current query\n` +
       `• Use "think" keyword for extended reasoning\n` +
-      `• Send photos, voice, or documents`,
+      `• Send photos or documents`,
     { parse_mode: "HTML" }
   );
 }
