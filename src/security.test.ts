@@ -657,6 +657,13 @@ describe("proc environ secret-read (Bash speed-bump)", () => {
   test("blocks a doubled-slash /proc/1//environ", () => {
     expect(checkCommandSafety("cat /proc/1//environ")[0]).toBe(false);
   });
+  test("blocks intermediate-segment + extra-slash forms the kernel still resolves", () => {
+    expect(checkCommandSafety("cat /proc/1/./environ")[0]).toBe(false);
+    expect(checkCommandSafety("cat /proc/self/../1/environ")[0]).toBe(false);
+    expect(checkCommandSafety("cat /proc/1/task/2/environ")[0]).toBe(false);
+    expect(checkCommandSafety("cat /proc/self/task/2/environ")[0]).toBe(false);
+    expect(checkCommandSafety("cat /proc//1/environ")[0]).toBe(false);
+  });
   test("blocks an environ read chained after a safe command", () => {
     expect(checkCommandSafety("ls /tmp && cat /proc/1/environ")[0]).toBe(false);
   });
@@ -668,9 +675,10 @@ describe("proc environ secret-read (Bash speed-bump)", () => {
 });
 
 describe("proc environ secret-read (native belt)", () => {
-  test("isCredentialPath flags /proc/<pid>/environ (canonicalized numeric form)", () => {
+  test("isCredentialPath flags /proc/<pid>/environ (canonicalized numeric + task form)", () => {
     expect(isCredentialPath("/proc/1/environ")).toBe(true);
     expect(isCredentialPath("/proc/12345/environ")).toBe(true);
+    expect(isCredentialPath("/proc/1/task/2/environ")).toBe(true);
   });
   test("isCredentialPath does not flag other /proc files", () => {
     expect(isCredentialPath("/proc/1/status")).toBe(false);

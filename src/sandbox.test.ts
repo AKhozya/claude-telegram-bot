@@ -94,6 +94,7 @@ test("denyRead blocklists credential stores incl the broad ~/.config tree", () =
 test("denyRead blocks /proc/<pid>/environ (process env secret-read)", () => {
   const dr = buildSandboxSettings().filesystem!.denyRead!;
   expect(dr).toContain("/proc/*/environ");
+  expect(dr).toContain("/proc/*/task/*/environ");
 });
 
 test("sanitizeEnv strips secret-shaped keys, keeps operational vars", () => {

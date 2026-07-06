@@ -170,7 +170,10 @@ export function checkCommandSafety(
       // scrub of Bash's OWN env. Speed-bump only: fail-open like the rest of this parser
       // (`/proc/$$/environ`, head/xxd, $(...) evade it). Real close is OS-level (#12 ceiling:
       // run Bash under a different uid than the bot, or unset secrets post-config-load).
-      if (/\/proc\/(?:\d+|self|thread-self)\/+environ\b/i.test(segment)) {
+      // `\/+` tolerates extra slashes (`/proc//1/environ`) and `(?:[^\s/]+\/+)*` tolerates
+      // intermediate segments (`/proc/1/./environ`, `/proc/self/../1/environ`, the thread
+      // form `/proc/1/task/2/environ`) that the kernel still resolves to the real file.
+      if (/\/+proc\/+(?:\d+|self|thread-self)\/+(?:[^\s/]+\/+)*environ\b/i.test(segment)) {
         return [false, "read of /proc/<pid>/environ (process env) blocked"];
       }
 
@@ -476,10 +479,11 @@ export function isCredentialPath(canonicalPath: string): boolean {
   ) {
     return true;
   }
-  // /proc/<pid>/environ = a process's secret env. canonicalize resolves /proc/self →
-  // numeric, so match the numeric form. isPathAllowed already blocks /proc outside
-  // ALLOWED_PATHS; this makes the secret-denial explicit, not emergent from the allowlist.
-  if (/^\/proc\/\d+\/environ$/.test(p)) return true;
+  // /proc/<pid>/environ = a process's secret env. canonicalize (realpath) resolves
+  // /proc/self → numeric and /proc/thread-self → /proc/<pid>/task/<tid>, so match both the
+  // plain and the thread form. isPathAllowed already blocks /proc outside ALLOWED_PATHS;
+  // this makes the secret-denial explicit, not emergent from the allowlist.
+  if (/^\/proc\/\d+(?:\/task\/\d+)?\/environ$/.test(p)) return true;
   const home = (process.env.HOME || "").toLowerCase();
   if (!home) return false;
   const under = (dir: string) => p === dir || p.startsWith(`${dir}/`);
