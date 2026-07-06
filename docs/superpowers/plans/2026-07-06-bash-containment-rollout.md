@@ -67,5 +67,13 @@ volumes:
       node allows it (same check as above).
 
 ## Follow-ups (tracked, not in this PR)
+- **WebFetch is the top residual exfil — a decision for you (both reviewers flagged it).** `Read` a secret,
+  `WebFetch` it to an attacker URL — never touches Bash. SSRF *into* internal targets is blocked, but
+  public-URL egress is open. Options: (a) rely on the Layer-2 NetworkPolicy (container only — **macOS has
+  no equivalent, so it's unmitigated there today**); (b) egress-allowlist WebFetch; (c) disable WebFetch
+  (biggest functionality cut). Not decided autonomously — pick at rollout.
 - Graduate the sandbox network from empty denylist → strict domain allowlist once egress is understood.
-- Unsandboxed **MCP tools** run in the bot process (env scrub covers their secrets; filesystem/network do not) — separate item.
+- Unsandboxed **MCP-server subprocesses** run in the bot process (env scrub covers their secrets;
+  their filesystem/network do not) — separate item.
+- Done in this PR: native-tool parity (`isCredentialPath`), bot-runtime-file deny (audit log/session),
+  broadened secret-env heuristic, symlink-resolving `canonicalize`.

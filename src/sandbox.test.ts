@@ -91,6 +91,15 @@ test("sanitizeEnv strips secret-shaped keys, keeps operational vars", () => {
   expect(e.GH_TOKEN).toBeUndefined();
 });
 
+test("sanitizeEnv strips oddly-named tokens (broadened heuristic)", () => {
+  const e = sanitizeEnv({ GITHUB_PAT: "x", DOCKER_AUTH_CONFIG: "y", APIKEY: "z", PATH: "/bin", HOME: "/h" });
+  expect(e.GITHUB_PAT).toBeUndefined();
+  expect(e.DOCKER_AUTH_CONFIG).toBeUndefined();
+  expect(e.APIKEY).toBeUndefined();
+  expect(e.PATH).toBe("/bin");
+  expect(e.HOME).toBe("/h");
+});
+
 test("sanitizeEnv strips agent-socket capability vars (not secret-shaped)", () => {
   const e = sanitizeEnv({ SSH_AUTH_SOCK: "/tmp/a.sock", SSH_AGENT_PID: "1", GPG_AGENT_INFO: "x", PATH: "/bin" });
   expect(e.SSH_AUTH_SOCK).toBeUndefined();

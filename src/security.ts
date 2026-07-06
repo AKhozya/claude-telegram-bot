@@ -10,10 +10,13 @@ import { lookup } from "dns/promises";
 import type { RateLimitBucket } from "./types";
 import {
   ALLOWED_PATHS,
+  AUDIT_LOG_PATH,
   BLOCKED_PATTERNS,
   RATE_LIMIT_ENABLED,
   RATE_LIMIT_REQUESTS,
   RATE_LIMIT_WINDOW,
+  RESTART_FILE,
+  SESSION_FILE,
   TEMP_PATHS,
   WORKING_DIR,
 } from "./config";
@@ -475,6 +478,12 @@ export function isCredentialPath(canonicalPath: string): boolean {
   );
 }
 
+// The bot's own runtime files live in /tmp (native-tool-accessible). Reading the audit log exfils past
+// conversation content; writing session/restart files is a DoS. Canonicalized once at load.
+const BOT_RUNTIME_FILES = new Set(
+  [AUDIT_LOG_PATH, SESSION_FILE, RESTART_FILE].map((p) => canonicalize(p))
+);
+
 export async function evaluateToolUse(
   toolName: string,
   input: Record<string, unknown>
@@ -523,6 +532,10 @@ export async function evaluateToolUse(
       // Credential stores: deny native read AND write, even inside an ALLOWED_PATH (~/.claude is one).
       if (isCredentialPath(canonical)) {
         return { allowed: false, reason: `Access to credential store blocked: ${filePath}` };
+      }
+      // The bot's own audit log / session state (in /tmp) — reading exfils conversations, writing is DoS.
+      if (BOT_RUNTIME_FILES.has(canonical)) {
+        return { allowed: false, reason: `Access to bot runtime file blocked: ${filePath}` };
       }
       // NotebookEdit is a write — no .claude read exemption. Scope the exemption to
       // the user's OWN ~/.claude (config/skills), not any path with "/.claude/" in it

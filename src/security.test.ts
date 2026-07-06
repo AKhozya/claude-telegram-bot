@@ -40,6 +40,12 @@ describe("credential-store protection (#12)", () => {
     expect((await evaluateToolUse("Read", { file_path: `${HOME}/.claude/.credentials.json` })).allowed).toBe(false);
     expect((await evaluateToolUse("Read", { file_path: "/tmp/proj/.env" })).allowed).toBe(false);
   });
+
+  test("native Read/Write of the bot's audit log + session file is blocked", async () => {
+    const { AUDIT_LOG_PATH, SESSION_FILE } = await import("./config");
+    expect((await evaluateToolUse("Read", { file_path: AUDIT_LOG_PATH })).allowed).toBe(false);
+    expect((await evaluateToolUse("Write", { file_path: SESSION_FILE })).allowed).toBe(false);
+  });
 });
 
 describe("control-file write protection (#12)", () => {

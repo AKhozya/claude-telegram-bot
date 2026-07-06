@@ -1,7 +1,7 @@
 import { homedir } from "os";
 import { lstatSync, mkdirSync } from "fs";
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
-import { ALLOWED_PATHS } from "./config";
+import { ALLOWED_PATHS, AUDIT_LOG_PATH, SESSION_FILE, RESTART_FILE } from "./config";
 
 const HOME = homedir();
 
@@ -43,12 +43,18 @@ const READ_DENY: string[] = [
   "**/.env",
   "**/.git-credentials",
   "**/.npmrc",
+  // The bot's own runtime files (live in /tmp, which is otherwise a scratch-writable path). Reading the
+  // audit log exfils past conversation content; the media TEMP_DIR is intentionally NOT here.
+  AUDIT_LOG_PATH,
+  SESSION_FILE,
+  RESTART_FILE,
 ];
 
-// Heuristic — covers every secret var this repo uses (OPENAI_API_KEY, TELEGRAM_BOT_TOKEN). Ceiling:
-// an oddly-named secret (e.g. GITHUB_PAT, APIKEY — no underscore) slips through; add a case when a real
-// one appears rather than broadening speculatively (false positives on e.g. PUBLIC_KEY_ID cost too).
-const SECRET_ENV_RE = /(_KEY|_TOKEN|_SECRET|PASSWORD|CREDENTIAL)/i;
+// Broad on purpose: substring match on KEY/TOKEN/SECRET/AUTH/... catches oddly-named tokens
+// (GITHUB_PAT, APIKEY, DOCKER_AUTH_CONFIG) that an anchored regex misses. Over-matching a non-secret
+// (e.g. PUBLIC_KEY_ID) only over-strips it from the sandboxed child — safe; AUTH_KEEP re-admits the
+// few vars Claude Code genuinely needs. Ceiling: a secret with none of these tokens in its name.
+const SECRET_ENV_RE = /(KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIAL|APIKEY|_PAT\b|AUTH)/i;
 // Auth vars the Claude Code child process needs to reach the API. Kept in the child env so auth
 // works, but still denied to sandboxed Bash (secretEnvNames returns them too). Harmless if unset —
 // oauth via ~/.claude uses none of these.
@@ -94,7 +100,15 @@ export function buildSandboxSettings(
       // Write here == code execution loaded outside the sandbox (settings.json/hooks define hooks,
       // .mcp.json spawns a subprocess). Denied even inside ALLOWED_PATHS. The native Write/Edit tools
       // are gated separately in security.ts — this denyWrite only binds Bash.
-      denyWrite: [`${HOME}/.claude`, "**/.claude/settings*.json", "**/.claude/hooks/**", "**/.mcp.json"],
+      denyWrite: [
+        `${HOME}/.claude`,
+        "**/.claude/settings*.json",
+        "**/.claude/hooks/**",
+        "**/.mcp.json",
+        SESSION_FILE, // corrupting it breaks /resume (DoS)
+        RESTART_FILE,
+        AUDIT_LOG_PATH, // tampering with the audit trail
+      ],
       // No allowRead: the SDK gives allowRead PRECEDENCE over denyRead for matching paths, so
       // re-allowing ALLOWED_PATHS (which defaults to include $HOME + ~/.claude) would re-open a repo's
       // own .env and ~/.claude/.credentials living inside them. Reads are fail-open by default anyway, so
