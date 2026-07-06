@@ -69,7 +69,7 @@ Bash is a shell by design. Path/command controls = defense-in-depth vs **prompt 
   `as unknown as Update`. DEFERRED: ask-user /tmp leak (streaming.ts) — unanswered request files accumulate;
   a correct TTL-sweep fix has late-tap edge cases, not trivial. Track separately (low value, /tmp clears on reboot).
 
-- [~] **#12 P2 — OS-level Bash containment (the real deletion/exfil control).** `checkCommandSafety` is a
+- [x] **#12 P2 — OS-level Bash containment (the real deletion/exfil control).** `checkCommandSafety` is a
   fail-open regex denylist; 3 review rounds each surfaced new command-word/deleter spellings (`$(rm)`, `\rm`,
   `env rm`, `xargs rm`, and out of reach: `sh -c`, `eval`, `find -delete`, `truncate`, `: >f`, `mv x /dev/null`).
   The obfuscation/deleter space is unbounded — no static parse wins. Real fix: run Claude's Bash under OS
@@ -77,8 +77,11 @@ Bash is a shell by design. Path/command controls = defense-in-depth vs **prompt 
   Seatbelt, container bubblewrap+socat), fail-closed reads+writes to ALLOWED_PATHS+scratch, secrets scrubbed
   from the child env. Runtime probe confirmed the knobs enforce. checkCommandSafety demoted to a pre-sandbox
   speed-bump (unchanged). See spec `2026-07-06-bash-containment-design.md`, impl plan `-impl.md`, rollout +
-  Layer 2 (k8s RO-rootfs/caps/seccomp/NetworkPolicy) handoff `-rollout.md`. Branch `feat/audit-12-sandbox`,
-  PR pending review; merge + rollout left to the user (fail-closed can brick prod).
+  Layer 2 (k8s RO-rootfs/caps/seccomp/NetworkPolicy) handoff `-rollout.md`. SHIPPED + DEPLOYED 2026-07-06:
+  PR #15 (impl) + PR #16 (`BASH_SANDBOX_ENABLED` gate) merged; homelab PR #884 rolled `1.27.10` (pod 2/2,
+  sandbox gated off in-pod — RuntimeDefault seccomp blocks the userns bwrap needs, so pod-level controls are
+  the sandbox there; env-scrub + strictMcpConfig + native-tool gates stay live). WebFetch public-egress
+  residual accepted (single trusted user; cred stores already Read-denied). All 12 audit items complete.
 
 ## Bloat (optional, non-defect)
 Drop archive feature (kills #4); auth check → grammY middleware (~50 lines); voice≈audio dedup (~60).
