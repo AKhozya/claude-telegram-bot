@@ -640,6 +640,45 @@ describe("checkCommandSafety - redirect write-anywhere (non-rm)", () => {
   });
 });
 
+// ── /proc/<pid>/environ exposes a process's secret env. Bash's own env is scrubbed by
+// sanitizeEnv, but `cat /proc/1/environ` reads the PARENT bot process's full env (same uid,
+// no hidepid) — the sandbox is off in-pod so checkCommandSafety is the only Bash gate. This
+// is a fail-open speed-bump (bypassable), plus an explicit native belt in isCredentialPath. ──
+describe("proc environ secret-read (Bash speed-bump)", () => {
+  test("blocks cat /proc/1/environ", () => {
+    expect(checkCommandSafety("cat /proc/1/environ")[0]).toBe(false);
+  });
+  test("blocks /proc/self/environ", () => {
+    expect(checkCommandSafety("head -c 200 /proc/self/environ")[0]).toBe(false);
+  });
+  test("blocks /proc/thread-self/environ", () => {
+    expect(checkCommandSafety("cat /proc/thread-self/environ")[0]).toBe(false);
+  });
+  test("blocks a doubled-slash /proc/1//environ", () => {
+    expect(checkCommandSafety("cat /proc/1//environ")[0]).toBe(false);
+  });
+  test("blocks an environ read chained after a safe command", () => {
+    expect(checkCommandSafety("ls /tmp && cat /proc/1/environ")[0]).toBe(false);
+  });
+  test("does NOT block legit /proc reads", () => {
+    expect(checkCommandSafety("cat /proc/cpuinfo")[0]).toBe(true);
+    expect(checkCommandSafety("cat /proc/meminfo")[0]).toBe(true);
+    expect(checkCommandSafety("cat /proc/1/status")[0]).toBe(true);
+  });
+});
+
+describe("proc environ secret-read (native belt)", () => {
+  test("isCredentialPath flags /proc/<pid>/environ (canonicalized numeric form)", () => {
+    expect(isCredentialPath("/proc/1/environ")).toBe(true);
+    expect(isCredentialPath("/proc/12345/environ")).toBe(true);
+  });
+  test("isCredentialPath does not flag other /proc files", () => {
+    expect(isCredentialPath("/proc/1/status")).toBe(false);
+    expect(isCredentialPath("/proc/1/cmdline")).toBe(false);
+    expect(isCredentialPath("/proc/cpuinfo")).toBe(false);
+  });
+});
+
 // Tripwire: the tool-gate is a blocklist, so a NEW built-in tool from an SDK bump
 // is default-allowed at runtime until classified. This test fails the moment the
 // installed SDK declares a tool schema we have not reviewed — forcing a look at

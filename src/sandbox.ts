@@ -43,6 +43,9 @@ const READ_DENY: string[] = [
   "**/.env",
   "**/.git-credentials",
   "**/.npmrc",
+  // /proc/<pid>/environ leaks a process's secret env (the parent bot's). Belt for a
+  // sandbox-ON Linux deploy; inert on macOS (no /proc) and in-pod (sandbox off).
+  "/proc/*/environ",
   // The bot's own runtime files (live in /tmp, which is otherwise a scratch-writable path). Reading the
   // audit log exfils past conversation content; the media TEMP_DIR is intentionally NOT here.
   AUDIT_LOG_PATH,

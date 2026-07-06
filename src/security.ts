@@ -165,6 +165,15 @@ export function checkCommandSafety(
     ].map((m) => m[1] ?? m[2] ?? "");
     const segments = [normalized, ...substBodies].join("\n").split(/[;&|\n]+/);
     for (const segment of segments) {
+      // /proc/<pid|self|thread-self>/environ exposes a process's secret env — `cat
+      // /proc/1/environ` reads the parent bot's full env (secrets), bypassing the sanitizeEnv
+      // scrub of Bash's OWN env. Speed-bump only: fail-open like the rest of this parser
+      // (`/proc/$$/environ`, head/xxd, $(...) evade it). Real close is OS-level (#12 ceiling:
+      // run Bash under a different uid than the bot, or unset secrets post-config-load).
+      if (/\/proc\/(?:\d+|self|thread-self)\/+environ\b/i.test(segment)) {
+        return [false, "read of /proc/<pid>/environ (process env) blocked"];
+      }
+
       // #10: output-redirect targets — a write-anywhere primitive on any command.
       const redirectReason = checkRedirectTargets(segment);
       if (redirectReason) return [false, redirectReason];
@@ -467,6 +476,10 @@ export function isCredentialPath(canonicalPath: string): boolean {
   ) {
     return true;
   }
+  // /proc/<pid>/environ = a process's secret env. canonicalize resolves /proc/self →
+  // numeric, so match the numeric form. isPathAllowed already blocks /proc outside
+  // ALLOWED_PATHS; this makes the secret-denial explicit, not emergent from the allowlist.
+  if (/^\/proc\/\d+\/environ$/.test(p)) return true;
   const home = (process.env.HOME || "").toLowerCase();
   if (!home) return false;
   const under = (dir: string) => p === dir || p.startsWith(`${dir}/`);
