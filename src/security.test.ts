@@ -108,7 +108,8 @@ describe("control-file write protection (#12)", () => {
     symlinkSync(join(base, "b"), join(base, "a")); // a -> b
     symlinkSync(join(base, "a"), join(base, "b")); // b -> a  (cycle)
     try {
-      const r = await evaluateToolUse("Write", { file_path: join(base, "a", "..", "pwned.txt") });
+      // template string, NOT path.join — join would lexically collapse `..` before canonicalize sees it
+      const r = await evaluateToolUse("Write", { file_path: `${base}/a/../pwned.txt` });
       expect(r.allowed).toBe(false);
     } finally {
       rmSync(base, { recursive: true, force: true });
@@ -121,8 +122,9 @@ describe("control-file write protection (#12)", () => {
     mkdirSync(base, { recursive: true });
     symlinkSync("/etc", join(base, "escape")); // escape -> /etc (exists, outside allowed)
     try {
+      // template string, NOT path.join (which would collapse `..` lexically before canonicalize).
       // lexically base/escape/../pwned = base/pwned (allowed); physically /etc/../pwned = /pwned (denied)
-      const r = await evaluateToolUse("Write", { file_path: join(base, "escape", "..", "pwned.txt") });
+      const r = await evaluateToolUse("Write", { file_path: `${base}/escape/../pwned.txt` });
       expect(r.allowed).toBe(false);
     } finally {
       rmSync(base, { recursive: true, force: true });
