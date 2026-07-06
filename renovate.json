@@ -54,6 +54,11 @@
       ],
       "groupName": "anthropic-ai sdk stack",
       "automerge": false
+    },
+    {
+      "description": "Pin @types/node to the Node 24 LTS line. Bun targets Node 24, so the types must match; a mismatch surfaces APIs Bun doesn't implement. @types/node is an `overrides` entry (Renovate manages overrides as deps and kept proposing the v26 major), so cap it here — 24.x patches/minors still flow.",
+      "matchPackageNames": ["@types/node"],
+      "allowedVersions": "<25"
     }
   ]
 }
