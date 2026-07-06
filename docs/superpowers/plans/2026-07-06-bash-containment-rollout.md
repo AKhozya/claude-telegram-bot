@@ -22,7 +22,8 @@ sufficient on macOS. `/lib`+`/lib64` added for Alpine musl but NOT yet exercised
   - reads a file **inside** `ALLOWED_PATHS` → works
   - writes a file **inside** `ALLOWED_PATHS` → works
   - `cat ~/.ssh/id_*` or any secret → **blocked** (`Operation not permitted`)
-  - `echo $OPENAI_API_KEY` → **empty**
+  - `echo $OPENAI_API_KEY` → **empty**; `echo $ANTHROPIC_API_KEY` → **empty** (auth var kept for the
+    parent process but denied to Bash — if it's non-empty, the credentials deny isn't biting; investigate)
 - [ ] Watch `/tmp/claude-telegram-bot-ts.err` for sandbox-init errors on startup.
 
 ## Container (k3s)

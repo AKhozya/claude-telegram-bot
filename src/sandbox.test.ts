@@ -66,6 +66,15 @@ test("secretEnvNames feeds credentials.envVars deny list", () => {
   expect(names).not.toContain("TELEGRAM_CHAT_ID");
 });
 
+test("auth vars stay in child env but are still denied to Bash", () => {
+  // ANTHROPIC_API_KEY must reach the Claude Code child (else auth breaks) yet never be readable
+  // by sandboxed Bash. So sanitizeEnv keeps it, secretEnvNames (→ credentials.envVars) denies it.
+  const src = { ANTHROPIC_API_KEY: "sk-ant", OPENAI_API_KEY: "sk-oai", PATH: "/bin" };
+  expect(sanitizeEnv(src).ANTHROPIC_API_KEY).toBe("sk-ant");
+  expect(sanitizeEnv(src).OPENAI_API_KEY).toBeUndefined(); // not an auth var → stripped
+  expect(secretEnvNames(src)).toContain("ANTHROPIC_API_KEY"); // still hidden from Bash
+});
+
 test("credentials.envVars entries use mode deny", () => {
   process.env.SPToken_PROBE_SECRET = "zzz";
   const ev = buildSandboxSettings().credentials!.envVars!;

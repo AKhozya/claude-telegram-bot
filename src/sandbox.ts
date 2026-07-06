@@ -34,22 +34,25 @@ export const SYSTEM_READ_SET: string[] = [
 ];
 
 const SECRET_ENV_RE = /(_KEY|_TOKEN|_SECRET|PASSWORD|CREDENTIAL)/i;
-// Non-secret operational vars to keep; auth vars get added here only if calibration shows Claude Code needs them.
-const ENV_KEEP = new Set(["TELEGRAM_CHAT_ID"]);
+// Auth vars the Claude Code child process needs to reach the API. Kept in the child env so auth
+// works, but still denied to sandboxed Bash (secretEnvNames returns them too). Harmless if unset —
+// oauth via ~/.claude uses none of these.
+const AUTH_KEEP = new Set(["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"]);
 
-// Secret-shaped env keys — hidden from Bash via the sandbox credentials layer.
+// Every secret-shaped env key — hidden from sandboxed Bash via credentials.envVars. Deliberately
+// includes AUTH_KEEP vars: the parent process needs them, sandboxed Bash must never read them.
 export function secretEnvNames(src: NodeJS.ProcessEnv = process.env): string[] {
-  return Object.keys(src).filter((k) => SECRET_ENV_RE.test(k) && !ENV_KEEP.has(k));
+  return Object.keys(src).filter((k) => SECRET_ENV_RE.test(k));
 }
 
-// Child env with secret-shaped keys removed — the primary env-exfil control. The child (Claude Code
-// and every Bash/MCP subprocess it spawns) is spawned without the secrets, so the guarantee holds
-// regardless of whether the sandbox credentials layer enforces.
+// Child env with secret-shaped keys removed — the primary env-exfil control — EXCEPT the auth vars
+// the child needs to authenticate (those stay, but are hidden from Bash via secretEnvNames above).
+// Non-secret operational vars (PATH, HOME, TELEGRAM_CHAT_ID, ...) pass through unchanged.
 export function sanitizeEnv(src: NodeJS.ProcessEnv = process.env): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(src)) {
     if (v === undefined) continue;
-    if (SECRET_ENV_RE.test(k) && !ENV_KEEP.has(k)) continue;
+    if (SECRET_ENV_RE.test(k) && !AUTH_KEEP.has(k)) continue;
     out[k] = v;
   }
   return out;
