@@ -69,13 +69,16 @@ Bash is a shell by design. Path/command controls = defense-in-depth vs **prompt 
   `as unknown as Update`. DEFERRED: ask-user /tmp leak (streaming.ts) — unanswered request files accumulate;
   a correct TTL-sweep fix has late-tap edge cases, not trivial. Track separately (low value, /tmp clears on reboot).
 
-- [ ] **#12 P2 — OS-level Bash containment (the real deletion/exfil control).** `checkCommandSafety` is a
+- [~] **#12 P2 — OS-level Bash containment (the real deletion/exfil control).** `checkCommandSafety` is a
   fail-open regex denylist; 3 review rounds each surfaced new command-word/deleter spellings (`$(rm)`, `\rm`,
   `env rm`, `xargs rm`, and out of reach: `sh -c`, `eval`, `find -delete`, `truncate`, `: >f`, `mv x /dev/null`).
   The obfuscation/deleter space is unbounded — no static parse wins. Real fix: run Claude's Bash under OS
-  containment (restricted user + read-only bind mounts outside ALLOWED_PATHS, or a sandbox-exec profile on
-  macOS). Then checkCommandSafety reverts to a best-effort speed-bump, not the sole control. Larger change;
-  decide scope with user.
+  containment. IMPLEMENTED (Layer 1) via the Agent SDK's native command sandbox — one code path (macOS
+  Seatbelt, container bubblewrap+socat), fail-closed reads+writes to ALLOWED_PATHS+scratch, secrets scrubbed
+  from the child env. Runtime probe confirmed the knobs enforce. checkCommandSafety demoted to a pre-sandbox
+  speed-bump (unchanged). See spec `2026-07-06-bash-containment-design.md`, impl plan `-impl.md`, rollout +
+  Layer 2 (k8s RO-rootfs/caps/seccomp/NetworkPolicy) handoff `-rollout.md`. Branch `feat/audit-12-sandbox`,
+  PR pending review; merge + rollout left to the user (fail-closed can brick prod).
 
 ## Bloat (optional, non-defect)
 Drop archive feature (kills #4); auth check → grammY middleware (~50 lines); voice≈audio dedup (~60).
