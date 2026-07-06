@@ -91,6 +91,12 @@ test("denyRead blocklists credential stores incl the broad ~/.config tree", () =
   expect(dr.some((p) => p.endsWith("/.kube"))).toBe(true);
 });
 
+test("denyRead blocks /proc/<pid>/environ (process env secret-read)", () => {
+  const dr = buildSandboxSettings().filesystem!.denyRead!;
+  expect(dr).toContain("/proc/*/environ");
+  expect(dr).toContain("/proc/*/task/*/environ");
+});
+
 test("sanitizeEnv strips secret-shaped keys, keeps operational vars", () => {
   const e = sanitizeEnv({
     PATH: "/bin",
