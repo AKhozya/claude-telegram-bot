@@ -15,6 +15,8 @@ export const SYSTEM_READ_SET: string[] = [
   "/usr",
   "/bin",
   "/sbin",
+  "/lib", // Alpine/musl dynamic linker + libc live here (absent on macOS — harmless)
+  "/lib64",
   "/opt",
   "/etc",
   "/private/etc",
