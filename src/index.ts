@@ -19,10 +19,9 @@ import {
   handleRestart,
   handleRetry,
   handleText,
-  handleVoice,
   handlePhoto,
   handleDocument,
-  handleAudio,
+  handleUnsupportedMedia,
   handleVideo,
   handleCallback,
   startTriggerServer,
@@ -74,17 +73,15 @@ bot.command("retry", handleRetry);
 // Text messages
 bot.on("message:text", handleText);
 
-// Voice messages
-bot.on("message:voice", handleVoice);
+// Voice / audio: transcription was removed with the OpenAI dep — reply "unsupported"
+bot.on("message:voice", handleUnsupportedMedia);
+bot.on("message:audio", handleUnsupportedMedia);
 
 // Photo messages
 bot.on("message:photo", handlePhoto);
 
 // Document messages
 bot.on("message:document", handleDocument);
-
-// Audio messages
-bot.on("message:audio", handleAudio);
 
 // Video messages (regular videos and video notes)
 bot.on("message:video", handleVideo);
