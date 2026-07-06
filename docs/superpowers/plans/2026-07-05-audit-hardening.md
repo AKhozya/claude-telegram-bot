@@ -83,12 +83,16 @@ Bash is a shell by design. Path/command controls = defense-in-depth vs **prompt 
   the sandbox there; env-scrub + strictMcpConfig + native-tool gates stay live). WebFetch public-egress
   residual accepted (single trusted user; cred stores already Read-denied). All 12 audit items complete.
 
-## Bloat (optional, non-defect)
-Drop archive feature (kills #4); auth check → grammY middleware (~50 lines); voice≈audio dedup (~60).
+## Post-audit backlog batch — SHIPPED 1.27.11 (2026-07-06)
+- [x] **Drop OpenAI STT** (was dead in prod: pod has no `OPENAI_API_KEY`). Removed `openai`
+  dep + `transcribeVoice` + voice.ts/audio.ts (−477 lines); voice/audio → `media.ts`
+  "unsupported" stub. PR #21. (Local whisper +100MB declined; no native-audio Claude model.)
+- [x] **Auth check → one `bot.use(authGate)` middleware** (14 per-handler checks removed,
+  silent-drop unauthorized). PR #22.
+- [x] **Close `/proc/<pid>/environ` Bash secret-read** (new hardening; fail-open speed-bump —
+  real close = uid-split, out of scope). PR #20.
+- Archive feature: **KEPT** (user decision; already hardened in #4). voice≈audio dedup:
+  cancelled — subsumed by the STT drop.
 
-## Backlog (non-audit, non-urgent)
-- **Drop the OpenAI dependency for voice/audio transcription.** Anthropic models have no
-  native audio input (vision + text only), so voice/audio STT currently requires
-  `OPENAI_API_KEY` (Whisper). Options if we want to shed the external key: local
-  `whisper.cpp`/faster-whisper (offline, no key; adds a binary + ~100MB model weights to the
-  image), or revisit when/if a Claude model gains native audio. Handy, not urgent.
+## Bloat (remaining, optional)
+None outstanding from the original list — auth-middleware done, archive kept, dedup subsumed.
