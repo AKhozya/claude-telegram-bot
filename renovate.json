@@ -2,12 +2,11 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended",
-    ":automergeRequireAllStatusChecks",
-    "schedule:weekly"
+    ":automergeRequireAllStatusChecks"
   ],
+  "schedule": ["after 6pm and before 11pm"],
   "dependencyDashboard": true,
   "timezone": "Europe/London",
-  "minimumReleaseAge": "3 days",
   "lockFileMaintenance": {
     "enabled": true,
     "automerge": true
@@ -41,8 +40,9 @@
       "automerge": true
     },
     {
-      "description": "Majors get a manual PR — a green test run still misses runtime behavior changes.",
+      "description": "Majors get a manual PR + a 3-day soak (a yanked/re-tagged release settles before it's offered) — a green test run still misses runtime behavior changes. Patch/minor auto-merge with no soak (CI-gated).",
       "matchUpdateTypes": ["major"],
+      "minimumReleaseAge": "3 days",
       "automerge": false
     },
     {
