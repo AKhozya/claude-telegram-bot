@@ -5,7 +5,7 @@
 
 **Turn [Claude Code](https://claude.com/product/claude-code) into your personal assistant, accessible from anywhere via Telegram.**
 
-Send text, voice, photos, documents, audio, and video. See responses and tools usage in real-time.
+Send text, photos, documents, and video. See responses and tools usage in real-time.
 
 ![Demo](assets/demo.gif)
 
@@ -22,10 +22,8 @@ To achieve this, I set up a folder with a CLAUDE.md that teaches Claude about me
 ## Bot Features
 
 - 💬 **Text**: Ask questions, give instructions, have conversations
-- 🎤 **Voice**: Speak naturally - transcribed via OpenAI and processed by Claude
 - 📸 **Photos**: Send screenshots, documents, or anything visual for analysis
 - 📄 **Documents**: PDFs, text files, and archives (ZIP, TAR) are extracted and analyzed
-- 🎵 **Audio**: Audio files (mp3, m4a, ogg, wav, etc.) are transcribed via OpenAI and processed
 - 🎬 **Video**: Video messages and video notes are processed by Claude
 - 🔄 **Session persistence**: Conversations continue across messages
 - 📨 **Message queuing**: Send multiple messages while Claude works - they queue up automatically. Prefix with `!` or use `/stop` to interrupt and send immediately
@@ -51,7 +49,6 @@ bun run src/index.ts
 - **Bun 1.0+** - [Install Bun](https://bun.sh/)
 - **Claude Agent SDK** - `@anthropic-ai/claude-agent-sdk` (installed via bun install)
 - **Telegram Bot Token** from [@BotFather](https://t.me/BotFather)
-- **OpenAI API Key** (optional, for voice transcription)
 
 ### Claude Authentication
 
@@ -102,7 +99,6 @@ TELEGRAM_ALLOWED_USERS=123456789           # Your Telegram user ID
 
 # Recommended
 CLAUDE_WORKING_DIR=/path/to/your/folder    # Where Claude runs (loads CLAUDE.md, skills, MCP)
-OPENAI_API_KEY=sk-...                      # For voice transcription
 ```
 
 **Finding your Telegram user ID:** Message [@userinfobot](https://t.me/userinfobot) on Telegram.
@@ -218,11 +214,6 @@ Because the bot runs the Agent SDK with `permissionMode: bypassPermissions`, lay
 - For CLI auth: run `claude` in terminal and verify you're logged in
 - For API key: check `ANTHROPIC_API_KEY` is set and starts with `sk-ant-api03-`
 - Verify the API key has credits at [console.anthropic.com](https://console.anthropic.com/)
-
-**Voice messages fail**
-
-- Ensure `OPENAI_API_KEY` is set in `.env`
-- Verify the key is valid and has credits
 
 **Claude can't access files**
 
