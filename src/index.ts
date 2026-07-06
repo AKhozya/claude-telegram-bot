@@ -11,6 +11,7 @@ import { hydrateFiles, type FileFlavor, type FileApiFlavor } from "@grammyjs/fil
 import { TELEGRAM_TOKEN, WORKING_DIR, ALLOWED_USERS, RESTART_FILE } from "./config";
 import { unlinkSync, readFileSync, existsSync } from "fs";
 import {
+  authGate,
   handleStart,
   handleNew,
   handleStop,
@@ -36,6 +37,10 @@ const bot = new Bot<FileFlavor<Context>, FileApiFlavor<Api>>(TELEGRAM_TOKEN, {
 // API transformers — cover EVERY api/ctx.api call (incl. streaming edits & raw).
 bot.api.config.use(autoRetry({ maxRetryAttempts: 3, maxDelaySeconds: 30 }));
 bot.api.config.use(hydrateFiles(bot.token, { apiRoot: process.env.TELEGRAM_API_ROOT }));
+
+// Authorization: single choke point for the user allowlist. Runs before sequentialize so
+// unauthorized updates are dropped before entering any per-chat queue.
+bot.use(authGate);
 
 // Sequentialize non-command messages per user (prevents race conditions)
 // Commands bypass sequentialization so they work immediately

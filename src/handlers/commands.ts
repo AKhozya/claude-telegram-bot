@@ -7,21 +7,12 @@
 import type { Context } from "grammy";
 import type { BotContext } from "../types";
 import { session } from "../session";
-import { WORKING_DIR, ALLOWED_USERS, RESTART_FILE } from "../config";
-import { isAuthorized } from "../security";
+import { WORKING_DIR, RESTART_FILE } from "../config";
 
 /**
  * /start - Show welcome message and status.
  */
 export async function handleStart(ctx: Context): Promise<void> {
-  const userId = ctx.from?.id;
-  const username = ctx.from?.username || "unknown";
-
-  if (!isAuthorized(userId, ALLOWED_USERS)) {
-    await ctx.reply("Unauthorized. Contact the bot owner for access.");
-    return;
-  }
-
   const status = session.isActive ? "Active session" : "No active session";
   const workDir = WORKING_DIR;
 
@@ -48,13 +39,6 @@ export async function handleStart(ctx: Context): Promise<void> {
  * /new - Start a fresh session.
  */
 export async function handleNew(ctx: Context): Promise<void> {
-  const userId = ctx.from?.id;
-
-  if (!isAuthorized(userId, ALLOWED_USERS)) {
-    await ctx.reply("Unauthorized.");
-    return;
-  }
-
   // Stop any running query
   if (session.isRunning) {
     const result = await session.stop();
@@ -74,13 +58,6 @@ export async function handleNew(ctx: Context): Promise<void> {
  * /stop - Stop the current query (silently).
  */
 export async function handleStop(ctx: Context): Promise<void> {
-  const userId = ctx.from?.id;
-
-  if (!isAuthorized(userId, ALLOWED_USERS)) {
-    await ctx.reply("Unauthorized.");
-    return;
-  }
-
   if (session.isRunning) {
     const result = await session.stop();
     if (result) {
@@ -97,13 +74,6 @@ export async function handleStop(ctx: Context): Promise<void> {
  * /status - Show detailed status.
  */
 export async function handleStatus(ctx: Context): Promise<void> {
-  const userId = ctx.from?.id;
-
-  if (!isAuthorized(userId, ALLOWED_USERS)) {
-    await ctx.reply("Unauthorized.");
-    return;
-  }
-
   const lines: string[] = ["📊 <b>Bot Status</b>\n"];
 
   // Session status
@@ -170,13 +140,6 @@ export async function handleStatus(ctx: Context): Promise<void> {
  * /resume - Show list of sessions to resume with inline keyboard.
  */
 export async function handleResume(ctx: Context): Promise<void> {
-  const userId = ctx.from?.id;
-
-  if (!isAuthorized(userId, ALLOWED_USERS)) {
-    await ctx.reply("Unauthorized.");
-    return;
-  }
-
   if (session.isActive) {
     await ctx.reply("Session already active. Use /new to start over.");
     return;
@@ -227,13 +190,7 @@ export async function handleResume(ctx: Context): Promise<void> {
  * /restart - Restart the bot process.
  */
 export async function handleRestart(ctx: Context): Promise<void> {
-  const userId = ctx.from?.id;
   const chatId = ctx.chat?.id;
-
-  if (!isAuthorized(userId, ALLOWED_USERS)) {
-    await ctx.reply("Unauthorized.");
-    return;
-  }
 
   const msg = await ctx.reply("🔄 Restarting bot...");
 
@@ -264,13 +221,6 @@ export async function handleRestart(ctx: Context): Promise<void> {
  * /retry - Retry the last message (resume session and re-send).
  */
 export async function handleRetry(ctx: Context): Promise<void> {
-  const userId = ctx.from?.id;
-
-  if (!isAuthorized(userId, ALLOWED_USERS)) {
-    await ctx.reply("Unauthorized.");
-    return;
-  }
-
   // Check if there's a message to retry
   if (!session.lastMessage) {
     await ctx.reply("❌ No message to retry.");
