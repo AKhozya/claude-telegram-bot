@@ -291,6 +291,9 @@ export const DENIED_TOOLS = new Set<string>([
   "Workflow", // script/agent orchestration (scriptPath never path-checked)
   "Artifact", // publishes a file to claude.ai — exfil channel
   "Projects", // project_write/project_delete — external claude.ai mutation/exfil
+  "ClaudeDesign", // opaque {operation, arguments} dispatcher over claude.ai design
+  //                surface — open-ended, server-validated, another publish/exfil
+  //                channel with no legit phone-session use (SDK 0.3.200, audit 2026-07-10)
   "CronCreate", // schedule future prompts — persistence
   "CronDelete",
   "CronList",
