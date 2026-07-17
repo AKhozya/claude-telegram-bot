@@ -19,31 +19,40 @@ ARG BUILD_TS=local
 # bubblewrap + socat = the Linux Bash sandbox deps (bwrap = filesystem/process isolation,
 # socat = its network proxy). With the sandbox's failIfUnavailable, a missing dep makes the
 # bot fail-closed (won't run) rather than execute Bash unconfined.
-RUN apk add --no-cache git openssh-client curl jq ca-certificates bash poppler-utils unzip bubblewrap socat
+# github-cli = gh. nodejs + npm = runtime plugin hooks / MCP servers — no CLI install,
+# the Agent SDK vendors the engine binary in its platform package (…-linux-x64-musl).
+# chezmoi = dotfile/skills sync (init container uses same image).
+# apk deliberately unpinned: alpine drops old package versions from the index, and the
+# pinned base image + bi-weekly rebuild keep these fresh.
+RUN apk add --no-cache git openssh-client curl jq ca-certificates bash poppler-utils unzip \
+    bubblewrap socat github-cli nodejs npm chezmoi
 
-# kubectl (pinned — match cluster k3s version; bump deliberately)
+# kubectl (pinned — match cluster k3s version; bump deliberately). Checksum-verified.
 ARG KUBECTL_VERSION=v1.36.1
 RUN curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
-    -o /usr/local/bin/kubectl && chmod +x /usr/local/bin/kubectl
+      -o /usr/local/bin/kubectl \
+    && echo "$(curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256")  /usr/local/bin/kubectl" | sha256sum -c - \
+    && chmod +x /usr/local/bin/kubectl
 
-# flux CLI
-RUN curl -fsSL https://fluxcd.io/install.sh | bash
-
-# gh CLI
-RUN apk add --no-cache github-cli
-
-# node + npm for runtime plugin hooks / MCP servers. No CLI install — the
-# Agent SDK vendors the engine binary in its platform package (…-linux-x64-musl).
-RUN apk add --no-cache nodejs npm
+# flux CLI (pinned — match cluster flux minor; bump deliberately). Checksum-verified.
+ARG FLUX_VERSION=2.9.2
+RUN set -o pipefail && cd /tmp \
+    && curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_linux_amd64.tar.gz" \
+    && curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_checksums.txt" \
+    && grep " flux_${FLUX_VERSION}_linux_amd64.tar.gz\$" "flux_${FLUX_VERSION}_checksums.txt" | sha256sum -c - \
+    && tar -xzf "flux_${FLUX_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin flux \
+    && rm -f "flux_${FLUX_VERSION}_linux_amd64.tar.gz" "flux_${FLUX_VERSION}_checksums.txt"
 
 # Codex CLI (pre-commit review gate). The linux-x64 platform dep ships codex's
 # static musl binary (codex publishes musl-only for linux) — alpine-safe.
-# Installs to /usr/bin, outside the /home/akhozya PVC shadow. Pinned; bump deliberately.
-ARG CODEX_VERSION=0.144.1
-RUN npm install -g "@openai/codex@${CODEX_VERSION}" && codex --version
-
-# chezmoi (dotfile sync in init container uses same image)
-RUN sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
+# Installs to /usr/bin, outside the /home/akhozya PVC shadow.
+# Latest on each scheduled rebuild (BUILD_TS busts the layer); --before mirrors
+# bunfig's minimumReleaseAge — only versions published ≥7 days ago.
+RUN echo "codex refresh: ${BUILD_TS}" \
+    && BEFORE="$(node -e 'console.log(new Date(Date.now()-7*864e5).toISOString())')" \
+    && test -n "$BEFORE" \
+    && npm install -g @openai/codex --before="$BEFORE" \
+    && codex --version
 
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
