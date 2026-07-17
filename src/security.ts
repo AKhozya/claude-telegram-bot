@@ -302,6 +302,11 @@ export const DENIED_TOOLS = new Set<string>([
   "PushNotification", // external push
   "EnterWorktree", // switches active workspace (path never gated)
   "ExitWorktree",
+  "SendFeedback", // publishes conversation-derived reports to Anthropic — external
+  //                publish channel, no phone-session use (SDK 0.3.212, audit 2026-07-17)
+  "ProposeSkills", // injects SKILL.md drafts for adoption — skills execute in later
+  //                 sessions (persistence); bot skills are chezmoi-managed, not
+  //                 session-proposed (SDK 0.3.212, audit 2026-07-17)
 ]);
 
 /** Loopback / this-host / RFC1918-private / link-local IPv4 (a.b are the top octets). */

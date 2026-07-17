@@ -46,12 +46,10 @@ RUN set -o pipefail && cd /tmp \
 # Codex CLI (pre-commit review gate). The linux-x64 platform dep ships codex's
 # static musl binary (codex publishes musl-only for linux) — alpine-safe.
 # Installs to /usr/bin, outside the /home/akhozya PVC shadow.
-# Latest on each scheduled rebuild (BUILD_TS busts the layer); --before mirrors
-# bunfig's minimumReleaseAge — only versions published ≥7 days ago.
+# Latest on each scheduled rebuild (BUILD_TS busts the layer). Trusted publisher —
+# no release-age gate, matching the Anthropic-SDK exemption in bunfig.toml.
 RUN echo "codex refresh: ${BUILD_TS}" \
-    && BEFORE="$(node -e 'console.log(new Date(Date.now()-7*864e5).toISOString())')" \
-    && test -n "$BEFORE" \
-    && npm install -g @openai/codex --before="$BEFORE" \
+    && npm install -g @openai/codex@latest \
     && codex --version
 
 WORKDIR /app

@@ -708,15 +708,19 @@ describe("SDK tool-surface tripwire", () => {
     // Snapshot of the tool schemas reviewed during the 2026-07-05 audit.
     // 2026-07-10 (SDK 0.3.200): added ClaudeDesign (denied — external dispatcher)
     // and ReportFindings (allowed — inert code-review reporter).
+    // 2026-07-17 (SDK 0.3.212): added RefreshMcpTools (allowed — refreshes connected
+    // MCP listings, ListMcpResources sibling), SendFeedback (denied — external
+    // publish to Anthropic), ProposeSkills (denied — skill-injection persistence).
     const REVIEWED = new Set([
       "Agent", "Artifact", "AskUserQuestion", "Bash", "ClaudeDesign", "CronCreate",
       "CronDelete", "CronList", "EnterPlanMode", "EnterWorktree", "ExitPlanMode",
       "ExitWorktree", "FileEdit", "FileRead", "FileWrite", "Glob", "Grep",
       "ListMcpResources", "Mcp", "Monitor", "NotebookEdit", "Projects",
-      "PushNotification", "ReadMcpResourceDir", "ReadMcpResource", "RemoteTrigger",
-      "REPL", "ReportFindings", "ScheduleWakeup", "ShowOnboardingRolePicker",
-      "TaskCreate", "TaskGet", "TaskList", "TaskOutput", "TaskStop", "TaskUpdate",
-      "TodoWrite", "WebFetch", "WebSearch", "Workflow",
+      "ProposeSkills", "PushNotification", "ReadMcpResourceDir", "ReadMcpResource",
+      "RefreshMcpTools", "RemoteTrigger", "REPL", "ReportFindings", "ScheduleWakeup",
+      "SendFeedback", "ShowOnboardingRolePicker", "TaskCreate", "TaskGet", "TaskList",
+      "TaskOutput", "TaskStop", "TaskUpdate", "TodoWrite", "WebFetch", "WebSearch",
+      "Workflow",
     ]);
     const unreviewed = [...found].filter((t) => !REVIEWED.has(t));
     expect(unreviewed).toEqual([]);
