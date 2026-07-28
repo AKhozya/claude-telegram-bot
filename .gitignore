@@ -39,3 +39,8 @@ mcp-config.ts
 # Finder (MacOS) folder config
 .DS_Store
 /claude-bot-standalone
+
+# `bun build --compile` stages the bun runtime as the base of the standalone binary and
+# leaves this behind if the build is interrupted — a 63MB untracked file that is easy to
+# commit by accident.
+.*.bun-build
