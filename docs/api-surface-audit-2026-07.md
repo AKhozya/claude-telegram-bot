@@ -159,13 +159,10 @@ wholly discarded: the abort check and the `session_id` capture at `:352`–`:363
 run for every event regardless of type. But nothing acts on the type itself.
 Two additions to the `SDKMessage` union in this window:
 
-- **`SDKConversationResetMessage`** (`type: 'conversation_reset'`, carries
-  `new_conversation_id`). `this.sessionId` is captured once, from the first
-  message that has one (`session.ts:359`, guarded by `!this.sessionId`), and
-  persisted for `/resume`. **If** a reset also changes `session_id`, the guard
-  means the new value is never picked up and `/resume` reattaches to the
-  pre-reset conversation. That conditional is the whole finding — see the caveat
-  below before writing a handler.
+- **`SDKConversationResetMessage`** — **a confirmed bug, not a maybe.** See the
+  dedicated section below; `session_id` does change across a reset, the bot's
+  capture guard never picks the new one up, and a user typing `/clear` in Telegram
+  is enough to trigger it.
 - **`SDKBackgroundTasksChangedMessage`** (`type: 'system'`,
   `subtype: 'background_tasks_changed'`, REPLACE semantics on a `tasks` array).
   `Bash` is allowed and supports `run_in_background`, so background tasks can
@@ -273,6 +270,61 @@ Mutation-checked: restoring `disabled` fails the test.
 override it from `query()`. That asymmetry is the durable lesson — deployment-level
 settings reach into the SDK by a path the bot's own options cannot correct.
 
+## Resolved: `conversation_reset` silently strands `/resume`
+
+Types alone could not say whether `session_id` changes across a reset, so the event
+was triggered and the stream logged. It does change, and there are **three** distinct
+ids in play:
+
+```
+conversation_reset  session_id=70ee9fe6
+    new_conversation_id=af3eeebf     (neither the old nor the new session id)
+system/init         session_id=5fb6c5fb   <-- CHANGED
+assistant           session_id=5fb6c5fb
+result/success      session_id=5fb6c5fb
+```
+
+The CLI binary's own schema and description confirm the intent — "Emitted by
+`/clear`, plan-mode exit, and fresh-session flows. The surface should mount a fresh
+transcript under `new_conversation_id` and reset any cached session title."
+`conversation_reset` appears nowhere in the SDK's `sdk.mjs`; it originates in the
+vendored CLI.
+
+**The bug.** `session.ts:367` captures the id under `if (!this.sessionId && …)`, so
+once set it is never replaced. After a reset the bot keeps the pre-reset id, persists
+it to the session history, and passes it as `resume:` — reattaching to the
+conversation the user just cleared.
+
+**Reachability is not theoretical.** Only seven commands are registered
+(`src/index.ts:68-74`); `bot.on("message:text")` catches everything else, and
+`handleText` applies no slash filtering before forwarding to Claude. A user typing
+**`/clear`** in Telegram has it passed through verbatim — the exact sequence probed
+above. Plan-mode exit is a second path (`EnterPlanMode`/`ExitPlanMode` are not in
+`DENIED_TOOLS`), though that one is possible-not-demonstrated.
+
+**Fix, and the trap in it.** Handle the event and re-arm the existing guard:
+
+```ts
+if (event.type === "conversation_reset") {
+  this.sessionId = null;
+  this.conversationTitle = null;
+  continue; // MUST skip: this event still carries the PRE-reset id
+}
+```
+
+The `continue` is load-bearing. Without it the generic capture branch runs in the
+same iteration and immediately re-adopts the stale id — the fix would look right and
+change nothing. Review caught that; the first draft had it wrong.
+
+Rejected alternative: "always take the latest `session_id`". Simpler, but it does not
+clear the cached title, and it diverges on a terminal reset — it would keep the dead
+id rather than abandoning it.
+
+Known edge, accepted: if a reset is the last event of a turn, `sessionId` stays null
+and the next message starts fresh. For `/clear` that is the correct reading of user
+intent. Not stored: `new_conversation_id`. Whether the SDK accepts it as a `resume:`
+token is untested — do not assume it does.
+
 ## Runtime probe: sandbox egress and `strictAllowlist`
 
 Type reads could not settle what the sandbox does with no `allowedDomains` set, so
@@ -352,11 +404,12 @@ Verified green on HEAD: `bun run typecheck` exits 0, and `bun test` gives
 | `@grammyjs/types` 4.0.0 is additive-only | ✅ | removal/optionality sweep over all 19 `.d.ts` |
 | Nothing in the window breaks the bot | ✅ | `bun run typecheck` 0; `bun test` 179 pass / 0 fail |
 | New `SDKMessage` types unhandled | ✅ | union diff + `session.ts:351` read |
-| `session_id` behaviour on `conversation_reset` | ⚠ | type declares only `new_conversation_id` |
+| `session_id` changes across `conversation_reset` | ✅ | event stream logged from a triggered reset — three distinct ids |
+| `/clear` from Telegram reaches Claude unfiltered | ✅ | 7 registered commands; `message:text` catches the rest, no slash filter |
 | Current sandbox config cannot hang on egress | ✅ | runtime probe, 8-case matrix |
 | `allowedDomains` is inert without `strictAllowlist` | ✅ | same probe, repeated to rule out flake |
 | …and `bypassPermissions` is *why* | ✅ | network config held fixed, permission mode varied |
-| Drafts are metered more loosely than edits | ⚠ | assumed, not documented — measure before relying on it |
+| Drafts are metered more loosely than edits | ⚠ | **claim withdrawn** — undocumented, unmeasured; `scripts/probe-draft-rate-limit.sh` measures it, not yet run |
 | Draft/rich/ephemeral methods exist on the live server | ✅ | `scripts/probe-bot-api-methods.sh`, run 2026-07-28 — all four 400 (implemented), fake method 404 |
 
 ## Live server check — all four methods confirmed
