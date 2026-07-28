@@ -133,6 +133,12 @@ export function buildSandboxSettings(
     },
     credentials: { envVars: secretEnvNames().map((name) => ({ name, mode: "deny" as const })) },
     // Domain-level denylist starts empty; CIDR egress control is the container NetworkPolicy (Layer 2).
+    // An allowlist added here MUST also set strictAllowlist:true, or it silently enforces nothing:
+    // without it the runtime prompts instead of denying, and this bot's bypassPermissions
+    // auto-approves that prompt. Probe-verified 2026-07-28 — allowedDomains:["api.anthropic.com"]
+    // alone still let sandboxed Bash reach example.com (HTTP 200), while the identical config
+    // denied it (CONNECT 403) under permissionMode "default" and "acceptEdits". deniedDomains
+    // needs no such pairing: it blocked with and without strictAllowlist.
     network: { deniedDomains: [] },
   };
 }
