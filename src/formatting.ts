@@ -4,6 +4,41 @@
  * Markdown conversion and tool status display formatting.
  */
 
+import {
+  ORG_POLICY_LIMIT_PREFIXES,
+  USAGE_LIMIT_ERROR_PREFIXES,
+} from "@anthropic-ai/claude-agent-sdk";
+
+// Only these two tables can reach a `catch`. USAGE_WARNING_PREFIXES and
+// USAGE_TRANSITION_PREFIXES are toast-only in the CLI and are never thrown.
+const LIMIT_PREFIXES = [
+  ...USAGE_LIMIT_ERROR_PREFIXES,
+  ...ORG_POLICY_LIMIT_PREFIXES,
+];
+
+/**
+ * Trim an error down to the part worth reading on a phone.
+ *
+ * A usage-limit sentence arrives buried in a wrapped error — `Error: API Error: 429
+ * {"type":"error",...,"message":"You've hit your monthly spend limit. Run /usage-credits
+ * ..."}}`. Truncating that from the left shows only the wrapper, so find the sentence and
+ * start there. Matched with `includes` because a thrown Error puts the wrapper first;
+ * `startsWith` would only work for the rarer case of a bare limit string.
+ */
+export function describeError(error: unknown, max = 200): string {
+  const raw = String(error);
+  const hit = LIMIT_PREFIXES.find((p) => raw.includes(p));
+  if (!hit) return raw.slice(0, max);
+
+  // The sentence sits inside a JSON string, so the closing quote ends it — but only an
+  // UNESCAPED one. A sentence that quotes a flag or command reaches us as \" and must not
+  // be cut there.
+  const at = raw.indexOf(hit);
+  const tail = raw.slice(at, at + max);
+  const quote = tail.search(/(?<!\\)"/);
+  return quote === -1 ? tail : tail.slice(0, quote);
+}
+
 /**
  * Escape HTML special characters.
  */

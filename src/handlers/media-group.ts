@@ -12,6 +12,7 @@ import { rateLimiter } from "../security";
 import { auditLogRateLimit } from "../utils";
 import { session } from "../session";
 import { markFailed } from "./reactions";
+import { describeError } from "../formatting";
 
 /**
  * Configuration for a media group handler.
@@ -202,6 +203,6 @@ export async function handleProcessingError(
       await ctx.reply("🛑 Query stopped.");
     }
   } else {
-    await ctx.reply(`❌ Error: ${errorStr.slice(0, 200)}`);
+    await ctx.reply(`❌ Error: ${describeError(error)}`);
   }
 }

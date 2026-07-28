@@ -23,7 +23,7 @@ import {
   THINKING_KEYWORDS,
   WORKING_DIR,
 } from "./config";
-import { formatToolStatus } from "./formatting";
+import { describeError, formatToolStatus } from "./formatting";
 import { buildSandboxSettings, sanitizeEnv, ensureScratchDir, bashSandboxEnabled } from "./sandbox";
 import {
   checkPendingAskUserRequests,
@@ -363,6 +363,17 @@ class ClaudeSession {
           break;
         }
 
+        // `/clear`, plan-mode exit and fresh-session flows reset the conversation, leaving
+        // the id we hold pointing at a transcript the user just abandoned. Re-arm the
+        // capture below instead of adopting new_conversation_id — whether the SDK accepts
+        // that as a `resume:` token is untested.
+        if (event.type === "conversation_reset") {
+          console.log("conversation_reset: dropping stale session_id");
+          this.sessionId = null;
+          this.conversationTitle = null;
+          continue; // load-bearing: this event still carries the PRE-reset id
+        }
+
         // Capture session_id from first message
         if (!this.sessionId && event.session_id) {
           this.sessionId = event.session_id;
@@ -515,7 +526,7 @@ class ClaudeSession {
         console.warn(`Suppressed post-completion error: ${error}`);
       } else {
         console.error(`Error in query: ${error}`);
-        this.lastError = String(error).slice(0, 100);
+        this.lastError = describeError(error, 100);
         this.lastErrorTime = new Date();
         throw error;
       }

@@ -217,13 +217,40 @@ request. Audit-logging the event is optional.
 
 ## Recommended order
 
-| # | Item | Effort | Payoff |
-|---|---|---|---|
-| 1 | `sendMessageDraft` streaming (private chats; keep edit-loop for groups) | medium | purpose-built streaming; drops the edit/delete churn |
-| 2 | `USAGE_*_PREFIXES` error classification | small | readable limit messages on the phone |
-| 3 | Extend the tripwire to `sdk.d.ts` (Options fields, `HookEvent`, `SDKMessage` union) | small | closes the gap that hid findings 6–8 |
-| 4 | Handle `conversation_reset` + `background_tasks_changed` | small | correct `/resume`; background-task visibility |
-| 5 | Rich `blocks` incl. `thinking` | large | native thinking rendering |
+| # | Item | Effort | Payoff | Status |
+|---|---|---|---|---|
+| 1 | `sendMessageDraft` streaming (private chats; keep edit-loop for groups) | medium | purpose-built streaming; drops the edit/delete churn | open — gated on the rate-limit probe |
+| 2 | `USAGE_*_PREFIXES` error classification | small | readable limit messages on the phone | **done** — `describeError()` in `src/formatting.ts` |
+| 3 | Extend the tripwire to `sdk.d.ts` (Options fields, `HookEvent`, `SDKMessage` union) | small | closes the gap that hid findings 6–8 | open |
+| 4 | Handle `conversation_reset` | small | correct `/resume` | **done** — `src/session.ts` stream loop; `new_conversation_id` still unused |
+| 4b | Handle `background_tasks_changed` | small | background-task visibility in `/status` | open — a gap, not a bug; nothing is broken today |
+| 5 | Rich `blocks` incl. `thinking` | large | native thinking rendering | open |
+
+**Shipped for 2 and 4.** `describeError(error, max)` replaces four copies of
+`String(error).slice(0, N)` — one in `session.ts` (`lastError`, surfaced by `/status`) and
+three user-facing replies (`text.ts`, `media-group.ts`, `callback.ts`). It matches with
+`includes`, not `startsWith`: the limit sentence arrives inside an API error envelope, so it
+is never at position 0 of `String(error)`, and truncating from the left showed only the
+envelope. Only `USAGE_LIMIT_ERROR_PREFIXES` and `ORG_POLICY_LIMIT_PREFIXES` are consulted —
+the warning and transition tables are toast-only in the CLI and never thrown.
+
+The bot still does not adopt `new_conversation_id`, which the SDK's own doc comment says a
+surface "should mount a fresh transcript under". Deliberate: whether the SDK accepts it as a
+`resume:` token is untested. The fix is strictly better than the old behaviour either way —
+before it, the latched guard kept the dead id forever; now the correct id is picked up from
+the next event that carries one, and the only degraded case is a reset arriving as the last
+event of a turn, which starts fresh rather than wrong.
+
+`src/session-reset.test.ts` drives the real stream loop with a faked `query()` rather than
+asserting on a pure helper, because the defect is an *ordering* one. Mutation-checked:
+deleting the `continue` fails two of its three cases.
+
+**Two Bun facts that test cost an hour to learn.** `mock.module` is process-global, and Bun's
+test-file order is neither lexicographic nor settable — a leaked mock reaches an arbitrary,
+changing set of later files. Worse, the obvious cleanups do not work: `mock.restore()` does
+**not** undo `mock.module` (1.3.14), and re-mocking from the captured namespace fails too,
+because `mock.module` mutates that namespace object in place. Only re-mocking from a shallow
+**copy** taken before the first mock restores the real module. A test in the file guards it.
 
 `strictAllowlist` was on this list as "resolve a possible headless hang". The probe
 above closed it: there is no hang and no change to make, only a comment recorded in
@@ -302,7 +329,7 @@ conversation the user just cleared.
 above. Plan-mode exit is a second path (`EnterPlanMode`/`ExitPlanMode` are not in
 `DENIED_TOOLS`), though that one is possible-not-demonstrated.
 
-**Fix, and the trap in it.** Handle the event and re-arm the existing guard:
+**Fix, and the trap in it** — shipped, `src/session.ts`:
 
 ```ts
 if (event.type === "conversation_reset") {

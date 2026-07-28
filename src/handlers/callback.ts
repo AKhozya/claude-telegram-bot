@@ -9,6 +9,7 @@ import { unlinkSync } from "fs";
 import { session } from "../session";
 import { auditLog, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
+import { describeError } from "../formatting";
 
 /**
  * Handle callback queries from inline keyboards.
@@ -143,7 +144,7 @@ export async function handleCallback(ctx: Context): Promise<void> {
         await ctx.reply("🛑 Query stopped.");
       }
     } else {
-      await ctx.reply(`❌ Error: ${String(error).slice(0, 200)}`);
+      await ctx.reply(`❌ Error: ${describeError(error)}`);
     }
   } finally {
     typing.stop();

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { convertMarkdownToHtml } from "./formatting";
+import { convertMarkdownToHtml, describeError } from "./formatting";
 
 // #5 audit: code was restored via `text.replace(placeholder, "<pre>"+code+"</pre>")`.
 // A STRING replacement interprets `$$`/`$&`/`` $` ``/`$'` in the code as special
@@ -18,4 +18,40 @@ test("code block containing $$ and $` survives verbatim", () => {
   expect(out).toContain("cost=$$");
   expect(out).toContain("end=$`");
   expect(out).not.toContain("CODEBLOCK");
+});
+
+// A usage-limit sentence arrives wrapped in an API error envelope. Truncating from the
+// left showed only the envelope, so /status and the phone reply were both unreadable.
+
+test("a usage-limit error surfaces the sentence, not the API envelope", () => {
+  const wrapped =
+    'Error: API Error: 429 {"type":"error","error":{"type":"rate_limit_error",' +
+    '"message":"You\'ve hit your monthly spend limit. Run /usage-credits to manage it."}}';
+  const out = describeError(wrapped);
+  expect(out).toBe(
+    "You've hit your monthly spend limit. Run /usage-credits to manage it."
+  );
+});
+
+test("an org-policy limit is matched too — both tables can reach a catch", () => {
+  const wrapped = 'Error: 403 {"message":"This service is disabled for your org"}';
+  expect(describeError(wrapped)).toBe("This service is disabled for your org");
+});
+
+test("an ordinary error is left alone, truncated from the left as before", () => {
+  const out = describeError(new Error("spawn claude ENOENT"), 12);
+  expect(out).toBe("Error: spawn");
+});
+
+test("the max applies to the extracted sentence, not the whole envelope", () => {
+  const wrapped = 'Error: API Error: 429 {"message":"You\'ve hit your monthly spend limit."}';
+  expect(describeError(wrapped, 20)).toBe("You've hit your mont");
+});
+
+test("a quoted phrase inside the limit sentence does not cut it short", () => {
+  const wrapped =
+    'Error: 429 {"message":"You\'ve hit your monthly spend limit. Run \\"/usage-credits\\" to raise it."}';
+  expect(describeError(wrapped)).toBe(
+    'You\'ve hit your monthly spend limit. Run \\"/usage-credits\\" to raise it.'
+  );
 });

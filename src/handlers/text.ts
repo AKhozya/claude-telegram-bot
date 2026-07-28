@@ -13,6 +13,7 @@ import {
 } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { markReceived, markDone, markFailed } from "./reactions";
+import { describeError } from "../formatting";
 
 /**
  * Handle incoming text messages.
@@ -122,7 +123,7 @@ export async function handleText(ctx: BotContext): Promise<void> {
           await ctx.reply("🛑 Query stopped.");
         }
       } else {
-        await ctx.reply(`❌ Error: ${errorStr.slice(0, 200)}`);
+        await ctx.reply(`❌ Error: ${describeError(error)}`);
       }
       await markFailed(ctx);
       break; // Exit loop after handling error
