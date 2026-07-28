@@ -38,6 +38,17 @@ import type {
 } from "./types";
 
 /**
+ * Thinking config for a message. Exported so the "never disabled" invariant is testable:
+ * the deployment pins effortLevel "xhigh", and the API 400s on xhigh + thinking disabled.
+ */
+export function getThinkingConfig(message: string): NonNullable<Options["thinking"]> {
+  const budget = getThinkingLevel(message);
+  return budget === 0
+    ? { type: "adaptive" }
+    : { type: "enabled", budgetTokens: budget };
+}
+
+/**
  * Determine thinking token budget based on message keywords.
  */
 function getThinkingLevel(message: string): number {
@@ -217,7 +228,7 @@ class ClaudeSession {
     const isNewSession = !this.isActive;
     const thinkingTokens = getThinkingLevel(message);
     const thinkingLabel =
-      { 0: "off", 10000: "normal", 50000: "deep" }[thinkingTokens] ||
+      { 0: "adaptive", 10000: "normal", 50000: "deep" }[thinkingTokens] ||
       String(thinkingTokens);
 
     // Inject current date/time at session start so Claude doesn't need to call a tool for it
@@ -264,10 +275,7 @@ class ClaudeSession {
       disallowedTools: [...DENIED_TOOLS],
       systemPrompt: SAFETY_PROMPT,
       mcpServers: MCP_SERVERS,
-      thinking:
-        thinkingTokens === 0
-          ? { type: "disabled" as const }
-          : { type: "enabled" as const, budgetTokens: thinkingTokens },
+      thinking: getThinkingConfig(message),
       additionalDirectories: ALLOWED_PATHS,
       resume: this.sessionId || undefined,
       hooks: {

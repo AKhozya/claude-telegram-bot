@@ -55,3 +55,28 @@ test("interruptForNewMessage marks interrupt, stops, then clears — in that ord
     s.clearStopRequested = orig.c;
   }
 });
+
+// The deployment pins effortLevel "xhigh" (homelab cdce0adf). The API rejects that with
+// thinking disabled — "400 output_config.effort 'xhigh' is not supported when thinking is
+// disabled on this model" — which took down every message without a thinking keyword until
+// 2026-07-28. Probe-verified that day: xhigh+adaptive and xhigh+enabled are both accepted.
+// So the invariant is not "the default is adaptive", it is "never emit disabled".
+test("thinking config is never 'disabled' — xhigh effort 400s on that pairing", async () => {
+  const { getThinkingConfig } = await import("./session");
+  for (const msg of [
+    "list the pods",
+    "",
+    "think about this",
+    "ultrathink about this",
+    "DEPLOY IT",
+  ]) {
+    expect(getThinkingConfig(msg).type).not.toBe("disabled");
+  }
+});
+
+test("thinking keywords still pin a fixed budget, plain messages stay adaptive", async () => {
+  const { getThinkingConfig } = await import("./session");
+  expect(getThinkingConfig("list the pods")).toEqual({ type: "adaptive" });
+  expect(getThinkingConfig("think about it")).toEqual({ type: "enabled", budgetTokens: 10000 });
+  expect(getThinkingConfig("ultrathink about it")).toEqual({ type: "enabled", budgetTokens: 50000 });
+});
