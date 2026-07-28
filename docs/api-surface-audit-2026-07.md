@@ -357,21 +357,34 @@ Verified green on HEAD: `bun run typecheck` exits 0, and `bun test` gives
 | `allowedDomains` is inert without `strictAllowlist` | ✅ | same probe, repeated to rule out flake |
 | …and `bypassPermissions` is *why* | ✅ | network config held fixed, permission mode varied |
 | Drafts are metered more loosely than edits | ⚠ | assumed, not documented — measure before relying on it |
-| Draft streaming works against live Telegram | 🟡 | types + changelog; `scripts/probe-bot-api-methods.sh` settles it, not yet run |
+| Draft/rich/ephemeral methods exist on the live server | ✅ | `scripts/probe-bot-api-methods.sh`, run 2026-07-28 — all four 400 (implemented), fake method 404 |
 
-That last row is the one to close before building finding 1. There is no `.env` in
-this checkout — the deployed bot reads its token from the `claude-telegram-env`
-secret in the cluster — so no live call was made here.
+## Live server check — all four methods confirmed
 
-`scripts/probe-bot-api-methods.sh` closes it. It pulls the token from that secret
-into an env var (never printed, output scrubbed), then asks the live server whether
-each method exists using `chat_id: 0`, which is invalid and can never deliver to
-anyone. It calls `getMe` and a deliberately fake method first, so both verdicts are
-calibrated against that server rather than assumed:
+Types are generated from Telegram's published docs, so typechecking proves nothing
+about what the server implements. `scripts/probe-bot-api-methods.sh` asks it
+directly, using `chat_id: 0` — invalid, so nothing can be delivered to anyone. It
+calibrates against that server first by calling `getMe` and a deliberately fake
+method, rather than assuming what each verdict looks like.
 
-```bash
-./scripts/probe-bot-api-methods.sh
+Run 2026-07-28 against the live bot token:
+
+```
+controls ok: real method -> 200; unknown method -> 404 "Not Found"
+sendMessageDraft           http=400  implemented   Bad Request: chat not found
+sendRichMessageDraft       http=400  implemented   Bad Request: chat not found
+sendRichMessage            http=400  implemented   Bad Request: chat not found
+editEphemeralMessageText   http=400  implemented   Bad Request: invalid receiver_user_id specified
 ```
 
-Read it as: `http=404` or "method not found" means the server does not implement
-the method; `http=400` with a parameter complaint means it does.
+All four are **implemented server-side**. The controls make that readable: a method
+this server does not have returns 404 "Not Found", and none of the four did.
+
+The error text carries more than existence. "chat not found" means each call parsed
+its parameters and got as far as resolving the chat — so the request *shapes* are
+accepted too, not just the method names. `editEphemeralMessageText` got further
+still, into per-field validation of `receiver_user_id`, which independently confirms
+the ephemeral-message signature from finding 3.
+
+Finding 1 is therefore safe to build on: `sendMessageDraft` is live, and so is the
+rich-message path behind finding 2.
