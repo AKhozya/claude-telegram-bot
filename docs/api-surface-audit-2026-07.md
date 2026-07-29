@@ -468,3 +468,99 @@ the ephemeral-message signature from finding 3.
 
 Finding 1 is therefore safe to build on: `sendMessageDraft` is live, and so is the
 rich-message path behind finding 2.
+
+---
+
+# Agent SDK surface sweep — 2026-07-29
+
+Installed **0.3.220**, and `npm view` confirms that is `latest` and `next` — no newer
+engine to chase. The gaps below are things 0.3.220 already ships that the bot ignores.
+
+## What the bot actually imports
+
+`query`, `Options`, `SDKMessage`, `USAGE_LIMIT_ERROR_PREFIXES`, `ORG_POLICY_LIMIT_PREFIXES`.
+Five names out of ~250 exported. The stream loop in `session.ts` branches on **3 of the
+39 members** of the `SDKMessage` union: `conversation_reset`, `assistant`, `result`.
+Everything else falls through the loop untouched.
+
+That is not automatically wrong — most of the 39 are irrelevant to a phone client. The
+four below are not.
+
+## 1. The session store the bot hand-rolled now ships in the SDK ⚠
+
+`session.ts` keeps `/tmp/claude-telegram-session.json`: a 5-entry list of
+`{session_id, saved_at, working_dir, title}`, where `title` is the user's first message
+sliced to 50 chars. The SDK exports `listSessions`, `getSessionInfo`, `renameSession`,
+`tagSession`, `deleteSession`, `forkSession`, `getSessionMessages`.
+
+Probed 2026-07-29 (the `_`-prefixed parameter names in `sdk.d.ts` read like stubs — they
+are not):
+
+```
+listSessions({limit: 3}) -> 3 live sessions
+{
+  "sessionId": "412fc0c8-...",
+  "summary": "Review renovate PR and assess new creature support",
+  "lastModified": 1785314410162,
+  "customTitle": "Review renovate PR and assess new creature support",
+  "gitBranch": "main",
+  "cwd": "/Users/akhozya/source-code/claude-telegram-bot",
+  "createdAt": 1785254861950
+}
+getSessionInfo -> sessionId,summary,lastModified,fileSize,customTitle,firstPrompt,gitBranch,cwd,tag,createdAt
+```
+
+Every field the bot's format carries, plus a **model-generated `summary`** instead of a
+truncated first message, plus `gitBranch` and `firstPrompt`. `/resume`'s button labels
+would get materially better with no code of ours.
+
+Not a drop-in: `listSessions` returns every session for a `cwd` including ones started
+from the terminal, and the bot's 5-entry cap is what keeps that list a phone-sized menu.
+Wants its own batch, not a drive-by.
+
+## 2. `rate_limit_event` — limits arrive as a stream event, not only as a throw 🟡
+
+`describeError` (shipped in `b1cf270`) only fires from a `catch`. But the SDK emits
+`SDKRateLimitEvent` mid-stream:
+
+```ts
+{ type: 'rate_limit_event', rate_limit_info: {
+    status: 'allowed' | 'allowed_warning' | 'rejected',
+    resetsAt?: number,
+    rateLimitType?: 'five_hour' | 'seven_day' | 'seven_day_opus' | ...,
+    utilization?: number, ... } }
+```
+
+`allowed_warning` is the case that matters: the request still succeeds, so nothing
+throws, and the user gets no hint they are near a wall until a later message fails
+outright. Surfacing `utilization` + `resetsAt` on the warning is a few lines in the
+existing loop, and it is the natural companion to the `describeError` work.
+
+## 3. `compact_boundary` and `api_retry` — silence the user cannot explain 🟡
+
+- `SDKCompactBoundaryMessage` (`{trigger: 'manual'|'auto', pre_tokens, post_tokens}`) —
+  auto-compaction means Claude just lost context the user still assumes it has. On a
+  phone, where scrollback is the only memory aid, an unannounced compaction reads as
+  the bot going stupid.
+- `SDKAPIRetryMessage` (`{attempt, max_retries, retry_delay_ms, error_status}`) — today
+  a retry looks like a hang. The typing indicator keeps ticking with no explanation.
+
+Both are one-line status emissions through the existing `statusCallback`.
+
+## 4. `background_tasks_changed` — still open, unchanged from finding 4b
+
+`{tasks: [{task_id, task_type, description}]}`, REPLACE semantics. Unhandled, so a
+backgrounded task is invisible from the phone.
+
+## Recommended order
+
+| # | Item | Size | Why this rank |
+|---|---|---|---|
+| 1 | `rate_limit_event` warning | S | Completes `b1cf270`; the only gap where the user currently gets *no* signal at all |
+| 2 | `api_retry` + `compact_boundary` status | S | Removes two classes of unexplained silence |
+| 3 | `background_tasks_changed` | M | Finding 4b |
+| 4 | SDK session store | L | Real win on `/resume` labels, but needs its own design pass on the cwd/cap problem |
+
+Deliberately not adopted: `includePartialMessages` (finding 1 already covers native
+drafts and is gated on the unrun rate-limit probe), and the remaining 30-odd union
+members, which are IDE/desktop concerns with no phone surface.
