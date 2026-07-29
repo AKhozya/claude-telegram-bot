@@ -112,13 +112,11 @@ export function startTypingIndicator(ctx: Context): TypingController {
 // ============== Temp Reaper ==============
 
 /**
- * Remove TEMP_DIR entries older than `maxAgeMs`. Returns how many it removed.
+ * `lstat`, not `stat`: a symlink must be aged by the link itself, or one pointing at a
+ * fresh file keeps a stale entry alive forever. `rm` on a symlink unlinks the link,
+ * never the target.
  *
- * `lstat`, not `stat`: a symlink planted in TEMP_DIR must be aged by the link itself,
- * or a link pointing at a fresh file would keep a stale entry alive forever. `rm` on a
- * symlink unlinks the link, never the target.
- *
- * Exported with injectable dir/age/clock so the test does not need to wait an hour.
+ * dir/age/clock are injectable so the test does not have to wait an hour.
  */
 export async function reapTempDir(
   dir: string = TEMP_DIR,

@@ -175,14 +175,11 @@ function formatWithinLimit(
 }
 
 /**
- * Split MARKDOWN into sendable pieces, breaking only at line boundaries.
+ * Splits before conversion, so each chunk converts to valid HTML on its own. Slicing
+ * converted HTML instead cuts tags in half, Telegram rejects the chunk, and the
+ * plain-text fallback then shows the user a literal `<b>`.
  *
- * Slicing converted HTML at a fixed offset cuts tags and entities in half; Telegram
- * rejects the chunk and the plain-text fallback then shows the user a literal `<b>`.
- * Splitting before conversion means every chunk converts to valid HTML on its own.
- *
- * A fence spanning a boundary is closed and reopened, so neither half renders as
- * stray backticks. Exported for test.
+ * A fence spanning a boundary is closed and reopened. Exported for test.
  */
 export function splitMarkdownForTelegram(
   markdown: string,
