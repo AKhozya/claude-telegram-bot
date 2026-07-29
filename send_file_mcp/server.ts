@@ -20,7 +20,6 @@ import {
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB Telegram limit
 
-// Create the MCP server
 const server = new Server(
   {
     name: "send-file",
@@ -33,7 +32,6 @@ const server = new Server(
   }
 );
 
-// List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
@@ -62,7 +60,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
-// Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name !== "send_file") {
     throw new Error(`Unknown tool: ${request.params.name}`);
@@ -88,7 +85,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 
-  // Validate file exists and check size
+  // Bun.file() never throws for a missing path and reports size 0, so absence and
+  // emptiness are indistinguishable here — hence the combined message below.
   try {
     const file = Bun.file(filePath);
     const size = file.size;
@@ -129,7 +127,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     };
   }
 
-  // Get chat context from environment
   const chatId = process.env.TELEGRAM_CHAT_ID || "";
   if (!chatId) {
     return {
@@ -169,7 +166,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   };
 });
 
-// Run the server
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);

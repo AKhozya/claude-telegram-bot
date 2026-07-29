@@ -198,6 +198,19 @@ export const TEMP_DIR = process.env.TEMP_DIR || "/tmp/telegram-bot";
 
 export const TEMP_PATHS = ["/tmp/", "/private/tmp/", "/var/folders/"];
 
+// In-cluster /tmp is an emptyDir with no sizeLimit, so downloaded media that is never
+// removed draws on NODE ephemeral storage until the kubelet starts evicting pods.
+// Nothing else reaps TEMP_DIR — not the app, not the image, not a CronJob.
+export const TEMP_REAP_INTERVAL_MS = parseInt(
+  process.env.TEMP_REAP_INTERVAL_MS || String(60 * 60 * 1000),
+  10
+);
+// Must outlive the longest legitimate hold on a downloaded file: Claude reads it during
+// the turn, and an ask_user pause keeps that turn open until the user taps a button.
+// Hours, not minutes. Lower it only if disk pressure beats the risk of cutting a turn off.
+export const TEMP_RETENTION_MS =
+  parseInt(process.env.TEMP_RETENTION_HOURS || "24", 10) * 60 * 60 * 1000;
+
 // Bun.write creates missing parent dirs, so this is how TEMP_DIR gets made.
 await Bun.write(`${TEMP_DIR}/.keep`, "");
 

@@ -7,7 +7,13 @@
 import type { Chat } from "grammy/types";
 import type { Context } from "grammy";
 import type { AuditEvent } from "./types";
-import { AUDIT_LOG_PATH, AUDIT_LOG_JSON } from "./config";
+import {
+  AUDIT_LOG_PATH,
+  AUDIT_LOG_JSON,
+  TEMP_DIR,
+  TEMP_REAP_INTERVAL_MS,
+  TEMP_RETENTION_MS,
+} from "./config";
 
 // ============== Audit Logging ==============
 
@@ -101,6 +107,61 @@ export function startTypingIndicator(ctx: Context): TypingController {
       running = false;
     },
   };
+}
+
+// ============== Temp Reaper ==============
+
+/**
+ * Remove TEMP_DIR entries older than `maxAgeMs`. Returns how many it removed.
+ *
+ * `lstat`, not `stat`: a symlink planted in TEMP_DIR must be aged by the link itself,
+ * or a link pointing at a fresh file would keep a stale entry alive forever. `rm` on a
+ * symlink unlinks the link, never the target.
+ *
+ * Exported with injectable dir/age/clock so the test does not need to wait an hour.
+ */
+export async function reapTempDir(
+  dir: string = TEMP_DIR,
+  maxAgeMs: number = TEMP_RETENTION_MS,
+  now: number = Date.now()
+): Promise<number> {
+  const fs = await import("fs/promises");
+  let entries: string[];
+  try {
+    entries = await fs.readdir(dir);
+  } catch (error) {
+    console.warn(`Temp reaper: cannot read ${dir}:`, error);
+    return 0;
+  }
+
+  let removed = 0;
+  for (const name of entries) {
+    if (name === ".keep") continue; // the marker that makes TEMP_DIR exist
+    const path = `${dir}/${name}`;
+    try {
+      const info = await fs.lstat(path);
+      if (now - info.mtimeMs < maxAgeMs) continue;
+      await fs.rm(path, { recursive: true, force: true });
+      removed++;
+    } catch (error) {
+      console.debug(`Temp reaper: skipped ${path}:`, error);
+    }
+  }
+  if (removed > 0) {
+    console.log(`Temp reaper: removed ${removed} stale entries from ${dir}`);
+  }
+  return removed;
+}
+
+export function startTempReaper(
+  intervalMs: number = TEMP_REAP_INTERVAL_MS
+): { stop: () => void } {
+  // Sweep once at boot too: a pod that restarts more often than the interval would
+  // otherwise never reach a tick, and restarts are exactly when /tmp is already dirty.
+  void reapTempDir();
+  const timer = setInterval(() => void reapTempDir(), intervalMs);
+  timer.unref?.(); // a pending sweep must never hold the process open on shutdown
+  return { stop: () => clearInterval(timer) };
 }
 
 // ============== Message Interrupt ==============

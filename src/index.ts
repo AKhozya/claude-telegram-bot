@@ -10,6 +10,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
 import { hydrateFiles, type FileFlavor, type FileApiFlavor } from "@grammyjs/files";
 import { TELEGRAM_TOKEN, WORKING_DIR, ALLOWED_USERS, RESTART_FILE } from "./config";
 import { unlinkSync, readFileSync, existsSync } from "fs";
+import { startTempReaper } from "./utils";
 import {
   authGate,
   handleStart,
@@ -148,6 +149,8 @@ const runner = run(bot);
 // Optional HTTP trigger (no-op when TRIGGER_SECRET unset)
 const triggerServer = startTriggerServer(bot);
 
+const tempReaper = startTempReaper();
+
 // Graceful shutdown
 const stopRunner = () => {
   if (runner.isRunning()) {
@@ -155,6 +158,7 @@ const stopRunner = () => {
     runner.stop();
   }
   triggerServer?.stop();
+  tempReaper.stop();
 };
 
 process.on("SIGINT", () => {

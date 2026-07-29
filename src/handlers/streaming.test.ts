@@ -90,3 +90,60 @@ describe("ask_user keyboard styling", () => {
     expect(rows[0]![0]).toMatchObject({ text: "Yes", style: "primary" });
   });
 });
+
+const { splitMarkdownForTelegram } = await import("./streaming");
+const { convertMarkdownToHtml } = await import("../formatting");
+
+describe("splitMarkdownForTelegram", () => {
+  // Balanced-tag check: every <x> in a chunk must have a matching </x>. A chunk
+  // sliced mid-tag is what made Telegram reject it and fall back to plain text.
+  const tagsBalanced = (html: string) => {
+    const stack: string[] = [];
+    for (const m of html.matchAll(/<(\/?)(\w+)[^>]*>/g)) {
+      if (m[1]) { if (stack.pop() !== m[2]) return false; }
+      else stack.push(m[2]!);
+    }
+    return stack.length === 0;
+  };
+
+  test("every chunk converts to balanced HTML, unlike slicing converted HTML", () => {
+    const md = Array.from({ length: 200 }, (_, i) => `**bold line ${i}** and _italic ${i}_`).join("\n");
+    const chunks = splitMarkdownForTelegram(md, 200);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) expect(tagsBalanced(convertMarkdownToHtml(c))).toBe(true);
+
+    // The old approach for comparison: slice the converted HTML at fixed offsets.
+    const html = convertMarkdownToHtml(md);
+    const sliced = Array.from({ length: Math.ceil(html.length / 200) }, (_, i) =>
+      html.slice(i * 200, (i + 1) * 200)
+    );
+    expect(sliced.some((c) => !tagsBalanced(c))).toBe(true);
+  });
+
+  test("no chunk exceeds the limit", () => {
+    const md = Array.from({ length: 100 }, (_, i) => `line ${i}`).join("\n");
+    for (const c of splitMarkdownForTelegram(md, 50)) expect(c.length).toBeLessThanOrEqual(50);
+  });
+
+  test("a fence spanning a boundary is closed and reopened", () => {
+    const md = "```ts\n" + Array.from({ length: 40 }, (_, i) => `const x${i} = ${i};`).join("\n") + "\n```";
+    const chunks = splitMarkdownForTelegram(md, 120);
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const c of chunks) {
+      expect((c.match(/```/g) ?? []).length % 2).toBe(0); // balanced fences
+      expect(tagsBalanced(convertMarkdownToHtml(c))).toBe(true);
+    }
+    expect(chunks[1]!.startsWith("```ts")).toBe(true); // reopened with its language
+  });
+
+  test("a single line longer than the limit is still cut", () => {
+    const chunks = splitMarkdownForTelegram("x".repeat(250), 100);
+    expect(chunks.length).toBe(3);
+    for (const c of chunks) expect(c.length).toBeLessThanOrEqual(100);
+    expect(chunks.join("")).toBe("x".repeat(250));
+  });
+
+  test("content short enough is returned as one chunk, unchanged", () => {
+    expect(splitMarkdownForTelegram("hello\nworld", 4000)).toEqual(["hello\nworld"]);
+  });
+});

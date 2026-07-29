@@ -174,23 +174,60 @@ function formatWithinLimit(
   return formatted;
 }
 
-// Takes ALREADY-converted HTML, unlike every other send path here.
-// Known ceiling: the fixed-offset slice can cut a tag or entity in half. Telegram
-// then rejects the chunk and the catch below re-sends it as plain text, so the user
-// sees literal `<b>`. A tag-aware splitter is the real fix; not done.
+/**
+ * Split MARKDOWN into sendable pieces, breaking only at line boundaries.
+ *
+ * Slicing converted HTML at a fixed offset cuts tags and entities in half; Telegram
+ * rejects the chunk and the plain-text fallback then shows the user a literal `<b>`.
+ * Splitting before conversion means every chunk converts to valid HTML on its own.
+ *
+ * A fence spanning a boundary is closed and reopened, so neither half renders as
+ * stray backticks. Exported for test.
+ */
+export function splitMarkdownForTelegram(
+  markdown: string,
+  limit: number = TELEGRAM_SAFE_LIMIT
+): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let openFence: string | null = null;
+
+  for (const rawLine of markdown.split("\n")) {
+    // A single line over the limit has no boundary to break on — cut it.
+    const pieces =
+      rawLine.length > limit
+        ? (rawLine.match(new RegExp(`[\\s\\S]{1,${limit}}`, "g")) ?? [rawLine])
+        : [rawLine];
+
+    for (const line of pieces) {
+      if (cur && cur.length + 1 + line.length > limit) {
+        out.push(openFence ? cur + "\n```" : cur);
+        cur = openFence ?? "";
+      }
+      cur = cur ? cur + "\n" + line : line;
+      if (/^\s*```/.test(line)) openFence = openFence ? null : line;
+    }
+  }
+
+  // Skip a trailing chunk that is only the reopened fence with nothing under it.
+  if (cur && cur !== openFence) out.push(openFence ? cur + "\n```" : cur);
+  return out;
+}
+
 async function sendChunkedMessages(
   ctx: Context,
-  content: string
+  markdown: string
 ): Promise<void> {
-  for (let i = 0; i < content.length; i += TELEGRAM_SAFE_LIMIT) {
-    const chunk = content.slice(i, i + TELEGRAM_SAFE_LIMIT);
+  for (const chunk of splitMarkdownForTelegram(markdown)) {
     try {
-      await ctx.reply(chunk, {
+      await ctx.reply(convertMarkdownToHtml(chunk), {
         parse_mode: "HTML",
         link_preview_options: { is_disabled: true },
       });
-    } catch {
-      // HTML failed (possibly broken tags from split) - try plain text
+    } catch (htmlError) {
+      console.debug("Chunk HTML send failed, falling back to plain:", htmlError);
+      // Falls back to the raw markdown, not the HTML — worst case the user sees
+      // `**bold**`, never a literal tag.
       try {
         await ctx.reply(chunk);
       } catch (plainError) {
@@ -332,7 +369,7 @@ export function createStatusCallback(
         // so no message exists yet — create one directly (#12 fix).
         if (!state.textMessages.has(segmentId)) {
           if (content.length > TELEGRAM_RICH_LIMIT) {
-            await sendChunkedMessages(ctx, convertMarkdownToHtml(content));
+            await sendChunkedMessages(ctx, content);
             return;
           }
           const msg = await sendRichWithFallback(ctx, content);
@@ -357,7 +394,7 @@ export function createStatusCallback(
           } catch (delError) {
             console.debug("Failed to delete for chunking:", delError);
           }
-          await sendChunkedMessages(ctx, convertMarkdownToHtml(content));
+          await sendChunkedMessages(ctx, content);
         }
       } else if (statusType === "done") {
         // Only the ephemeral tool/thinking chatter is cleaned up; text segments stay.

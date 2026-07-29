@@ -16,7 +16,6 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-// Create the MCP server
 const server = new Server(
   {
     name: "ask-user",
@@ -29,7 +28,6 @@ const server = new Server(
   }
 );
 
-// List available tools
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
@@ -60,7 +58,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
   };
 });
 
-// Handle tool calls
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   if (request.params.name !== "ask_user") {
     throw new Error(`Unknown tool: ${request.params.name}`);
@@ -78,7 +75,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     throw new Error("question and at least 2 options required");
   }
 
-  // Generate request ID and get chat context from environment
   const requestUuid = crypto.randomUUID().slice(0, 8);
   const chatId = process.env.TELEGRAM_CHAT_ID || "";
 
@@ -105,7 +101,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   };
 });
 
-// Run the server
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
