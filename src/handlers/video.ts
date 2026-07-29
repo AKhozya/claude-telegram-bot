@@ -136,7 +136,8 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     stopProcessing();
     typing.stop();
 
-    // The video file deliberately outlives this handler: the video-processing
-    // skill reads it after the turn ends. TEMP_DIR cleanup is the only reaper.
+    // The download is deliberately not removed — the video-processing skill reads
+    // it from disk during the query above. Nothing in this repo reaps TEMP_DIR
+    // afterwards, so files accumulate until the pod restarts or the OS clears /tmp.
   }
 }

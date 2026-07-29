@@ -55,3 +55,14 @@ test("a quoted phrase inside the limit sentence does not cut it short", () => {
     'You\'ve hit your monthly spend limit. Run \\"/usage-credits\\" to raise it.'
   );
 });
+
+// A sentence ending in a LITERAL backslash reaches us as `\\` immediately before the
+// real closing quote. Checking only the single preceding character reads that as an
+// escaped quote, finds no terminator, and leaks the JSON envelope (`...C:\\"}}`).
+test("a literal backslash before the closing quote does not swallow the envelope", () => {
+  const wrapped =
+    'Error: 429 {"message":"You\'ve hit your monthly spend limit. Check C:\\\\"}}';
+  expect(describeError(wrapped)).toBe(
+    "You've hit your monthly spend limit. Check C:\\\\"
+  );
+});

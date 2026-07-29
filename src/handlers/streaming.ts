@@ -174,8 +174,10 @@ function formatWithinLimit(
   return formatted;
 }
 
-// Takes ALREADY-converted HTML, unlike every other send path here — splitting
-// markdown at a fixed offset would cut fences and emphasis mid-token.
+// Takes ALREADY-converted HTML, unlike every other send path here.
+// Known ceiling: the fixed-offset slice can cut a tag or entity in half. Telegram
+// then rejects the chunk and the catch below re-sends it as plain text, so the user
+// sees literal `<b>`. A tag-aware splitter is the real fix; not done.
 async function sendChunkedMessages(
   ctx: Context,
   content: string

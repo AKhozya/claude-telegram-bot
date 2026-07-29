@@ -51,7 +51,9 @@ export function getThinkingConfig(message: string): NonNullable<Options["thinkin
 function getThinkingLevel(message: string): number {
   const msgLower = message.toLowerCase();
 
-  // Deep keywords are a superset of the normal ones, so they must match first.
+  // A deep keyword can contain a normal one ("ultrathink" contains "think"), so
+  // testing deep first is what stops it being shadowed. Both lists are env-set,
+  // so the containment is a property of the defaults, not a guarantee.
   if (THINKING_DEEP_KEYWORDS.some((k) => msgLower.includes(k))) {
     return 50000;
   }
@@ -536,8 +538,9 @@ class ClaudeSession {
         title: this.conversationTitle || "Untitled session",
       };
 
-      // Update in place, else prepend — the list is newest-first, and the slice
-      // below trims from the tail, so re-adding an existing id would evict it.
+      // Update in place rather than re-prepend, so a re-save cannot duplicate an id.
+      // Consequence: position is insertion order, NOT recency — an old entry that is
+      // still being written to keeps its slot and the slice below can still evict it.
       const existingIndex = history.sessions.findIndex(
         (s) => s.session_id === this.sessionId
       );

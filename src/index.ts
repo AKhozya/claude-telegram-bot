@@ -42,7 +42,9 @@ bot.api.config.use(hydrateFiles(bot.token, { apiRoot: process.env.TELEGRAM_API_R
 // unauthorized updates are dropped before entering any per-chat queue.
 bot.use(authGate);
 
-// Per-chat queue so two messages can't drive the single ClaudeSession at once.
+// Serializes messages within one chat. Note this does NOT protect the process-wide
+// ClaudeSession: separate chats get separate queues and would still overlap — the
+// user allowlist is what keeps that to one chat in practice.
 // Anything returning undefined skips the queue and runs immediately.
 bot.use(
   sequentialize((ctx) => {
@@ -124,8 +126,9 @@ if (existsSync(RESTART_FILE)) {
     const data = JSON.parse(readFileSync(RESTART_FILE, "utf-8"));
     const age = Date.now() - data.timestamp;
 
-    // A stale file means the restart never completed; editing that message now
-    // would stamp "restarted" on an unrelated conversation.
+    // Staleness bound only. The ids still point at the right message, but a file
+    // this old means some earlier restart never cleaned up, so the "✅ Bot restarted"
+    // edit would land long after the user stopped waiting for it.
     if (age < 30000 && data.chat_id && data.message_id) {
       await bot.api.editMessageText(
         data.chat_id,

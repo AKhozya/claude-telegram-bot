@@ -32,11 +32,13 @@ export function describeError(error: unknown, max = 200): string {
 
   // The sentence sits inside a JSON string, so the closing quote ends it — but only an
   // UNESCAPED one. A sentence that quotes a flag or command reaches us as \" and must not
-  // be cut there.
+  // be cut there. Counting backslashes in PAIRS is what makes that precise: a lone
+  // `(?<!\\)"` also skips the real terminator after a literal backslash (`C:\\"`), which
+  // then leaks the JSON envelope into the user's error message.
   const at = raw.indexOf(hit);
   const tail = raw.slice(at, at + max);
-  const quote = tail.search(/(?<!\\)"/);
-  return quote === -1 ? tail : tail.slice(0, quote);
+  const end = /(?<!\\)(?:\\\\)*"/.exec(tail);
+  return end ? tail.slice(0, end.index + end[0].length - 1) : tail;
 }
 
 export function escapeHtml(text: string): string {
