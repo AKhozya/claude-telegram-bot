@@ -1,7 +1,3 @@
-/**
- * Handler exports for Claude Telegram Bot.
- */
-
 export {
   handleStart,
   handleNew,

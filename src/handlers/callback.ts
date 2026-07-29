@@ -11,9 +11,6 @@ import { auditLog, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { describeError } from "../formatting";
 
-/**
- * Handle callback queries from inline keyboards.
- */
 export async function handleCallback(ctx: Context): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
@@ -25,13 +22,13 @@ export async function handleCallback(ctx: Context): Promise<void> {
     return;
   }
 
-  // 2. Handle resume callbacks: resume:{session_id}
+  // resume:{session_id}
   if (callbackData.startsWith("resume:")) {
     await handleResumeCallback(ctx, callbackData);
     return;
   }
 
-  // 3. Parse callback data: askuser:{request_id}:{option_index}
+  // askuser:{request_id}:{option_index}
   if (!callbackData.startsWith("askuser:")) {
     await ctx.answerCallbackQuery();
     return;
@@ -52,7 +49,6 @@ export async function handleCallback(ctx: Context): Promise<void> {
   }
   const optionIndex = parseInt(parts[2]!, 10);
 
-  // 3. Load request file
   const requestFile = `/tmp/ask-user-${requestId}.json`;
   let requestData: {
     question: string;
@@ -70,7 +66,6 @@ export async function handleCallback(ctx: Context): Promise<void> {
     return;
   }
 
-  // 4. Get selected option
   if (optionIndex < 0 || optionIndex >= requestData.options.length) {
     await ctx.answerCallbackQuery({ text: "Invalid option" });
     return;
@@ -78,26 +73,22 @@ export async function handleCallback(ctx: Context): Promise<void> {
 
   const selectedOption = requestData.options[optionIndex]!;
 
-  // 5. Update the message to show selection
   try {
     await ctx.editMessageText(`✓ ${selectedOption}`);
   } catch (error) {
     console.debug("Failed to edit callback message:", error);
   }
 
-  // 6. Answer the callback
   await ctx.answerCallbackQuery({
     text: `Selected: ${selectedOption.slice(0, 50)}`,
   });
 
-  // 7. Delete request file
   try {
     unlinkSync(requestFile);
   } catch (error) {
     console.debug("Failed to delete request file:", error);
   }
 
-  // 8. Send the choice to Claude as a message
   const message = selectedOption;
 
   // Interrupt any running query - button responses are always immediate.
@@ -108,10 +99,8 @@ export async function handleCallback(ctx: Context): Promise<void> {
     await session.interruptForNewMessage();
   }
 
-  // Start typing
   const typing = startTypingIndicator(ctx);
 
-  // Create streaming state
   const state = new StreamingState();
   const statusCallback = createStatusCallback(ctx, state);
 
@@ -151,9 +140,7 @@ export async function handleCallback(ctx: Context): Promise<void> {
   }
 }
 
-/**
- * Handle resume session callback (resume:{session_id}).
- */
+/** resume:{session_id} */
 async function handleResumeCallback(
   ctx: Context,
   callbackData: string
@@ -168,13 +155,11 @@ async function handleResumeCallback(
     return;
   }
 
-  // Check if session is already active
   if (session.isActive) {
     await ctx.answerCallbackQuery({ text: "Session already active" });
     return;
   }
 
-  // Resume the selected session
   const [success, message] = session.resumeSession(sessionId);
 
   if (!success) {
@@ -182,7 +167,6 @@ async function handleResumeCallback(
     return;
   }
 
-  // Update the original message to show selection
   try {
     await ctx.editMessageText(`✅ ${message}`);
   } catch (error) {
@@ -190,7 +174,7 @@ async function handleResumeCallback(
   }
   await ctx.answerCallbackQuery({ text: "Session resumed!" });
 
-  // Send a hidden recap prompt to Claude
+  // Hidden prompt: the user sees only the recap, never this instruction.
   const recapPrompt =
     "Please write a very concise recap of where we are in this conversation, to refresh my memory. Max 2-3 sentences.";
 

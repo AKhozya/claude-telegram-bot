@@ -19,9 +19,6 @@ import {
   BUTTON_LABEL_MAX_LENGTH,
 } from "../config";
 
-/**
- * Create inline keyboard for ask_user options.
- */
 export function createAskUserKeyboard(
   requestId: string,
   options: string[]
@@ -29,7 +26,6 @@ export function createAskUserKeyboard(
   const keyboard = new InlineKeyboard();
   for (let idx = 0; idx < options.length; idx++) {
     const option = options[idx]!;
-    // Truncate long options for button display
     const display =
       option.length > BUTTON_LABEL_MAX_LENGTH
         ? option.slice(0, BUTTON_LABEL_MAX_LENGTH) + "..."
@@ -40,9 +36,6 @@ export function createAskUserKeyboard(
   return keyboard;
 }
 
-/**
- * Check for pending ask-user requests and send inline keyboards.
- */
 export async function checkPendingAskUserRequests(
   ctx: Context,
   chatId: number
@@ -57,7 +50,6 @@ export async function checkPendingAskUserRequests(
       const text = await file.text();
       const data = JSON.parse(text);
 
-      // Only process pending requests for this chat
       if (data.status !== "pending") continue;
       if (String(data.chat_id) !== String(chatId)) continue;
 
@@ -70,7 +62,6 @@ export async function checkPendingAskUserRequests(
         await ctx.reply(`❓ ${question}`, { reply_markup: keyboard });
         buttonsSent = true;
 
-        // Mark as sent
         data.status = "sent";
         await Bun.write(filepath, JSON.stringify(data));
       }
@@ -87,9 +78,6 @@ const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".avi", ".webm", ".mkv"]);
 const PHOTO_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".ogg", ".flac", ".m4a"]);
 
-/**
- * Check for pending send-file requests and deliver files via Telegram.
- */
 export async function checkPendingSendFileRequests(
   ctx: Context,
   chatId: number
@@ -104,7 +92,6 @@ export async function checkPendingSendFileRequests(
       const text = await file.text();
       const data = JSON.parse(text);
 
-      // Only process pending requests for this chat
       if (data.status !== "pending") continue;
       if (String(data.chat_id) !== String(chatId)) continue;
 
@@ -153,7 +140,6 @@ export async function checkPendingSendFileRequests(
         );
       }
 
-      // Always clean up the request file
       try { unlinkSync(filepath); } catch { /* ignore */ }
     } catch (error) {
       console.warn(`Failed to process send-file request ${filepath}:`, error);
@@ -163,9 +149,6 @@ export async function checkPendingSendFileRequests(
   return fileSent;
 }
 
-/**
- * Tracks state for streaming message updates.
- */
 export class StreamingState {
   textMessages = new Map<number, Message>(); // segment_id -> telegram message
   toolMessages: Message[] = []; // ephemeral tool status messages
@@ -173,10 +156,6 @@ export class StreamingState {
   lastContent = new Map<number, string>(); // segment_id -> last sent content
 }
 
-/**
- * Format content for Telegram, ensuring it fits within the message limit.
- * Truncates raw content and re-converts if HTML output exceeds the limit.
- */
 function formatWithinLimit(
   content: string,
   safeLimit: number = TELEGRAM_SAFE_LIMIT
@@ -195,14 +174,12 @@ function formatWithinLimit(
   return formatted;
 }
 
-/**
- * Split long formatted content into chunks and send as separate messages.
- */
+// Takes ALREADY-converted HTML, unlike every other send path here — splitting
+// markdown at a fixed offset would cut fences and emphasis mid-token.
 async function sendChunkedMessages(
   ctx: Context,
   content: string
 ): Promise<void> {
-  // Split on markdown content first, then format each chunk
   for (let i = 0; i < content.length; i += TELEGRAM_SAFE_LIMIT) {
     const chunk = content.slice(i, i + TELEGRAM_SAFE_LIMIT);
     try {
@@ -302,9 +279,6 @@ async function editRichWithFallback(
   }
 }
 
-/**
- * Create a status callback for streaming updates.
- */
 export function createStatusCallback(
   ctx: Context,
   state: StreamingState
@@ -312,7 +286,6 @@ export function createStatusCallback(
   return async (statusType: string, content: string, segmentId?: number) => {
     try {
       if (statusType === "thinking") {
-        // Show thinking inline, compact (first 500 chars)
         const preview =
           content.length > 500 ? content.slice(0, 500) + "..." : content;
         const escaped = escapeHtml(preview);
@@ -328,7 +301,8 @@ export function createStatusCallback(
         const lastEdit = state.lastEditTimes.get(segmentId) || 0;
 
         if (!state.textMessages.has(segmentId)) {
-          // New segment - create rich message (lastContent tracks raw markdown)
+          // lastContent caches the RAW markdown, not what was sent — the edit
+          // path below re-converts, so caching HTML would never compare equal.
           const msg = await sendRichWithFallback(ctx, content);
           if (msg) {
             state.textMessages.set(segmentId, msg);
@@ -336,9 +310,7 @@ export function createStatusCallback(
           }
           state.lastEditTimes.set(segmentId, now);
         } else if (now - lastEdit > STREAMING_THROTTLE_MS) {
-          // Update existing segment message (throttled)
           const msg = state.textMessages.get(segmentId)!;
-          // Skip if content unchanged
           if (content === state.lastContent.get(segmentId)) {
             return;
           }
@@ -358,7 +330,6 @@ export function createStatusCallback(
         // so no message exists yet — create one directly (#12 fix).
         if (!state.textMessages.has(segmentId)) {
           if (content.length > TELEGRAM_RICH_LIMIT) {
-            // Too long for one rich message - chunk the full content as HTML
             await sendChunkedMessages(ctx, convertMarkdownToHtml(content));
             return;
           }
@@ -371,7 +342,6 @@ export function createStatusCallback(
         }
 
         const msg = state.textMessages.get(segmentId)!;
-        // Skip if content unchanged
         if (content === state.lastContent.get(segmentId)) {
           return;
         }
@@ -380,7 +350,6 @@ export function createStatusCallback(
           await editRichWithFallback(ctx, msg, content);
           state.lastContent.set(segmentId, content);
         } catch {
-          // Too long for one message - delete the partial and chunk full content
           try {
             await ctx.api.deleteMessage(msg.chat.id, msg.message_id);
           } catch (delError) {
@@ -389,7 +358,7 @@ export function createStatusCallback(
           await sendChunkedMessages(ctx, convertMarkdownToHtml(content));
         }
       } else if (statusType === "done") {
-        // Delete tool messages - text messages stay
+        // Only the ephemeral tool/thinking chatter is cleaned up; text segments stay.
         for (const toolMsg of state.toolMessages) {
           try {
             await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);

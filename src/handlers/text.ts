@@ -15,9 +15,6 @@ import { StreamingState, createStatusCallback } from "./streaming";
 import { markReceived, markDone, markFailed } from "./reactions";
 import { describeError } from "../formatting";
 
-/**
- * Handle incoming text messages.
- */
 export async function handleText(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
@@ -28,15 +25,14 @@ export async function handleText(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // 2. Check for interrupt prefix. A bare "!stop"/empty interrupt is a pure
-  // stop alias — no reaction. Only real follow-up prompts get 👀.
+  // A bare "!stop"/empty interrupt is a pure stop alias — no reaction.
+  // Only real follow-up prompts get 👀.
   message = await checkInterrupt(message);
   if (!message.trim()) {
     return;
   }
   await markReceived(ctx);
 
-  // 3. Rate limit check
   const [allowed, retryAfter] = rateLimiter.check(userId);
   if (!allowed) {
     await auditLogRateLimit(userId, username, retryAfter!);
@@ -47,28 +43,20 @@ export async function handleText(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // 4. Store message for retry
-  session.lastMessage = message;
+  session.lastMessage = message; // consumed by /retry
 
-  // 5. Set conversation title from first message (if new session)
   if (!session.isActive) {
-    // Truncate title to ~50 chars
     const title =
       message.length > 50 ? message.slice(0, 47) + "..." : message;
     session.conversationTitle = title;
   }
 
-  // 6. Mark processing started
   const stopProcessing = session.startProcessing();
-
-  // 7. Start typing indicator
   const typing = startTypingIndicator(ctx);
 
-  // 8. Create streaming state and callback
   let state = new StreamingState();
   let statusCallback = createStatusCallback(ctx, state);
 
-  // 9. Send to Claude with retry logic for crashes
   const MAX_RETRIES = 1;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -82,15 +70,13 @@ export async function handleText(ctx: BotContext): Promise<void> {
         ctx
       );
 
-      // 10. Audit log
       await auditLog(userId, username, "TEXT", message, response);
       await markDone(ctx);
-      break; // Success - exit retry loop
+      break;
     } catch (error) {
       const errorStr = String(error);
       const isClaudeCodeCrash = errorStr.includes("exited with code");
 
-      // Clean up any partial messages from this attempt
       for (const toolMsg of state.toolMessages) {
         try {
           await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
@@ -99,23 +85,20 @@ export async function handleText(ctx: BotContext): Promise<void> {
         }
       }
 
-      // Retry on Claude Code crash (not user cancellation)
+      // Crash only — a user cancellation must not be retried behind their back.
       if (isClaudeCodeCrash && attempt < MAX_RETRIES) {
         console.log(
           `Claude Code crashed, retrying (attempt ${attempt + 2}/${MAX_RETRIES + 1})...`
         );
         await session.kill(); // Clear corrupted session
         await ctx.reply(`⚠️ Claude crashed, retrying...`);
-        // Reset state for retry
         state = new StreamingState();
         statusCallback = createStatusCallback(ctx, state);
         continue;
       }
 
-      // Final attempt failed or non-retryable error
       console.error("Error processing message:", error);
 
-      // Check if it was a cancellation
       if (errorStr.includes("abort") || errorStr.includes("cancel")) {
         // Only show "Query stopped" if it was an explicit stop, not an interrupt from a new message
         const wasInterrupt = session.consumeInterruptFlag();
@@ -126,11 +109,10 @@ export async function handleText(ctx: BotContext): Promise<void> {
         await ctx.reply(`❌ Error: ${describeError(error)}`);
       }
       await markFailed(ctx);
-      break; // Exit loop after handling error
+      break;
     }
   }
 
-  // 11. Cleanup
   stopProcessing();
   typing.stop();
 }

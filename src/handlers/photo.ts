@@ -14,16 +14,12 @@ import { createMediaGroupBuffer, handleProcessingError } from "./media-group";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markDone, markFailed } from "./reactions";
 
-// Create photo-specific media group buffer
 const photoBuffer = createMediaGroupBuffer({
   emoji: "📷",
   itemLabel: "photo",
   itemLabelPlural: "photos",
 });
 
-/**
- * Download a photo and return the local path.
- */
 async function downloadPhoto(ctx: BotContext): Promise<string> {
   const photos = ctx.message?.photo;
   if (!photos || photos.length === 0) {
@@ -49,10 +45,8 @@ export async function processPhotos(
   username: string,
   chatId: number
 ): Promise<void> {
-  // Mark processing started
   const stopProcessing = session.startProcessing();
 
-  // Build prompt
   let prompt: string;
   if (photoPaths.length === 1) {
     prompt = caption
@@ -65,7 +59,6 @@ export async function processPhotos(
       : `Please analyze these ${photoPaths.length} images:\n${pathsList}`;
   }
 
-  // Set conversation title (if new session)
   if (!session.isActive) {
     const rawTitle = caption || "[Foto]";
     const title =
@@ -73,10 +66,8 @@ export async function processPhotos(
     session.conversationTitle = title;
   }
 
-  // Start typing
   const typing = startTypingIndicator(ctx);
 
-  // Create streaming state
   const state = new StreamingState();
   const statusCallback = createStatusCallback(ctx, state);
 
@@ -100,9 +91,6 @@ export async function processPhotos(
   }
 }
 
-/**
- * Handle incoming photo messages.
- */
 export async function handlePhoto(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
@@ -115,11 +103,11 @@ export async function handlePhoto(ctx: BotContext): Promise<void> {
 
   await markReceived(ctx);
 
-  // 2. For single photos, show status and rate limit early
+  // Albums are rate-limited once in media-group.ts, not per photo — charging
+  // each frame of a 10-photo album would reject the album mid-upload.
   let statusMsg: Awaited<ReturnType<typeof ctx.reply>> | null = null;
   if (!mediaGroupId) {
     console.log(`Received photo from @${username}`);
-    // Rate limit
     const [allowed, retryAfter] = rateLimiter.check(userId);
     if (!allowed) {
       await auditLogRateLimit(userId, username, retryAfter!);
@@ -130,11 +118,9 @@ export async function handlePhoto(ctx: BotContext): Promise<void> {
       return;
     }
 
-    // Show status immediately
     statusMsg = await ctx.reply("📷 Processing image...");
   }
 
-  // 3. Download photo
   let photoPath: string;
   try {
     photoPath = await downloadPhoto(ctx);
@@ -158,7 +144,6 @@ export async function handlePhoto(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // 4. Single photo - process immediately
   if (!mediaGroupId && statusMsg) {
     await processPhotos(
       ctx,
@@ -169,7 +154,6 @@ export async function handlePhoto(ctx: BotContext): Promise<void> {
       chatId
     );
 
-    // Clean up status message
     try {
       await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id);
     } catch (error) {
@@ -178,8 +162,7 @@ export async function handlePhoto(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // 5. Media group - buffer with timeout
-  if (!mediaGroupId) return; // TypeScript guard
+  if (!mediaGroupId) return; // narrows the type; unreachable given the branch above
 
   await photoBuffer.addToGroup(
     mediaGroupId,

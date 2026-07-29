@@ -46,7 +46,6 @@ class RateLimiter {
       this.buckets.set(userId, bucket);
     }
 
-    // Refill tokens based on time elapsed
     const elapsed = (now - bucket.lastUpdate) / 1000;
     bucket.tokens = Math.min(
       this.maxTokens,
@@ -59,7 +58,6 @@ class RateLimiter {
       return [true];
     }
 
-    // Calculate time until next token
     const retryAfter = (1 - bucket.tokens) / this.refillRate;
     return [false, retryAfter];
   }
@@ -74,14 +72,13 @@ export function isPathAllowed(path: string): boolean {
   try {
     const resolved = canonicalize(path);
 
-    // Always allow temp paths (for bot's own files)
+    // The bot's own downloads and IPC files live here.
     for (const tempPath of TEMP_PATHS) {
       if (resolved.startsWith(tempPath)) {
         return true;
       }
     }
 
-    // Check against allowed paths using proper containment
     for (const allowed of ALLOWED_PATHS) {
       const allowedResolved = resolve(allowed);
       if (
@@ -138,7 +135,6 @@ export function checkCommandSafety(
 ): [safe: boolean, reason: string] {
   const lowerCommand = command.toLowerCase();
 
-  // Check blocked patterns
   for (const pattern of BLOCKED_PATTERNS) {
     if (lowerCommand.includes(pattern.toLowerCase())) {
       return [false, `Blocked pattern: ${pattern}`];
@@ -249,7 +245,6 @@ export function checkCommandSafety(
       }
     }
   } catch {
-    // If parsing fails, be cautious
     return [false, "Could not parse command for safety check"];
   }
 
@@ -449,11 +444,6 @@ function resolvePhysical(segments: string[], depth: number): string {
   return "/" + stack.join("/");
 }
 
-/**
- * Single gate for tool safety — used by the SDK PreToolUse hook and stream checks.
- * Async because the WebFetch SSRF check resolves DNS (audit #11); every other branch
- * is synchronous and returns without hitting an await.
- */
 // Files whose CONTENT executes outside the Bash sandbox when Claude Code (re)loads project/user
 // config: project `.mcp.json` (its command is spawned from the parent process), and Claude
 // settings/hooks (define hooks that run on tool use). The sandbox denyWrite only binds Bash, so the
@@ -511,6 +501,11 @@ const BOT_RUNTIME_FILES = new Set(
   [AUDIT_LOG_PATH, SESSION_FILE, RESTART_FILE].map((p) => canonicalize(p))
 );
 
+/**
+ * Single gate for tool safety — used by the SDK PreToolUse hook and stream checks.
+ * Async because the WebFetch SSRF check resolves DNS (audit #11); every other branch
+ * is synchronous and returns without hitting an await.
+ */
 export async function evaluateToolUse(
   toolName: string,
   input: Record<string, unknown>

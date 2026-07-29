@@ -1,7 +1,7 @@
 /**
  * Command handlers for Claude Telegram Bot.
  *
- * /start, /new, /stop, /status, /resume, /restart
+ * One exported handler per slash command; registration lives in index.ts.
  */
 
 import type { Context } from "grammy";
@@ -9,9 +9,7 @@ import type { BotContext } from "../types";
 import { session } from "../session";
 import { WORKING_DIR, RESTART_FILE } from "../config";
 
-/**
- * /start - Show welcome message and status.
- */
+/** /start - Show welcome message and status. */
 export async function handleStart(ctx: Context): Promise<void> {
   const status = session.isActive ? "Active session" : "No active session";
   const workDir = WORKING_DIR;
@@ -35,11 +33,8 @@ export async function handleStart(ctx: Context): Promise<void> {
   );
 }
 
-/**
- * /new - Start a fresh session.
- */
+/** /new - Start a fresh session. */
 export async function handleNew(ctx: Context): Promise<void> {
-  // Stop any running query
   if (session.isRunning) {
     const result = await session.stop();
     if (result) {
@@ -48,15 +43,12 @@ export async function handleNew(ctx: Context): Promise<void> {
     }
   }
 
-  // Clear session
   await session.kill();
 
   await ctx.reply("🆕 Session cleared. Next message starts fresh.");
 }
 
-/**
- * /stop - Stop the current query (silently).
- */
+/** /stop - Stop the current query (silently). */
 export async function handleStop(ctx: Context): Promise<void> {
   if (session.isRunning) {
     const result = await session.stop();
@@ -70,9 +62,7 @@ export async function handleStop(ctx: Context): Promise<void> {
   // If nothing running, also stay silent
 }
 
-/**
- * /status - Show detailed status.
- */
+/** /status - Show detailed status. */
 export async function handleStatus(ctx: Context): Promise<void> {
   const lines: string[] = ["📊 <b>Bot Status</b>\n"];
 
@@ -136,16 +126,13 @@ export async function handleStatus(ctx: Context): Promise<void> {
   await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
 }
 
-/**
- * /resume - Show list of sessions to resume with inline keyboard.
- */
+/** /resume - Show list of sessions to resume with inline keyboard. */
 export async function handleResume(ctx: Context): Promise<void> {
   if (session.isActive) {
     await ctx.reply("Session already active. Use /new to start over.");
     return;
   }
 
-  // Get saved sessions
   const sessions = session.getSessionList();
 
   if (sessions.length === 0) {
@@ -153,7 +140,6 @@ export async function handleResume(ctx: Context): Promise<void> {
     return;
   }
 
-  // Build inline keyboard with session list
   const buttons = sessions.map((s) => {
     // Format date: "18/01 10:30"
     const date = new Date(s.saved_at);
@@ -166,7 +152,7 @@ export async function handleResume(ctx: Context): Promise<void> {
       minute: "2-digit",
     });
 
-    // Truncate title for button (max ~40 chars to fit)
+    // Telegram clips button labels, so trim here to keep the date prefix visible.
     const titlePreview =
       s.title.length > 35 ? s.title.slice(0, 32) + "..." : s.title;
 
@@ -186,9 +172,7 @@ export async function handleResume(ctx: Context): Promise<void> {
   });
 }
 
-/**
- * /restart - Restart the bot process.
- */
+/** /restart - Restart the bot process. */
 export async function handleRestart(ctx: Context): Promise<void> {
   const chatId = ctx.chat?.id;
 
@@ -213,21 +197,17 @@ export async function handleRestart(ctx: Context): Promise<void> {
   // Give time for the message to send
   await Bun.sleep(500);
 
-  // Exit - launchd will restart us
+  // The supervisor restarts us (launchd on macOS, Kubernetes in the cluster).
   process.exit(0);
 }
 
-/**
- * /retry - Retry the last message (resume session and re-send).
- */
+/** /retry - Retry the last message (resume session and re-send). */
 export async function handleRetry(ctx: Context): Promise<void> {
-  // Check if there's a message to retry
   if (!session.lastMessage) {
     await ctx.reply("❌ No message to retry.");
     return;
   }
 
-  // Check if something is already running
   if (session.isRunning) {
     await ctx.reply("⏳ A query is already running. Use /stop first.");
     return;
@@ -236,7 +216,6 @@ export async function handleRetry(ctx: Context): Promise<void> {
   const message = session.lastMessage;
   await ctx.reply(`🔄 Retrying: "${message.slice(0, 50)}${message.length > 50 ? "..." : ""}"`);
 
-  // Re-run the text handler with the last message.
   const { handleText } = await import("./text");
   await handleText(withMessageText(ctx as BotContext, message));
 }

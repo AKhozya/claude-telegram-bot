@@ -1,8 +1,8 @@
 /**
  * Unsupported-media handler.
  *
- * Voice/audio transcription was removed along with the OpenAI dependency. Reply once so
- * the bot isn't silent on voice/audio messages; auth-gated like the other handlers.
+ * No speech-to-text in this build. Replies once so voice/audio isn't met with
+ * silence; auth-gated like the other handlers.
  */
 
 import type { BotContext } from "../types";

@@ -14,12 +14,10 @@ import { handleProcessingError } from "./media-group";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markDone, markFailed } from "./reactions";
 
-// Max video size (50MB - reasonable for short clips/voice memos)
+// Local cap, not Telegram's. Checked against `file_size` before download so an
+// oversized clip is rejected without spending the transfer.
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 
-/**
- * Download a video and return the local path.
- */
 async function downloadVideo(ctx: BotContext): Promise<string> {
   const video = ctx.message?.video || ctx.message?.video_note;
   if (!video) {
@@ -34,9 +32,6 @@ async function downloadVideo(ctx: BotContext): Promise<string> {
   return await downloadTelegramFile(ctx, videoPath);
 }
 
-/**
- * Handle incoming video messages.
- */
 export async function handleVideo(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
@@ -50,7 +45,6 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
 
   await markReceived(ctx);
 
-  // 2. Check file size
   if (video.file_size && video.file_size > MAX_VIDEO_SIZE) {
     await markFailed(ctx);
     await ctx.reply(
@@ -59,7 +53,6 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // 3. Rate limit check
   const [allowed, retryAfter] = rateLimiter.check(userId);
   if (!allowed) {
     await auditLogRateLimit(userId, username, retryAfter!);
@@ -72,7 +65,6 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
 
   console.log(`Received video from @${username}`);
 
-  // 4. Download video
   let videoPath: string;
   const statusMsg = await ctx.reply("📹 Downloading video...");
 
@@ -89,24 +81,20 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // 5. Process video
   const stopProcessing = session.startProcessing();
   const typing = startTypingIndicator(ctx);
 
   try {
-    // Update status
     await ctx.api.editMessageText(
       chatId,
       statusMsg.message_id,
       "📹 Processing video..."
     );
 
-    // Build prompt with video path
     const prompt = caption
       ? `Here's a video file at path: ${videoPath}\n\nUser says: ${caption}`
       : `I've received a video file at path: ${videoPath}\n\nPlease transcribe it for me.`;
 
-    // Set conversation title (if new session)
     if (!session.isActive) {
       const rawTitle = caption || "[Video]";
       const title =
@@ -114,7 +102,6 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
       session.conversationTitle = title;
     }
 
-    // Create streaming state
     const state = new StreamingState();
     const statusCallback = createStatusCallback(ctx, state);
 
@@ -130,7 +117,6 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     await auditLog(userId, username, "VIDEO", caption || "[video]", response);
     await markDone(ctx);
 
-    // Delete status message
     try {
       await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id);
     } catch {
@@ -139,7 +125,6 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
   } catch (error) {
     console.error("Video processing error:", error);
 
-    // Delete status message on error
     try {
       await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id);
     } catch {
@@ -151,8 +136,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     stopProcessing();
     typing.stop();
 
-    // Note: We don't delete the video file immediately because video-processing
-    // skill needs to access it. The skill should handle cleanup, or we rely on
-    // temp directory cleanup
+    // The video file deliberately outlives this handler: the video-processing
+    // skill reads it after the turn ends. TEMP_DIR cleanup is the only reaper.
   }
 }

@@ -14,9 +14,6 @@ import { session } from "../session";
 import { markFailed } from "./reactions";
 import { describeError } from "../formatting";
 
-/**
- * Configuration for a media group handler.
- */
 export interface MediaGroupConfig {
   /** Emoji for status messages (e.g., "📷" or "📄") */
   emoji: string;
@@ -26,9 +23,6 @@ export interface MediaGroupConfig {
   itemLabelPlural: string;
 }
 
-/**
- * Callback to process a completed media group.
- */
 export type ProcessGroupCallback = (
   ctx: BotContext,
   items: string[],
@@ -38,17 +32,11 @@ export type ProcessGroupCallback = (
   chatId: number
 ) => Promise<void>;
 
-/**
- * Creates a media group buffer with the specified configuration.
- *
- * Returns functions for adding items and processing groups.
- */
+// Each call owns its own pendingGroups map, so photo and document albums
+// arriving at the same time cannot collide on a shared media_group_id.
 export function createMediaGroupBuffer(config: MediaGroupConfig) {
   const pendingGroups = new Map<string, PendingMediaGroup>();
 
-  /**
-   * Process a completed media group.
-   */
   async function processGroup(
     groupId: string,
     processCallback: ProcessGroupCallback
@@ -68,7 +56,6 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
       `Processing ${group.items.length} ${config.itemLabelPlural} from @${username}`
     );
 
-    // Update status message
     if (group.statusMsg) {
       try {
         await group.ctx.api.editMessageText(
@@ -90,7 +77,6 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
       chatId
     );
 
-    // Delete status message
     if (group.statusMsg) {
       try {
         await group.ctx.api.deleteMessage(
@@ -103,11 +89,7 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
     }
   }
 
-  /**
-   * Add an item to a media group buffer.
-   *
-   * @returns true if the item was added successfully, false if rate limited
-   */
+  /** @returns false when the album was rejected by the rate limiter. */
   async function addToGroup(
     mediaGroupId: string,
     itemPath: string,
@@ -128,7 +110,6 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
         return false;
       }
 
-      // Create new group
       console.log(`Receiving ${config.itemLabel} album from @${username}`);
       const statusMsg = await ctx.reply(
         `${config.emoji} Receiving ${config.itemLabelPlural}...`
@@ -145,16 +126,17 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
         ),
       });
     } else {
-      // Add to existing group
       const group = pendingGroups.get(mediaGroupId)!;
       group.items.push(itemPath);
 
-      // Update caption if this message has one
+      // First caption wins. Telegram puts the album's caption on one member, not
+      // necessarily the one that opened the group above.
       if (ctx.message?.caption && !group.caption) {
         group.caption = ctx.message.caption;
       }
 
-      // Reset timeout
+      // Debounce: the album is only complete once MEDIA_GROUP_TIMEOUT passes with
+      // no further parts, since Telegram delivers them as separate updates.
       clearTimeout(group.timeout);
       group.timeout = setTimeout(
         () => processGroup(mediaGroupId, processCallback),
@@ -172,11 +154,6 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
   };
 }
 
-/**
- * Shared error handler for media processing.
- *
- * Cleans up tool messages and sends appropriate error response.
- */
 export async function handleProcessingError(
   ctx: BotContext,
   error: unknown,
@@ -185,7 +162,6 @@ export async function handleProcessingError(
   console.error("Error processing media:", error);
   await markFailed(ctx);
 
-  // Clean up tool messages
   for (const toolMsg of toolMessages) {
     try {
       await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
@@ -194,7 +170,6 @@ export async function handleProcessingError(
     }
   }
 
-  // Send error message
   const errorStr = String(error);
   if (errorStr.includes("abort") || errorStr.includes("cancel")) {
     // Only show "Query stopped" if it was an explicit stop, not an interrupt from a new message

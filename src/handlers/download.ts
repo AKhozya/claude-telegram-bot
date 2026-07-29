@@ -1,15 +1,10 @@
 /**
- * Shared file download helper for Claude Telegram Bot handlers.
- *
- * Replaces the hand-built api.telegram.org URL + fetch + Bun.write pattern
- * with the files plugin's typed .download().
+ * Shared file download helper. Routes through the files plugin's .download(),
+ * which honours TELEGRAM_API_ROOT — a hand-built api.telegram.org URL would not.
  */
 
 import type { BotContext } from "../types";
 
-/**
- * Download the current message's file to destPath via the files plugin.
- */
 export async function downloadTelegramFile(
   ctx: BotContext,
   destPath: string

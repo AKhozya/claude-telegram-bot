@@ -1,8 +1,8 @@
 /**
  * Session management for Claude Telegram Bot.
  *
- * ClaudeSession class manages Claude Code sessions using the Agent SDK V1.
- * V1 supports full options (cwd, mcpServers, settingSources, etc.)
+ * ClaudeSession wraps the Agent SDK query() stream: one process-wide session,
+ * persisted to SESSION_FILE so /resume survives a restart.
  */
 
 import {
@@ -48,29 +48,21 @@ export function getThinkingConfig(message: string): NonNullable<Options["thinkin
     : { type: "enabled", budgetTokens: budget };
 }
 
-/**
- * Determine thinking token budget based on message keywords.
- */
 function getThinkingLevel(message: string): number {
   const msgLower = message.toLowerCase();
 
-  // Check deep thinking triggers first (more specific)
+  // Deep keywords are a superset of the normal ones, so they must match first.
   if (THINKING_DEEP_KEYWORDS.some((k) => msgLower.includes(k))) {
     return 50000;
   }
 
-  // Check normal thinking triggers
   if (THINKING_KEYWORDS.some((k) => msgLower.includes(k))) {
     return 10000;
   }
 
-  // Default: no thinking
   return 0;
 }
 
-/**
- * Extract text content from SDK message.
- */
 function getTextFromMessage(msg: SDKMessage): string | null {
   if (msg.type !== "assistant") return null;
 
@@ -95,10 +87,6 @@ export async function writeJsonAtomic(path: string, data: unknown): Promise<void
   renameSync(tmp, path);
 }
 
-/**
- * Manages Claude Code sessions using the Agent SDK V1.
- */
-// Maximum number of sessions to keep in history
 const MAX_SESSIONS = 5;
 
 class ClaudeSession {
@@ -135,30 +123,20 @@ class ClaudeSession {
     const was = this._wasInterruptedByNewMessage;
     this._wasInterruptedByNewMessage = false;
     if (was) {
-      // Clear stopRequested so the new message can proceed
       this.stopRequested = false;
     }
     return was;
   }
 
-  /**
-   * Mark that this stop is from a new message interrupt.
-   */
   markInterrupt(): void {
     this._wasInterruptedByNewMessage = true;
   }
 
-  /**
-   * Clear the stopRequested flag (used after interrupt to allow new message to proceed).
-   */
   clearStopRequested(): void {
     this.stopRequested = false;
   }
 
-  /**
-   * Mark processing as started.
-   * Returns a cleanup function to call when done.
-   */
+  /** Returns the cleanup function; the caller must invoke it when done. */
   startProcessing(): () => void {
     this._isProcessing = true;
     return () => {
@@ -171,7 +149,6 @@ class ClaudeSession {
    * Returns: "stopped" if query was aborted, "pending" if processing will be cancelled, false if nothing running
    */
   async stop(): Promise<"stopped" | "pending" | false> {
-    // If a query is actively running, abort it
     if (this.isQueryRunning && this.abortController) {
       this.stopRequested = true;
       this.abortController.abort();
@@ -179,7 +156,6 @@ class ClaudeSession {
       return "stopped";
     }
 
-    // If processing but query not started yet
     if (this._isProcessing) {
       this.stopRequested = true;
       console.log("Stop requested - will cancel before query starts");
@@ -207,11 +183,7 @@ class ClaudeSession {
     this.clearStopRequested();
   }
 
-  /**
-   * Send a message to Claude with streaming updates via callback.
-   *
-   * @param ctx - grammY context for ask_user button display
-   */
+  /** @param ctx - grammY context, needed only to render ask_user buttons. */
   async sendMessageStreaming(
     message: string,
     username: string,
@@ -257,7 +229,6 @@ class ClaudeSession {
     const sandboxEnabled = bashSandboxEnabled();
     if (sandboxEnabled) ensureScratchDir();
 
-    // Build SDK V1 options - supports all features
     const options: Options = {
       cwd: WORKING_DIR,
       ...(sandboxEnabled ? { sandbox: buildSandboxSettings() } : {}),
@@ -304,7 +275,8 @@ class ClaudeSession {
       },
     };
 
-    // Add Claude Code executable path if set (required for standalone builds)
+    // Required for standalone builds: the compiled binary can't resolve the CLI
+    // through node_modules, so the launcher passes its path in.
     if (process.env.CLAUDE_CODE_PATH) {
       options.pathToClaudeCodeExecutable = process.env.CLAUDE_CODE_PATH;
     }
@@ -321,7 +293,6 @@ class ClaudeSession {
       this.sessionId = null;
     }
 
-    // Check if stop was requested during processing phase
     if (this.stopRequested) {
       console.log(
         "Query cancelled before starting (stop was requested during processing)"
@@ -330,14 +301,12 @@ class ClaudeSession {
       throw new Error("Query cancelled");
     }
 
-    // Create abort controller for cancellation
     this.abortController = new AbortController();
     this.isQueryRunning = true;
     this.stopRequested = false;
     this.queryStarted = new Date();
     this.currentTool = null;
 
-    // Response tracking
     const responseParts: string[] = [];
     let currentSegmentId = 0;
     let currentSegmentText = "";
@@ -355,9 +324,7 @@ class ClaudeSession {
         },
       });
 
-      // Process streaming response
       for await (const event of queryInstance) {
-        // Check for abort
         if (this.stopRequested) {
           console.log("Query aborted by user");
           break;
@@ -374,17 +341,16 @@ class ClaudeSession {
           continue; // load-bearing: this event still carries the PRE-reset id
         }
 
-        // Capture session_id from first message
+        // Set-once: later events carry the same id, and adopting a mid-stream one
+        // would re-point `/resume` at a transcript branch the user never saw.
         if (!this.sessionId && event.session_id) {
           this.sessionId = event.session_id;
           console.log(`GOT session_id: ${this.sessionId!.slice(0, 8)}...`);
           await this.saveSession();
         }
 
-        // Handle different message types
         if (event.type === "assistant") {
           for (const block of event.message.content) {
-            // Thinking blocks
             if (block.type === "thinking") {
               const thinkingText = block.thinking;
               if (thinkingText) {
@@ -393,7 +359,6 @@ class ClaudeSession {
               }
             }
 
-            // Tool use blocks
             if (block.type === "tool_use") {
               const toolName = block.name;
               const toolInput = block.input as Record<string, unknown>;
@@ -419,7 +384,6 @@ class ClaudeSession {
                 currentSegmentText = "";
               }
 
-              // Format and show tool status
               const toolDisplay = formatToolStatus(toolName, toolInput);
               this.currentTool = toolDisplay;
               this.lastTool = toolDisplay;
@@ -433,12 +397,11 @@ class ClaudeSession {
                 await statusCallback("tool", toolDisplay);
               }
 
-              // Check for pending ask_user requests after ask-user MCP tool
               if (toolName.startsWith("mcp__ask-user") && ctx && chatId) {
-                // Small delay to let MCP server write the file
+                // The MCP server writes its request file out-of-band, so the
+                // event can land before the file exists. Poll rather than assume.
                 await new Promise((resolve) => setTimeout(resolve, 200));
 
-                // Retry a few times in case of timing issues
                 for (let attempt = 0; attempt < 3; attempt++) {
                   const buttonsSent = await checkPendingAskUserRequests(
                     ctx,
@@ -454,7 +417,6 @@ class ClaudeSession {
                 }
               }
 
-              // Send file to user after send-file MCP tool (fire-and-forget)
               if (toolName.startsWith("mcp__send-file") && ctx && chatId) {
                 await new Promise((resolve) => setTimeout(resolve, 200));
                 for (let attempt = 0; attempt < 3; attempt++) {
@@ -468,12 +430,10 @@ class ClaudeSession {
               }
             }
 
-            // Text content
             if (block.type === "text") {
               responseParts.push(block.text);
               currentSegmentText += block.text;
 
-              // Stream text updates (throttled)
               const now = Date.now();
               if (
                 now - lastTextUpdate > STREAMING_THROTTLE_MS &&
@@ -489,18 +449,17 @@ class ClaudeSession {
             }
           }
 
-          // Break out of event loop if ask_user was triggered
+          // The user now owns the turn — draining further events would emit
+          // messages behind the buttons they are still looking at.
           if (askUserTriggered) {
             break;
           }
         }
 
-        // Result message
         if (event.type === "result") {
           console.log("Response complete");
           queryCompleted = true;
 
-          // Capture usage if available
           if ("usage" in event && event.usage) {
             this.lastUsage = event.usage as TokenUsage;
             const u = this.lastUsage;
@@ -541,13 +500,12 @@ class ClaudeSession {
     this.lastError = null;
     this.lastErrorTime = null;
 
-    // If ask_user was triggered, return early - user will respond via button
+    // The turn ends here; the button tap arrives as a fresh message via callback.ts.
     if (askUserTriggered) {
       await statusCallback("done", "");
       return "[Waiting for user selection]";
     }
 
-    // Emit final segment
     if (currentSegmentText) {
       await statusCallback("segment_end", currentSegmentText, currentSegmentId);
     }
@@ -557,9 +515,6 @@ class ClaudeSession {
     return responseParts.join("") || "No response from Claude.";
   }
 
-  /**
-   * Kill the current session (clear session_id).
-   */
   async kill(): Promise<void> {
     this.sessionId = null;
     this.lastActivity = null;
@@ -567,18 +522,13 @@ class ClaudeSession {
     console.log("Session cleared");
   }
 
-  /**
-   * Save session to disk for resume after restart.
-   * Saves to multi-session history format.
-   */
+  /** Rewrites the whole history file — this is the only writer of SESSION_FILE. */
   async saveSession(): Promise<void> {
     if (!this.sessionId) return;
 
     try {
-      // Load existing session history
       const history = this.loadSessionHistory();
 
-      // Create new session entry
       const newSession: SavedSession = {
         session_id: this.sessionId,
         saved_at: new Date().toISOString(),
@@ -586,21 +536,19 @@ class ClaudeSession {
         title: this.conversationTitle || "Untitled session",
       };
 
-      // Remove any existing entry with same session_id (update in place)
+      // Update in place, else prepend — the list is newest-first, and the slice
+      // below trims from the tail, so re-adding an existing id would evict it.
       const existingIndex = history.sessions.findIndex(
         (s) => s.session_id === this.sessionId
       );
       if (existingIndex !== -1) {
         history.sessions[existingIndex] = newSession;
       } else {
-        // Add new session at the beginning
         history.sessions.unshift(newSession);
       }
 
-      // Keep only the last MAX_SESSIONS
       history.sessions = history.sessions.slice(0, MAX_SESSIONS);
 
-      // Save
       await writeJsonAtomic(SESSION_FILE, history);
       console.log(`Session saved to ${SESSION_FILE}`);
     } catch (error) {
@@ -608,9 +556,6 @@ class ClaudeSession {
     }
   }
 
-  /**
-   * Load session history from disk.
-   */
   private loadSessionHistory(): SessionHistory {
     try {
       const file = Bun.file(SESSION_FILE);
@@ -625,20 +570,15 @@ class ClaudeSession {
     }
   }
 
-  /**
-   * Get list of saved sessions for display.
-   */
   getSessionList(): SavedSession[] {
     const history = this.loadSessionHistory();
-    // Filter to only sessions for current working directory
+    // Entries written before working_dir existed have none; treat those as ours
+    // rather than hiding them, or an upgrade silently empties /resume.
     return history.sessions.filter(
       (s) => !s.working_dir || s.working_dir === WORKING_DIR
     );
   }
 
-  /**
-   * Resume a specific session by ID.
-   */
   resumeSession(sessionId: string): [success: boolean, message: string] {
     const history = this.loadSessionHistory();
     const sessionData = history.sessions.find((s) => s.session_id === sessionId);
@@ -670,5 +610,5 @@ class ClaudeSession {
 
 }
 
-// Global session instance
+// Process-wide singleton: one Claude conversation per bot, shared by all handlers.
 export const session = new ClaudeSession();

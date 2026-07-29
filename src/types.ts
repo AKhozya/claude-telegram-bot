@@ -6,7 +6,6 @@ import type { Context, Api } from "grammy";
 import type { Message } from "grammy/types";
 import type { FileFlavor, FileApiFlavor } from "@grammyjs/files";
 
-// Status callback for streaming updates
 export type StatusCallback = (
   type: "thinking" | "tool" | "text" | "segment_end" | "done",
   content: string,
@@ -31,7 +30,6 @@ export interface SessionHistory {
   sessions: SavedSession[];
 }
 
-// Token usage from Claude
 export interface TokenUsage {
   input_tokens: number;
   output_tokens: number;
@@ -39,7 +37,6 @@ export interface TokenUsage {
   cache_creation_input_tokens?: number;
 }
 
-// MCP server configuration types
 export type McpServerConfig = McpStdioConfig | McpHttpConfig;
 
 export interface McpStdioConfig {
@@ -54,7 +51,6 @@ export interface McpHttpConfig {
   headers?: Record<string, string>;
 }
 
-// Audit log event types
 export type AuditEventType =
   | "message"
   | "auth"
@@ -70,11 +66,10 @@ export interface AuditEvent {
   [key: string]: unknown;
 }
 
-// Bot context with optional message, flavored with the files plugin's .download()
+// Flavored with the files plugin so ctx.getFile().download() exists on the context.
 export type BotContext = FileFlavor<Context>;
 export type BotApi = FileApiFlavor<Api>;
 
-// Pending media group for buffering albums
 export interface PendingMediaGroup {
   items: string[];
   ctx: BotContext;

@@ -42,23 +42,21 @@ bot.api.config.use(hydrateFiles(bot.token, { apiRoot: process.env.TELEGRAM_API_R
 // unauthorized updates are dropped before entering any per-chat queue.
 bot.use(authGate);
 
-// Sequentialize non-command messages per user (prevents race conditions)
-// Commands bypass sequentialization so they work immediately
+// Per-chat queue so two messages can't drive the single ClaudeSession at once.
+// Anything returning undefined skips the queue and runs immediately.
 bot.use(
   sequentialize((ctx) => {
-    // Commands are not sequentialized - they work immediately
     if (ctx.message?.text?.startsWith("/")) {
       return undefined;
     }
-    // Messages with ! prefix bypass queue (interrupt)
+    // ! is an interrupt: queued behind the query it cancels, it would only run
+    // once that query finished on its own, which defeats the point.
     if (ctx.message?.text?.startsWith("!")) {
       return undefined;
     }
-    // Callback queries (button clicks) are not sequentialized
     if (ctx.callbackQuery) {
       return undefined;
     }
-    // Other messages are sequentialized per chat
     return ctx.chat?.id.toString();
   })
 );
@@ -75,20 +73,17 @@ bot.command("retry", handleRetry);
 
 // ============== Message Handlers ==============
 
-// Text messages
 bot.on("message:text", handleText);
 
-// Voice / audio: transcription was removed with the OpenAI dep — reply "unsupported"
+// No speech-to-text in this build; these reply with an "unsupported" notice
+// rather than falling through to the text handler with an empty body.
 bot.on("message:voice", handleUnsupportedMedia);
 bot.on("message:audio", handleUnsupportedMedia);
 
-// Photo messages
 bot.on("message:photo", handlePhoto);
 
-// Document messages
 bot.on("message:document", handleDocument);
 
-// Video messages (regular videos and video notes)
 bot.on("message:video", handleVideo);
 bot.on("message:video_note", handleVideo);
 
@@ -111,7 +106,6 @@ console.log(`Working directory: ${WORKING_DIR}`);
 console.log(`Allowed users: ${ALLOWED_USERS.length}`);
 console.log("Starting bot...");
 
-// Get bot info first
 const botInfo = await bot.api.getMe();
 console.log(`Bot started: @${botInfo.username}`);
 
@@ -125,13 +119,13 @@ await bot.api.setMyCommands([
   { command: "restart", description: "Restart the bot process" },
 ]);
 
-// Check for pending restart message to update
 if (existsSync(RESTART_FILE)) {
   try {
     const data = JSON.parse(readFileSync(RESTART_FILE, "utf-8"));
     const age = Date.now() - data.timestamp;
 
-    // Only update if restart was recent (within 30 seconds)
+    // A stale file means the restart never completed; editing that message now
+    // would stamp "restarted" on an unrelated conversation.
     if (age < 30000 && data.chat_id && data.message_id) {
       await bot.api.editMessageText(
         data.chat_id,
@@ -146,7 +140,6 @@ if (existsSync(RESTART_FILE)) {
   }
 }
 
-// Start with concurrent runner (commands work immediately)
 const runner = run(bot);
 
 // Optional HTTP trigger (no-op when TRIGGER_SECRET unset)

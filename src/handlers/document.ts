@@ -19,7 +19,6 @@ import { processPhotos } from "./photo";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markDone, markFailed } from "./reactions";
 
-// Supported text file extensions
 const TEXT_EXTENSIONS = [
   ".md",
   ".txt",
@@ -41,16 +40,13 @@ const TEXT_EXTENSIONS = [
   ".toml",
 ];
 
-// Supported archive extensions
 const ARCHIVE_EXTENSIONS = [".zip", ".tar", ".tar.gz", ".tgz"];
 
 // Max file size (20MB — Telegram getFile ceiling)
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
-// Max content from archive (50K chars total)
 const MAX_ARCHIVE_CONTENT = 50000;
 
-// PDF vision fallback tuning
 const PDF_VISION_MAX_PAGES = 10; // cap pages rendered for vision (cost + Telegram)
 const PDF_TEXT_MIN_CHARS = 16; // < this many non-whitespace chars ⇒ image PDF
 
@@ -58,7 +54,7 @@ const PDF_TEXT_MIN_CHARS = 16; // < this many non-whitespace chars ⇒ image PDF
  * True if a PDF's extracted text has real content. Scanned / image /
  * print-to-PDF files yield near-zero non-whitespace chars; those route to the
  * vision path instead. Pure + exported so it's unit-testable without a real PDF.
- * ponytail: absolute floor, not per-page — a mixed doc (text cover + scanned
+ * Trade-off: absolute floor, not per-page — a mixed doc (text cover + scanned
  * pages) reads as text and Claude only sees the text; send scans on their own.
  */
 export function pdfHasUsableText(rawText: string): boolean {
@@ -114,16 +110,12 @@ async function renderPdfToImages(
   }
 }
 
-// Create document-specific media group buffer
 const documentBuffer = createMediaGroupBuffer({
   emoji: "📄",
   itemLabel: "document",
   itemLabelPlural: "documents",
 });
 
-/**
- * Download a document and return the local path.
- */
 async function downloadDocument(ctx: BotContext): Promise<string> {
   const doc = ctx.message?.document;
   if (!doc) {
@@ -141,9 +133,6 @@ async function downloadDocument(ctx: BotContext): Promise<string> {
   return await downloadTelegramFile(ctx, docPath);
 }
 
-/**
- * Extract text from a document.
- */
 async function extractText(
   filePath: string,
   mimeType?: string
@@ -160,27 +149,19 @@ async function extractText(
     return "[Image-based PDF — no text layer. Send it on its own for page-image analysis.]";
   }
 
-  // Text files
   if (TEXT_EXTENSIONS.includes(extension) || mimeType?.startsWith("text/")) {
     const text = await Bun.file(filePath).text();
-    // Limit to 100K chars
     return text.slice(0, 100000);
   }
 
   throw new Error(`Unsupported file type: ${extension || mimeType}`);
 }
 
-/**
- * Check if a file extension is an archive.
- */
 function isArchive(fileName: string): boolean {
   const lower = fileName.toLowerCase();
   return ARCHIVE_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
-/**
- * Get archive extension from filename.
- */
 function getArchiveExtension(fileName: string): string {
   const lower = fileName.toLowerCase();
   if (lower.endsWith(".tar.gz")) return ".tar.gz";
@@ -240,9 +221,6 @@ export function stripLinks(root: string): void {
   }
 }
 
-/**
- * Extract an archive to a temp directory.
- */
 async function extractArchive(
   archivePath: string,
   fileName: string
@@ -272,9 +250,6 @@ async function extractArchive(
   return extractDir;
 }
 
-/**
- * Build a file tree from a directory.
- */
 async function buildFileTree(dir: string): Promise<string[]> {
   const entries = await Array.fromAsync(
     new Bun.Glob("**/*").scan({ cwd: dir, dot: false })
@@ -283,9 +258,6 @@ async function buildFileTree(dir: string): Promise<string[]> {
   return entries.slice(0, 100); // Limit to 100 files
 }
 
-/**
- * Extract text content from archive files.
- */
 async function extractArchiveContent(
   extractDir: string
 ): Promise<{
@@ -312,7 +284,6 @@ async function extractArchiveContent(
     const ext = "." + (relativePath.split(".").pop() || "").toLowerCase();
     if (!TEXT_EXTENSIONS.includes(ext)) continue;
 
-    // Skip large files
     if (size > 100000) continue;
 
     try {
@@ -329,9 +300,6 @@ async function extractArchiveContent(
   return { tree, contents };
 }
 
-/**
- * Process an archive file.
- */
 async function processArchive(
   ctx: BotContext,
   archivePath: string,
@@ -344,19 +312,16 @@ async function processArchive(
   const stopProcessing = session.startProcessing();
   const typing = startTypingIndicator(ctx);
 
-  // Show extraction progress
   const statusMsg = await ctx.reply(`📦 Extracting <b>${fileName}</b>...`, {
     parse_mode: "HTML",
   });
 
   try {
-    // Extract archive
     console.log(`Extracting archive: ${fileName}`);
     const extractDir = await extractArchive(archivePath, fileName);
     const { tree, contents } = await extractArchiveContent(extractDir);
     console.log(`Extracted: ${tree.length} files, ${contents.length} readable`);
 
-    // Update status
     await ctx.api.editMessageText(
       statusMsg.chat.id,
       statusMsg.message_id,
@@ -364,7 +329,6 @@ async function processArchive(
       { parse_mode: "HTML" }
     );
 
-    // Build prompt
     const treeStr = tree.length > 0 ? tree.join("\n") : "(empty)";
     const contentsStr =
       contents.length > 0
@@ -375,7 +339,6 @@ async function processArchive(
       ? `Archive: ${fileName}\n\nFile tree (${tree.length} files):\n${treeStr}\n\nExtracted contents:\n${contentsStr}\n\n---\n\n${caption}`
       : `Please analyze this archive (${fileName}):\n\nFile tree (${tree.length} files):\n${treeStr}\n\nExtracted contents:\n${contentsStr}`;
 
-    // Set conversation title (if new session)
     if (!session.isActive) {
       const rawTitle = caption || `[Archivio: ${fileName}]`;
       const title =
@@ -383,7 +346,6 @@ async function processArchive(
       session.conversationTitle = title;
     }
 
-    // Create streaming state
     const state = new StreamingState();
     const statusCallback = createStatusCallback(ctx, state);
 
@@ -405,10 +367,8 @@ async function processArchive(
     );
     await markDone(ctx);
 
-    // Cleanup
     await Bun.$`rm -rf ${extractDir}`.quiet();
 
-    // Delete status message
     try {
       await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id);
     } catch {
@@ -417,7 +377,6 @@ async function processArchive(
   } catch (error) {
     console.error("Archive processing error:", error);
     await markFailed(ctx);
-    // Delete status message on error
     try {
       await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id);
     } catch {
@@ -432,9 +391,6 @@ async function processArchive(
   }
 }
 
-/**
- * Process documents with Claude.
- */
 async function processDocuments(
   ctx: BotContext,
   documents: Array<{ path: string; name: string; content: string }>,
@@ -443,10 +399,8 @@ async function processDocuments(
   username: string,
   chatId: number
 ): Promise<void> {
-  // Mark processing started
   const stopProcessing = session.startProcessing();
 
-  // Build prompt
   let prompt: string;
   if (documents.length === 1) {
     const doc = documents[0]!;
@@ -462,7 +416,6 @@ async function processDocuments(
       : `Please analyze these ${documents.length} documents:\n\n${docList}`;
   }
 
-  // Set conversation title (if new session)
   if (!session.isActive) {
     const docName = documents[0]?.name || "[Documento]";
     const rawTitle = caption || `[Documento: ${docName}]`;
@@ -471,10 +424,8 @@ async function processDocuments(
     session.conversationTitle = title;
   }
 
-  // Start typing
   const typing = startTypingIndicator(ctx);
 
-  // Create streaming state
   const state = new StreamingState();
   const statusCallback = createStatusCallback(ctx, state);
 
@@ -504,9 +455,6 @@ async function processDocuments(
   }
 }
 
-/**
- * Process document paths by extracting text and calling processDocuments.
- */
 async function processDocumentPaths(
   ctx: BotContext,
   paths: string[],
@@ -515,7 +463,6 @@ async function processDocumentPaths(
   username: string,
   chatId: number
 ): Promise<void> {
-  // Extract text from all documents
   const documents: Array<{ path: string; name: string; content: string }> = [];
 
   for (const path of paths) {
@@ -537,9 +484,6 @@ async function processDocumentPaths(
   await processDocuments(ctx, documents, caption, userId, username, chatId);
 }
 
-/**
- * Handle incoming document messages.
- */
 export async function handleDocument(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
@@ -553,14 +497,12 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
 
   await markReceived(ctx);
 
-  // 2. Check file size
   if (doc.file_size && doc.file_size > MAX_FILE_SIZE) {
     await markFailed(ctx);
     await ctx.reply("❌ File too large. Maximum size is 20MB.");
     return;
   }
 
-  // 3. Check file type
   const fileName = doc.file_name || "";
   const extension = "." + (fileName.split(".").pop() || "").toLowerCase();
   const isPdf = doc.mime_type === "application/pdf" || extension === ".pdf";
@@ -579,7 +521,6 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // 4. Download document
   let docPath: string;
   try {
     docPath = await downloadDocument(ctx);
@@ -590,7 +531,7 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // 5. Archive files - process separately (no media group support)
+  // Archives never buffer into an album — each is its own extraction + prompt.
   if (isArchiveFile) {
     console.log(`Received archive: ${fileName} from @${username}`);
     const [allowed, retryAfter] = rateLimiter.check(userId);
@@ -615,10 +556,8 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // 6. Single document - process immediately
   if (!mediaGroupId) {
     console.log(`Received document: ${fileName} from @${username}`);
-    // Rate limit
     const [allowed, retryAfter] = rateLimiter.check(userId);
     if (!allowed) {
       await auditLogRateLimit(userId, username, retryAfter!);
@@ -687,7 +626,6 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // 7. Media group - buffer with timeout
   await documentBuffer.addToGroup(
     mediaGroupId,
     docPath,

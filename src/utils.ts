@@ -17,7 +17,6 @@ async function writeAuditLog(event: AuditEvent): Promise<void> {
     if (AUDIT_LOG_JSON) {
       content = JSON.stringify(event) + "\n";
     } else {
-      // Plain text format for readability
       const lines = ["\n" + "=".repeat(60)];
       for (const [key, value] of Object.entries(event)) {
         let displayValue = value;
@@ -32,7 +31,6 @@ async function writeAuditLog(event: AuditEvent): Promise<void> {
       content = lines.join("\n") + "\n";
     }
 
-    // Append to audit log file
     const fs = await import("fs/promises");
     await fs.appendFile(AUDIT_LOG_PATH, content);
   } catch (error) {
@@ -96,7 +94,6 @@ export function startTypingIndicator(ctx: Context): TypingController {
     }
   };
 
-  // Start the loop
   loop();
 
   return {
@@ -121,7 +118,6 @@ export async function checkInterrupt(text: string): Promise<string> {
     return text;
   }
 
-  // Lazy import to avoid circular dependency
   if (!sessionModule) {
     sessionModule = await import("./session");
   }

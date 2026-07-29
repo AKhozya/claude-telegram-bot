@@ -39,9 +39,6 @@ export function describeError(error: unknown, max = 200): string {
   return quote === -1 ? tail : tail.slice(0, quote);
 }
 
-/**
- * Escape HTML special characters.
- */
 export function escapeHtml(text: string): string {
   return text
     .replace(/&/g, "&amp;")
@@ -61,19 +58,16 @@ export function convertMarkdownToHtml(text: string): string {
   const codeBlocks: string[] = [];
   const inlineCodes: string[] = [];
 
-  // Save code blocks first (```code```)
   text = text.replace(/```(?:\w+)?\n?([\s\S]*?)```/g, (_, code) => {
     codeBlocks.push(code);
     return `\x00CODEBLOCK${codeBlocks.length - 1}\x00`;
   });
 
-  // Save inline code (`code`)
   text = text.replace(/`([^`]+)`/g, (_, code) => {
     inlineCodes.push(code);
     return `\x00INLINECODE${inlineCodes.length - 1}\x00`;
   });
 
-  // Escape HTML entities in the remaining text
   text = escapeHtml(text);
 
   // Headers: ## Header -> <b>Header</b>
@@ -120,15 +114,11 @@ export function convertMarkdownToHtml(text: string): string {
     );
   }
 
-  // Collapse multiple newlines
   text = text.replace(/\n{3,}/g, "\n\n");
 
   return text;
 }
 
-/**
- * Convert blockquotes (handles multi-line).
- */
 function convertBlockquotes(text: string): string {
   const lines = text.split("\n");
   const result: string[] = [];
@@ -167,9 +157,6 @@ function convertBlockquotes(text: string): string {
 
 // ============== Tool Status Formatting ==============
 
-/**
- * Shorten a file path for display (last 2 components).
- */
 function shortenPath(path: string): string {
   if (!path) return "file";
   const parts = path.split("/");
@@ -179,27 +166,18 @@ function shortenPath(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
-/**
- * Truncate text with ellipsis.
- */
 function truncate(text: string, maxLen = 60): string {
   if (!text) return "";
-  // Clean up newlines for display
+  // A newline would break the single-line tool-status message.
   const cleaned = text.replace(/\n/g, " ").trim();
   if (cleaned.length <= maxLen) return cleaned;
   return cleaned.slice(0, maxLen) + "...";
 }
 
-/**
- * Wrap text in HTML code tags, escaping special chars.
- */
 function code(text: string): string {
   return `<code>${escapeHtml(text)}</code>`;
 }
 
-/**
- * Format tool use for display in Telegram with HTML formatting.
- */
 export function formatToolStatus(
   toolName: string,
   toolInput: Record<string, unknown>
@@ -218,7 +196,8 @@ export function formatToolStatus(
     mcp__: "🔧",
   };
 
-  // Find matching emoji
+  // Substring match, so the "mcp__" key catches every MCP tool. Insertion order
+  // decides ties — "mcp__" sits last so a named tool wins over the generic icon.
   let emoji = "🔧";
   for (const [key, val] of Object.entries(emojiMap)) {
     if (toolName.includes(key)) {
@@ -227,7 +206,6 @@ export function formatToolStatus(
     }
   }
 
-  // Format based on tool type
   if (toolName === "Read") {
     const filePath = String(toolInput.file_path || "file");
     const shortPath = shortenPath(filePath);
@@ -309,18 +287,16 @@ export function formatToolStatus(
   }
 
   if (toolName.startsWith("mcp__")) {
-    // Generic MCP tool formatting
     const parts = toolName.split("__");
     if (parts.length >= 3) {
       const server = parts[1]!;
       let action = parts[2]!;
-      // Remove redundant server prefix from action
+      // mcp__exa__exa_search would otherwise render as "exa exa search".
       if (action.startsWith(`${server}_`)) {
         action = action.slice(server.length + 1);
       }
       action = action.replace(/_/g, " ");
 
-      // Try to get meaningful summary
       const summary =
         toolInput.title ||
         toolInput.query ||

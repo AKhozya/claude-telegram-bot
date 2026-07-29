@@ -46,11 +46,9 @@ export const WORKING_DIR = process.env.CLAUDE_WORKING_DIR || HOME;
 
 // ============== MCP Configuration ==============
 
-// MCP servers loaded from mcp-config.ts
 let MCP_SERVERS: Record<string, McpServerConfig> = {};
 
 try {
-  // Dynamic import of MCP config
   const mcpConfigPath = resolve(dirname(import.meta.dir), "mcp-config.ts");
   const mcpModule = await import(mcpConfigPath).catch(() => null);
   if (mcpModule?.MCP_SERVERS) {
@@ -67,7 +65,6 @@ export { MCP_SERVERS };
 
 // ============== Security Configuration ==============
 
-// Allowed directories for file operations
 const defaultAllowedPaths = [
   WORKING_DIR,
   `${HOME}/Documents`,
@@ -84,7 +81,6 @@ export const ALLOWED_PATHS: string[] = allowedPathsStr
       .filter(Boolean)
   : defaultAllowedPaths;
 
-// Build safety prompt dynamically from ALLOWED_PATHS
 function buildSafetyPrompt(allowedPaths: string[]): string {
   const pathsList = allowedPaths
     .map((p) => `   - ${p} (and subdirectories)`)
@@ -124,7 +120,6 @@ You are running via Telegram, so the user cannot easily undo mistakes. Be extra 
 
 export const SAFETY_PROMPT = buildSafetyPrompt(ALLOWED_PATHS);
 
-// Dangerous command patterns to block
 export const BLOCKED_PATTERNS = [
   "rm -rf /",
   "rm -rf ~",
@@ -201,10 +196,9 @@ export const RESTART_FILE =
   process.env.RESTART_FILE_PATH || "/tmp/claude-telegram-restart.json";
 export const TEMP_DIR = process.env.TEMP_DIR || "/tmp/telegram-bot";
 
-// Temp paths that are always allowed for bot operations
 export const TEMP_PATHS = ["/tmp/", "/private/tmp/", "/var/folders/"];
 
-// Ensure temp directory exists
+// Bun.write creates missing parent dirs, so this is how TEMP_DIR gets made.
 await Bun.write(`${TEMP_DIR}/.keep`, "");
 
 // ============== Validation ==============
