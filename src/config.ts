@@ -198,16 +198,31 @@ export const TEMP_DIR = process.env.TEMP_DIR || "/tmp/telegram-bot";
 
 export const TEMP_PATHS = ["/tmp/", "/private/tmp/", "/var/folders/"];
 
+/**
+ * `Number`, not `parseInt`: parseInt("12abc") is 12, so a typo'd interval or retention
+ * would be silently accepted as a plausible number rather than falling back.
+ */
+export function positiveNumberEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    console.warn(`${name}="${raw}" is not a positive number - using ${fallback}`);
+    return fallback;
+  }
+  return parsed;
+}
+
 // Nothing else clears TEMP_DIR. In-cluster /tmp is an emptyDir that lives as long as
 // the pod, so media accumulates for the pod's whole lifetime without this sweep.
-export const TEMP_REAP_INTERVAL_MS = parseInt(
-  process.env.TEMP_REAP_INTERVAL_MS || String(60 * 60 * 1000),
-  10
+export const TEMP_REAP_INTERVAL_MS = positiveNumberEnv(
+  "TEMP_REAP_INTERVAL_MS",
+  60 * 60 * 1000
 );
-// Must outlive the longest hold on a downloaded file: an ask_user pause keeps the turn
-// open until the user taps a button, and Claude re-reads the file when they do.
+// An ask_user pause holds a downloaded file open until the user taps a button, and
+// Claude re-reads it then. A pause outlasting this window loses the file.
 export const TEMP_RETENTION_MS =
-  parseInt(process.env.TEMP_RETENTION_HOURS || "24", 10) * 60 * 60 * 1000;
+  positiveNumberEnv("TEMP_RETENTION_HOURS", 24) * 60 * 60 * 1000;
 
 // Bun.write creates missing parent dirs, so this is how TEMP_DIR gets made.
 await Bun.write(`${TEMP_DIR}/.keep`, "");

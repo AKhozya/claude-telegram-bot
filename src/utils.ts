@@ -123,6 +123,13 @@ export async function reapTempDir(
   maxAgeMs: number = TEMP_RETENTION_MS,
   now: number = Date.now()
 ): Promise<number> {
+  // Behind config validation, because the failure mode is deletion: a NaN age makes the
+  // keep-if-young test false for every entry, sweeping the whole directory.
+  if (!Number.isFinite(maxAgeMs) || maxAgeMs <= 0) {
+    console.error(`Temp reaper: refusing to sweep ${dir} with maxAgeMs=${maxAgeMs}`);
+    return 0;
+  }
+
   const fs = await import("fs/promises");
   let entries: string[];
   try {

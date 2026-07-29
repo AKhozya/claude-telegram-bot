@@ -136,8 +136,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     stopProcessing();
     typing.stop();
 
-    // The download is deliberately not removed — the video-processing skill reads
-    // it from disk during the query above. Nothing in this repo reaps TEMP_DIR
-    // afterwards, so files accumulate until the pod restarts or the OS clears /tmp.
+    // Deliberately not removed — the video-processing skill reads it from disk during
+    // the query above. The temp reaper collects it once it ages past TEMP_RETENTION_HOURS.
   }
 }

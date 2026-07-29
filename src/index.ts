@@ -44,8 +44,8 @@ bot.api.config.use(hydrateFiles(bot.token, { apiRoot: process.env.TELEGRAM_API_R
 bot.use(authGate);
 
 // Serializes messages within one chat. Note this does NOT protect the process-wide
-// ClaudeSession: separate chats get separate queues and would still overlap — the
-// user allowlist is what keeps that to one chat in practice.
+// ClaudeSession: separate chats get separate queues. The allowlist bounds who, not how
+// many chats, so one allowed user posting from a private chat and a group still overlaps.
 // Anything returning undefined skips the queue and runs immediately.
 bot.use(
   sequentialize((ctx) => {

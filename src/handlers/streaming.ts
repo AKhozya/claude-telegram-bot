@@ -174,40 +174,139 @@ function formatWithinLimit(
   return formatted;
 }
 
+const FENCE_CLOSER = "\n```";
+
+const FENCE_LINE = /^\s*```/;
+
 /**
  * Splits before conversion, so each chunk converts to valid HTML on its own. Slicing
  * converted HTML instead cuts tags in half, Telegram rejects the chunk, and the
  * plain-text fallback then shows the user a literal `<b>`.
  *
- * A fence spanning a boundary is closed and reopened. Exported for test.
+ * A fence spanning a boundary is closed and reopened. Every chunk is <= limit with that
+ * closer counted. Exported for test.
  */
 export function splitMarkdownForTelegram(
   markdown: string,
-  limit: number = TELEGRAM_SAFE_LIMIT
+  maxLength: number = TELEGRAM_SAFE_LIMIT
 ): string[] {
+  // Slice offsets below step by whole characters, so a fractional cap would be overshot.
+  const limit = Math.max(1, Math.floor(maxLength));
   const out: string[] = [];
   let cur = "";
+  // Not `cur !== ""` — a run of blank lines is content that leaves `cur` empty.
+  let started = false;
+  // The bounded marker to REOPEN with, not necessarily the line that opened the fence.
+  // Repeating a long fence line per chunk blew a 235-char input up to 66 messages; not
+  // tracking it at all desyncs the closer, which then reads as a third delimiter.
   let openFence: string | null = null;
 
+  // curAppended: any input line went into cur after the last reseed, blank ones included.
+  // curContent: cur holds a line that renders something. A fence line renders nothing on
+  // its own, so it never sets this; it still counts as input and is passed through.
+  let curAppended = false;
+  let curContent = false;
+  // A fence line the INPUT sent, as opposed to the reopen we synthesize. Keeps a lone
+  // "```" from being swallowed while still dropping a pure-scaffold chunk.
+  let curInputFence = false;
+
+  // Unreachable if the accounting below is right; a cut here means it missed a case.
+  const emit = (chunk: string) => {
+    if (chunk.length <= limit) {
+      out.push(chunk);
+      return;
+    }
+    for (let i = 0; i < chunk.length; i += limit) out.push(chunk.slice(i, i + limit));
+  };
+
+  // Returns whether anything was sent, so the caller can carry a held-back chunk forward.
+  const flush = (): boolean => {
+    if (!curAppended) return false;
+    // Telegram rejects a message with no text, so whitespace alone is not sendable. This
+    // only discards the indentation of a delimiter line — a space run cut out of indented
+    // code travels with the fence markers around it, which keeps trim() non-empty.
+    if (cur.trim() === "") return false;
+    // Nothing to render and no marker the user wrote: a reopened fence over blank lines.
+    // Held back rather than sent, and carried into the next chunk by the caller.
+    if (!curContent && !curInputFence) return false;
+    // Only close a block that has payload, and only when the closer fits — slicing a
+    // chunk through its own delimiter is worse than leaving the block open.
+    const closable =
+      curContent && openFence && cur.length + FENCE_CLOSER.length <= limit;
+    emit(closable ? cur + FENCE_CLOSER : cur);
+    return true;
+  };
+
   for (const rawLine of markdown.split("\n")) {
-    // A single line over the limit has no boundary to break on — cut it.
+    // An over-long line has no boundary to break on — cut it, leaving room for whatever
+    // will wrap it: the reopened fence above and the closer below. A line that OPENS a
+    // fence needs the closer reserved too, or the closer pushes its chunk over. A line
+    // that CLOSES one needs nothing: budgeting it as if it were wrapped split the closer
+    // itself, turning a balanced "```\n```" into two unbalanced halves.
+    const rawIsFence = FENCE_LINE.test(rawLine);
+    const overhead = rawIsFence
+      ? openFence
+        ? 0
+        : FENCE_CLOSER.length
+      : openFence
+        ? openFence.length + 1 + FENCE_CLOSER.length
+        : 0;
+    const maxPiece = Math.max(1, limit - overhead);
     const pieces =
-      rawLine.length > limit
-        ? (rawLine.match(new RegExp(`[\\s\\S]{1,${limit}}`, "g")) ?? [rawLine])
+      rawLine.length > maxPiece
+        ? (rawLine.match(new RegExp(`[\\s\\S]{1,${maxPiece}}`, "g")) ?? [rawLine])
         : [rawLine];
 
+    // Per raw line, inherited by its pieces: judging a piece alone drops the leading run
+    // of an indented code line, which is all spaces. A fence line renders nothing of its
+    // own — unless it is too long to be a marker at all, in which case its info string is
+    // the payload. Same threshold as the reopen decision below, so the two agree.
+    const markerSized = rawLine.length + 1 + FENCE_CLOSER.length <= limit / 2;
+    const rawPayload =
+      rawLine.trim() !== "" && !(rawIsFence && markerSized);
+
     for (const line of pieces) {
-      if (cur && cur.length + 1 + line.length > limit) {
-        out.push(openFence ? cur + "\n```" : cur);
-        cur = openFence ?? "";
+      const isFence = FENCE_LINE.test(line);
+      // The state this line LEAVES, not the one it found: a line that opens a fence
+      // commits its own chunk to a closer, so budget it before the line goes in.
+      let fenceAfter: string | null;
+      if (!isFence) {
+        fenceAfter = openFence;
+      } else if (openFence) {
+        fenceAfter = null; // closes it, so no wrapper is needed
+      } else {
+        // Track every fence, or its closer reads as a fresh opener. Reopen with the line
+        // itself when repeating it is cheap; otherwise fall back to a plain "```", since
+        // repeating a long one per chunk blew a 235-char input up to 66 messages.
+        const wrapper = line.length + 1 + FENCE_CLOSER.length;
+        fenceAfter = wrapper <= limit / 2 ? line : "```";
       }
-      cur = cur ? cur + "\n" + line : line;
-      if (/^\s*```/.test(line)) openFence = openFence ? null : line;
+      const budget = limit - (fenceAfter ? FENCE_CLOSER.length : 0);
+
+      if (started && cur.length + 1 + line.length > budget) {
+        const sent = flush();
+        const reopen = openFence ?? "";
+        // Blank lines from a chunk we did not send are still input, and a message break
+        // does not stand in for them: inside a YAML literal or a diff the blank IS data.
+        // Carry them into the next chunk, but only while they leave room for the line.
+        let carry = sent ? "" : cur.slice(reopen.length);
+        if (reopen.length + carry.length + 1 + line.length > budget) carry = "";
+        cur = reopen + carry;
+        started = cur !== "";
+        curAppended = false;
+        curContent = false;
+        curInputFence = false;
+      }
+      cur = started ? cur + "\n" + line : line;
+      started = true;
+      curAppended = true;
+      curContent = curContent || rawPayload;
+      curInputFence = curInputFence || isFence;
+      openFence = fenceAfter;
     }
   }
 
-  // Skip a trailing chunk that is only the reopened fence with nothing under it.
-  if (cur && cur !== openFence) out.push(openFence ? cur + "\n```" : cur);
+  if (started) flush();
   return out;
 }
 
@@ -223,8 +322,9 @@ async function sendChunkedMessages(
       });
     } catch (htmlError) {
       console.debug("Chunk HTML send failed, falling back to plain:", htmlError);
-      // Falls back to the raw markdown, not the HTML — worst case the user sees
-      // `**bold**`, never a literal tag.
+      // Retry with the source markdown, not the converted HTML. The failure may be
+      // transport (429, timeout) or the markup; re-sending HTML as plain text would show
+      // raw tags whenever it was the markup.
       try {
         await ctx.reply(chunk);
       } catch (plainError) {

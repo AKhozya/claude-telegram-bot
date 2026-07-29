@@ -84,4 +84,20 @@ describe("reapTempDir", () => {
   test("a missing directory is survivable, not a throw", async () => {
     expect(await reapTempDir(`/tmp/does-not-exist-${process.pid}`, HOUR)).toBe(0);
   });
+
+  // `now - mtime < NaN` is false for every entry, so the skip-if-young branch was never
+  // taken and the sweep deleted everything.
+  test("refuses to sweep on a non-positive or NaN age instead of deleting everything", async () => {
+    for (const bad of [NaN, 0, -1, Infinity]) {
+      fresh();
+      writeFileSync(`${dir}/fresh.mp4`, "x");
+      writeFileSync(`${dir}/old.mp4`, "x");
+      age(`${dir}/old.mp4`, 500);
+
+      expect(await reapTempDir(dir, bad)).toBe(0);
+      expect(existsSync(`${dir}/fresh.mp4`)).toBe(true);
+      expect(existsSync(`${dir}/old.mp4`)).toBe(true);
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
 });
