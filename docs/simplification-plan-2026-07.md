@@ -13,7 +13,7 @@ Branch `simplify-2026-07`, off `7b600c1`. Run `git log --oneline main..HEAD` —
 |---|---|
 | 0, 0b docs · 1 free deletes · 2 docker · 3 bugs · 4 dedup helpers · 5 local shrinks · 6 tests · 7 comments | **Done.** Codex clean on each. All batches complete |
 
-Gate now reads **283 pass / 911 expect()**, up from the 228/808 baseline — Batch 3 added two audit-log tests, Batch 4 eighteen, Batch 5 thirty-four, Batch 7 one. It must never fall. Batch 6 held it at exactly 282/906: it converted tests and added none, so an increase would have hidden a lost case as readily as a decrease would have exposed one.
+Gate now reads **306 pass / 986 expect()**, up from the 228/808 baseline — Batch 3 added two audit-log tests, Batch 4 eighteen, Batch 5 thirty-four, Batch 7 one, and the MCP rewrite twenty-three. It must never fall. Batch 6 held it at exactly 282/906: it converted tests and added none, so an increase would have hidden a lost case as readily as a decrease would have exposed one.
 
 **Still uncovered, and the reason this is not finished:** the Telegram wire. Nothing in-process reaches it, so a manual pass at deploy is the only check. See the end of this document for what that pass has to cover.
 
@@ -512,7 +512,7 @@ From the security review. These look redundant, verbose, or paranoid to a simpli
 | Proposal | Lines | Why not |
 |---|---|---|
 | `net.BlockList` for `isPrivateV4`/`isBlockedV6` | -23 | A1 says it would work — every branch probed identical. But it is the SSRF classifier, the payoff is 23 lines, and the security review flags it no-cut. Not worth touching working, tested code. Revisit only with a differential fuzz test as the gate. |
-| MCP servers → `registerTool` + zod | -177 | Wire-visible change: malformed input goes from `-32603` with a custom message to `-32602` zod text. Violates behavior-preserving. **Take the `fail()` helper alone** (-41 on `send_file`) — zero API difference. |
+| MCP servers → `registerTool` + zod | -177 | Wire-visible change: malformed input goes from `-32603` with a custom message to `-32602` zod text. Violates behavior-preserving. **Take the `fail()` helper alone** (-41 on `send_file`) — zero API difference. **Overturned by decision 3** — the full rewrite was taken and applied; the measured saving is -102, and the wire change is not the one described here. |
 | Delete `AUDIT_LOG_JSON` | -13 | Operator-facing, documented in `SECURITY.md:143`. |
 | `Bun.escapeHTML` | -6 | A9: emits `&#x27;` for `'`; Telegram HTML-mode acceptance unconfirmed. Six lines is not worth a rendering regression. |
 | `extname()` for the 4 extension spellings | -4 | Extension-less `README` currently yields `.readme` and can match `TEXT_EXTENSIONS`; `extname` yields `""`. |
@@ -547,7 +547,7 @@ Per batch: `bun run typecheck` && `bun test`, then one commit. The counts must n
 |---|---|---|
 | 1 | Batch 3 scope | **All three, in order:** `video.ts` tool-message leak, `callback.ts` `isRunning`, audit-log `0o600`. |
 | 2 | Archive feature | **Keep.** Local check inconclusive — no `/tmp/claude-telegram-audit.log` on this host and no pod matched `app=claude-telegram-bot`. Not re-litigated by a future pass without new evidence: run `grep -c ARCHIVE "$AUDIT_LOG_PATH"` against the running bot to reopen. |
-| 3 | MCP servers | **Full `registerTool` + zod rewrite**, -177 lines. Accepted as a deliberate wire change. |
+| 3 | MCP servers | **Full `registerTool` + zod rewrite**, -177 lines. Accepted as a deliberate wire change. Applied 2026-07-30; measured -102, and the wire change differs from the prediction — see below. |
 | 4 | `security.test.ts` `test.each` | **Do it, last**, gated on ≥228 tests / ≥808 expect(). |
 
 ### Consequences of decision 1
@@ -580,9 +580,64 @@ The per-batch gate (`bun run typecheck` + `bun test`) **cannot catch findings 1,
 
 **Resolved as written, 2026-07-30.** Batches 4 and 5 shipped `text.test.ts`, `media-group.test.ts` and `callback.test.ts` with their edits. `photo.ts` and `video.ts` are still untested and stay on the live-bot pass at the end of this document. Batch 2 was measured at apply time with a real `docker build` — see the Batch 2 section, which supersedes the ~469 MB estimate with −870 MB.
 
-### Consequence of decision 3
+### Consequence of decision 3 — applied 2026-07-30
 
-The `registerTool` rewrite is the plan's only accepted behavior change beyond the `video.ts` fix. Malformed MCP input moves from JSON-RPC `-32603` with a custom message to `-32602` carrying zod validation text. Valid calls are byte-identical (probed). `bun test` will not catch a regression here — neither MCP server has a test. Verify by calling each tool once through a live session before merging.
+The `registerTool` rewrite is the plan's only accepted behavior change beyond the `video.ts`
+fix. Both servers moved from the low-level `Server` + `setRequestHandler` pair to `McpServer`
++ `registerTool` with zod input schemas. **285 → 183 lines (−102)**, not the −177 the audit
+estimated — A10 said those numbers were agent estimates, and this is the size of the miss.
+
+The predicted wire change was wrong in two ways, both found by probing the old and new
+servers over real stdio with an SDK `Client` before and after:
+
+| Case | Before | After |
+|---|---|---|
+| `ask_user` missing/empty question, `<2` options | JSON-RPC error `-32603`, "question and at least 2 options required" | tool result `isError: true`, text `MCP error -32602: Input validation error: …` + zod detail |
+| `ask_user` 11 options, non-string options, numeric question | **accepted** — request file written, bot renders it | refused, `-32602` |
+| `send_file` missing/empty/non-string `file_path` | tool result `isError: true`, "Error: file_path is required" | tool result `isError: true`, `-32602` text |
+| `send_file` file absent, oversize, or no `TELEGRAM_CHAT_ID` | `isError: true` refusal | **unchanged** — still the callback's own text |
+| Unknown tool name | `-32603` "Unknown tool: nope" | `isError: true`, "Tool nope not found" |
+| Valid calls, either tool | — | identical result text and identical request-file shape |
+
+1. **Nothing throws any more.** `McpServer` catches its own `McpError` and returns it as an
+   `isError` tool result, so what the model receives is a readable refusal it can correct,
+   not a protocol error. The plan predicted a bare `-32602` on the wire.
+2. **The rewrite tightens as well as re-codes.** Three `ask_user` shapes that previously
+   succeeded are now refused. All three already violated the advertised schema — `maxItems:
+   10` and `items: {type: string}` were declared from the start and never enforced — so this
+   closes a gap between what the tool promised and what it accepted, rather than narrowing
+   the contract. Called out because it is a behaviour change the decision did not name.
+
+`tools/list` is otherwise unchanged: same name, description, `required`, property
+descriptions, `minItems`/`maxItems`. The generated schema adds `$schema` (draft-07),
+`minLength: 1` where the runtime already required non-empty, and `execution: {taskSupport:
+"forbidden"}`, which `McpServer` emits for every tool.
+
+`ask_user_mcp/server.test.ts` and `send_file_mcp/server.test.ts` now spawn each server as a
+child over stdio and drive it with a real SDK `Client` — 27 tests, the only ones in the repo
+that speak the protocol. Thirty-five deliberate mutations were run against the servers;
+every one kills at least one test. A live call per tool is still wanted at deploy, because
+no test covers the bot side that polls the request files.
+
+Two of those mutations killed nothing on the first attempt and forced a rewrite of the test
+that was supposed to catch them. Both were assertions written to close a review finding:
+proof that a fix is a hypothesis until the mutation runs.
+
+#### Raised, not absorbed
+
+Four defects found while reviewing the rewrite. All four predate it — the old servers
+behaved identically — so fixing any of them would be a behaviour change the decision did not
+cover. Listed for a separate yes or no.
+
+| Where | Input | What happens |
+|---|---|---|
+| `ask_user`, `options` items | `["", "Cancel"]` | An empty label is queued. `createAskUserKeyboard` passes it straight to `keyboard.text()`, Telegram rejects the whole `sendMessage`, and `streaming.ts:67` swallows the error — so **one empty option silently loses the entire prompt**, not just its button |
+| `send_file`, `caption` | 1,025 characters | Queued, then rejected at send time: Telegram's caption limit is 1,024 |
+| `send_file`, `file_path` | a non-empty file with no read permission | `Bun.file(path).size` reads `stat`, so the size check passes (probed: size 7, `text()` throws `EACCES`). The file is queued and delivery fails later |
+| both, `request_id` | two overlapping calls | `crypto.randomUUID().slice(0, 8)` keeps 32 bits. A collision overwrites a pending request. Unchanged from the original, and the odds are small, but the failure is silent |
+
+The first is the one worth fixing: it is cheap (`z.string().min(1)` on the array item) and its
+blast radius is the whole prompt rather than one button.
 
 ---
 
@@ -617,8 +672,11 @@ verified separately **at apply time**: a real `docker build` on linux/arm64 plus
 inspection. Numbers and equivalence checks are in the Batch 2 section above. Nothing further
 is needed unless the base image moves.
 
-### 3. The MCP `registerTool` rewrite, if it is taken
+### 3. The MCP `registerTool` rewrite — applied, half-covered
 
-Not applied on this branch. If it is, malformed MCP input moves from JSON-RPC `-32603` with
-a custom message to `-32602` carrying zod validation text. Valid calls are byte-identical
-(probed). Neither MCP server has a test, so each tool needs one live call.
+Applied 2026-07-30. Both servers now have protocol-level tests, so the tool side is covered;
+see "Consequence of decision 3" for the measured wire change. What no test reaches is the
+**bot** side of the same IPC: `streaming.ts` polling `/tmp/ask-user-*.json` and
+`/tmp/send-file-*.json`, and `callback.ts` finding a request again by `request_id`. The tests
+assert the servers write the shape those readers expect; nothing proves the readers still
+read it. One `ask_user` round trip and one `send_file` through a live session close that.
