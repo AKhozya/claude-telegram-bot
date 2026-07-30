@@ -11,10 +11,10 @@ Branch `simplify-2026-07`, off `7b600c1`. Run `git log --oneline main..HEAD` —
 
 | Batch | State |
 |---|---|
-| 0, 0b docs · 1 free deletes · 2 docker · 3 bugs · 4 dedup helpers · 5 local shrinks | **Done.** Codex clean on each |
-| 6 tests · 7 comments | Not started. Batch 6 **not yet plan-reviewed** |
+| 0, 0b docs · 1 free deletes · 2 docker · 3 bugs · 4 dedup helpers · 5 local shrinks · 6 tests | **Done.** Codex clean on each |
+| 7 comments | Not started |
 
-Gate now reads **282 pass / 906 expect()**, up from the 228/808 baseline — Batch 3 added two audit-log tests, Batch 4 eighteen, Batch 5 thirty-four. It must never fall.
+Gate now reads **282 pass / 906 expect()**, up from the 228/808 baseline — Batch 3 added two audit-log tests, Batch 4 eighteen, Batch 5 thirty-four. It must never fall. Batch 6 held it at exactly 282/906: it converted tests and added none, so an increase would have hidden a lost case as readily as a decrease would have exposed one.
 
 ## Constraints agreed before the audit
 
@@ -332,17 +332,61 @@ What each item needs:
 
 **Still uncovered after all of it:** the Telegram wire. A manual pass at deploy stays the check for that — nothing in-process reaches it.
 
-## Batch 6 — Tests
+## Batch 6 — Tests — Applied 2026-07-30
 
-Run **after** all source batches are green. The test suite is the oracle for everything above; rewriting it mid-flight destroys the only signal that the refactors held. This batch **converts existing tests only** — the new coverage for Batches 4 and 5 is specified above.
+Ran **after** all source batches were green. The suite is the oracle for everything above;
+rewriting it mid-flight would destroy the only signal that the refactors held. This batch
+**converted existing tests only** — the new coverage for Batches 4 and 5 is specified above.
 
-- `bunfig.toml` `[test] preload` — the `TELEGRAM_BOT_TOKEN`/`ALLOWED_USERS` preamble repeats in 12 of 16 test files. ~-29.
-- `security.test.ts:409-675` — 58 single-assertion `checkCommandSafety` blocks → `test.each` per describe, row[0] as the test name so failure output is unchanged. ~-97.
-- `security.test.ts:135-404` — 39 single-assertion `evaluateToolUse` blocks → `test.each`; 7 rows need hand-porting for multi-arg shapes. ~-84.
-- `reactions/auth/streaming.test.ts` — 7 hand-rolled `const calls: any[] = []` push-closures → `mock()` + `toHaveBeenCalledWith`. ~-9.
-- `streaming.test.ts:43,60,78` — `await import("./streaming")` inside 3 tests when line 94 already imports it top-level. ~-3.
+Plan-reviewed first against re-derived anchors: four of the five rows survived, and every
+count in the original table was stale except one.
 
-Gate: neither the test count nor the `expect()` count may fall below what the branch carried into this batch. A drop means a row was lost in porting.
+### Applied
+
+| Row | What landed |
+|---|---|
+| `bunfig.toml` `[test] preload` | New `test-preload.ts` sets `TELEGRAM_BOT_TOKEN`/`TELEGRAM_ALLOWED_USERS`. The identical preamble was in **16 of 20** files, not 12 of 16 |
+| `security.test.ts` `checkCommandSafety` | **58** single-expect cases across three describes → one `test.each` per describe. The 2 multi-expect `/proc` tests stay as they are |
+| `security.test.ts` `evaluateToolUse` | **41** stateless cases → one typed `TOOL_GATE_CASES` table. The **7** that mutate module or process state stay standalone |
+| `streaming.test.ts` | **4** in-test `await import("./streaming")` folded into the existing top-level destructure, not 3 |
+
+### Dropped, with the reason
+
+| Row | Why |
+|---|---|
+| push-closures → `mock()` + `toHaveBeenCalledWith` | Only **5** sites exist, not 7, and `auth.test.ts` — one of the three files named — has none; it uses counters. `toHaveBeenCalledWith` matches **any** call, so it cannot express `reactions.test.ts`'s `calls[0]` / `calls[1]` ordering (spiked: a spy called `("b")` then `("a")` passes `toHaveBeenCalledWith("a")`). Collapsing three assertions into one would also drop the `expect()` count below the gate. Nine lines is not worth a weaker oracle |
+
+### Why the preload is safe
+
+`config.ts` reads both vars at module-eval and exits without the token; `bun test` shares
+one module registry, and Bun's file order is neither lexicographic nor settable — so the
+16 per-file copies only worked by all agreeing. Spiked on Bun 1.3.14: preload runs once per
+test process, before any test file's module body, same pid, shared registry. The two files
+that spawn `bun -e` subprocesses pass `{ ...process.env }`, so the children inherit.
+`sandbox.test.ts` was the one file setting a different token (`"x:y"`); its only `x:y`
+assertions use a local object literal, never `process.env`.
+
+### How the conversion was proved non-vacuous
+
+The count gate alone cannot see a row whose argument changed in porting, so two checks ran
+on top of it:
+
+- **Case-multiset comparison**, tokenizer-based and table-aware, `HEAD` vs the working
+  tree: 66 `checkCommandSafety` cases before and after, 62 `evaluateToolUse` cases before
+  and after, zero differences in `(input => expectation)`.
+- **Per-row mutation**, both directions. `checkCommandSafety` stubbed to always-`[true]`
+  then always-`[false]`: every one of the 58 table rows fails under one mutant or the
+  other, none survives both. Same for `evaluateToolUse` stubbed to always-allow then
+  always-deny across its 41 rows. Emptying `test-preload.ts` halts the suite outright,
+  which is what proves the preload — not the invoking shell — supplies the env.
+
+### Gate
+
+**282 pass / 906 expect() / 20 files — exactly**, unchanged from what the branch carried
+in, and typecheck clean. Exact, not "not below": a batch that adds no cases can hide a lost
+one behind an increase just as easily as a decrease would expose it.
+
+Net **-332 lines**.
 
 ## Batch 7 — Comment sweep
 

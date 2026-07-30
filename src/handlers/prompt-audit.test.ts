@@ -1,10 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readFileSync, rmSync } from "fs";
 
-// config.ts (pulled in transitively) reads these at eval time.
-process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
-process.env.TELEGRAM_ALLOWED_USERS = "1";
-
 const AUDIT_PATH = `/tmp/prompt-audit-test-${process.pid}.log`;
 
 // Runs in a subprocess: AUDIT_LOG_PATH is read once at config module-eval and bun test

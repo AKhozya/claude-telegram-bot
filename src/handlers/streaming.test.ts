@@ -1,11 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import { symlinkSync, mkdirSync, rmSync } from "node:fs";
 
-// config.ts (pulled in transitively) reads these at module-eval time.
-process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
-process.env.TELEGRAM_ALLOWED_USERS = "1";
-
 const { isPathAllowed } = await import("../security");
+const { createStatusCallback, StreamingState, createAskUserKeyboard, splitMarkdownForTelegram } =
+  await import("./streaming");
+const { convertMarkdownToHtml } = await import("../formatting");
 
 describe("send-file path gate (isPathAllowed)", () => {
   test("rejects paths outside ALLOWED_PATHS and temp", () => {
@@ -40,7 +39,6 @@ describe("rich message send via typed grammy api", () => {
       api: { sendRichMessage: (...a: any[]) => { calls.push(a); return { chat: { id: 42 }, message_id: 1 }; } },
       reply: () => { throw new Error("should not fall back"); },
     };
-    const { createStatusCallback, StreamingState } = await import("./streaming");
     const cb = createStatusCallback(ctx, new StreamingState());
     await cb("text", "# Title\n\nbody", 0);
     expect(calls[0][0]).toBe(42);
@@ -57,7 +55,6 @@ describe("rich message send via typed grammy api", () => {
       },
       reply: () => { throw new Error("should not fall back"); },
     };
-    const { createStatusCallback, StreamingState } = await import("./streaming");
     const cb = createStatusCallback(ctx, new StreamingState());
     await cb("text", "initial", 0); // creates the segment message via sendRichMessage
     await cb("segment_end", "final content", 0); // edits it -> editRichWithFallback
@@ -75,7 +72,6 @@ describe("link preview suppression", () => {
       api: { sendRichMessage: async () => { throw new Error("force fallback"); } },
       reply: async (_t: string, o: any) => { opts.push(o); return { chat: { id: 7 }, message_id: 1 }; },
     };
-    const { createStatusCallback, StreamingState } = await import("./streaming");
     const cb = createStatusCallback(ctx, new StreamingState());
     await cb("text", "see https://example.com and more text over twenty chars", 0);
     expect(opts[0]).toMatchObject({ parse_mode: "HTML", link_preview_options: { is_disabled: true } });
@@ -84,15 +80,11 @@ describe("link preview suppression", () => {
 
 describe("ask_user keyboard styling", () => {
   test("ask_user keyboard applies a style to each button", async () => {
-    const { createAskUserKeyboard } = await import("./streaming");
     const kb = createAskUserKeyboard("req1", ["Yes", "No"]);
     const rows = kb.inline_keyboard;
     expect(rows[0]![0]).toMatchObject({ text: "Yes", style: "primary" });
   });
 });
-
-const { splitMarkdownForTelegram } = await import("./streaming");
-const { convertMarkdownToHtml } = await import("../formatting");
 
 describe("splitMarkdownForTelegram", () => {
   // Balanced-tag check: every <x> in a chunk must have a matching </x>. A chunk

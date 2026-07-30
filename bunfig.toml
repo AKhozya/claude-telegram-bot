@@ -1,3 +1,6 @@
+[test]
+preload = ["./test-preload.ts"]
+
 [install]
 # 7-day quarantine for third-party deps (supply-chain gate).
 # Anthropic Agent SDK stack exempt: trusted publisher, we want the newest engine,

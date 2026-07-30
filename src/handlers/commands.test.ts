@@ -1,9 +1,5 @@
 import { test, expect } from "bun:test";
 
-// config.ts (pulled in transitively via commands.ts) reads these at eval time.
-process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
-process.env.TELEGRAM_ALLOWED_USERS = "1";
-
 const { withMessageText, handleNew, handleStop } = await import("./commands");
 const { session } = await import("../session");
 

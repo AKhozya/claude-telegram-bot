@@ -3,9 +3,6 @@ import { symlinkSync, mkdirSync, rmSync, statSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-process.env.TELEGRAM_BOT_TOKEN = "x:y";
-process.env.TELEGRAM_ALLOWED_USERS = "1";
-
 const {
   buildSandboxSettings,
   sanitizeEnv,

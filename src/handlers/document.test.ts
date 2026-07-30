@@ -11,10 +11,6 @@ import {
 import { join } from "path";
 import { tmpdir } from "os";
 
-// config.ts (pulled in transitively via document.ts) reads these at eval time.
-process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
-process.env.TELEGRAM_ALLOWED_USERS = "1";
-
 const {
   pdfHasUsableText,
   sortPdfPagePaths,

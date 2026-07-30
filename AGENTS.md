@@ -112,6 +112,8 @@ MCP servers defined in `mcp-config.ts` (copy from `mcp-config.example.ts`; absen
 
 **Before committing**: `bun run typecheck && bun test`. A green typecheck does not prove the bot runs — the suite is the gate that matters, and neither covers the Telegram wire.
 
+**Test env**: `bunfig.toml` preloads `test-preload.ts`, which sets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS`. `config.ts` reads both at module-eval time and exits without them, so no test file needs to set them itself.
+
 **After code changes**: Restart the bot so changes can be tested. Use `launchctl kickstart -k gui/$(id -u)/com.claude-telegram-ts` if running as a service, or `bun run start` for manual runs.
 
 ## Standalone Build

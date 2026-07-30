@@ -12,9 +12,6 @@ import {
   symlinkSync,
 } from "fs";
 
-// config.ts (pulled in transitively) reads these at module-eval time.
-process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
-process.env.TELEGRAM_ALLOWED_USERS = "1";
 const AUDIT_PATH = `/tmp/audit-mode-test-${process.pid}.log`;
 process.env.AUDIT_LOG_PATH = AUDIT_PATH;
 

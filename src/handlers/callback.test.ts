@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync, writeFileSync } from "fs";
 
-// config.ts (pulled in transitively) reads these at eval time.
-process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
-process.env.TELEGRAM_ALLOWED_USERS = "1";
-
 const { session } = await import("../session");
 const { handleCallback } = await import("./callback");
 

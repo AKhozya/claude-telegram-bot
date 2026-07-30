@@ -1,9 +1,5 @@
 import { test, expect, mock, afterAll } from "bun:test";
 
-// config.ts (pulled in transitively via session.ts) reads these at eval time.
-process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
-process.env.TELEGRAM_ALLOWED_USERS = "1";
-
 // The reset branch lives inside the stream loop, so the only honest test drives the real
 // loop with a fake stream. Keep every other export real — formatting.ts reads the SDK's
 // usage-limit prefix tables at import time.

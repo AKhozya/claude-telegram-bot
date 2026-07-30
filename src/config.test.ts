@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
-process.env.TELEGRAM_ALLOWED_USERS = "1";
-
 const { positiveNumberEnv } = await import("./config");
 
 const KEY = "TEST_POSITIVE_NUMBER_ENV";

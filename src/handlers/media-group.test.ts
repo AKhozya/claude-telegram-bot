@@ -1,9 +1,5 @@
 import { describe, expect, test } from "bun:test";
 
-// config.ts (pulled in transitively) reads these at eval time.
-process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
-process.env.TELEGRAM_ALLOWED_USERS = "1";
-
 const { rateLimiter } = await import("../security");
 const { createMediaGroupBuffer, handleProcessingError } = await import("./media-group");
 const { StreamingState } = await import("./streaming");

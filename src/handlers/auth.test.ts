@@ -1,12 +1,9 @@
 import { test, expect } from "bun:test";
 
-// config.ts (pulled in transitively) reads these at eval time. Another test file may have
-// evaluated config first (module cache is shared across the suite; CI can also preset these),
-// so don't hardcode the allowed id — read config's RESOLVED ALLOWED_USERS and test against it,
-// exactly the list authGate itself checks. A negative id is never a valid/allowed Telegram id.
-process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
-process.env.TELEGRAM_ALLOWED_USERS = "1";
-
+// Read config's RESOLVED ALLOWED_USERS rather than hardcoding the id: that is exactly the
+// list authGate checks, so a change to how config parses TELEGRAM_ALLOWED_USERS cannot
+// leave this asserting against a value config never produces. A negative id is never a
+// valid Telegram id, so it is always the denied case.
 const { authGate } = await import("./auth");
 const { ALLOWED_USERS } = await import("../config");
 const ALLOWED = ALLOWED_USERS[0]!;
