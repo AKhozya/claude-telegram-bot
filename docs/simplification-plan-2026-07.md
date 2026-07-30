@@ -81,9 +81,11 @@ Zero runtime risk. Highest ratio in the plan.
 
 **Rejected from the docs findings:** AGENTS.md:28 "Agent SDK V2" vs `session.ts:320` "// Use V1 query() API". These name different things — package generation vs API surface within the package. Not a contradiction. Drop the version marker rather than flip it to V1.
 
-### Batch 0b — Prose trims (itemised 2026-07-30, awaiting approval)
+### Batch 0b — Prose trims — Applied in `9bab423`
 
-Batch 0 shipped the factual corrections and skipped the plan's un-itemised "~17 lines of prose bloat". Itemised here. Real total is ~10 lines, not 17 — the original estimate counted the author's first-person narrative, which is register, not bloat.
+Batch 0 shipped the factual corrections and skipped the plan's un-itemised "~17 lines of prose bloat". Itemised here in `f2b3952`, then applied in `9bab423` — the edits rode in with Batch 1's commit instead of getting their own, and this header went on reading "awaiting approval" until 2026-07-30. All seven rows landed, rows 4 and 5 in the reinstated form below.
+
+The "~17 lines" estimate counted the author's first-person narrative, which is register, not bloat. Applied reality: **7 sites, net −4 lines.** Rows 1 and 3 took a whole line and its blank out of `SECURITY.md`; rows 2, 6 and 7 cut a sentence or clause from a line that stays; rows 4 and 5 substituted, because Codex showed the sentence was carrying something the rest of the page did not.
 
 **Accepted — DELETE.** Each restates a heading, a code block, or a sentence already on the page.
 
