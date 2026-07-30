@@ -4,15 +4,10 @@
 
 import type { BotContext } from "../types";
 import { session } from "../session";
-import { rateLimiter } from "../security";
-import {
-  auditLog,
-  auditLogRateLimit,
-  checkInterrupt,
-  startTypingIndicator,
-} from "../utils";
+import { auditLog, checkInterrupt, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { markReceived, markDone, markFailed } from "./reactions";
+import { rateLimitOrReply } from "./rate-limit";
 import { describeError } from "../formatting";
 
 export async function handleText(ctx: BotContext): Promise<void> {
@@ -33,23 +28,11 @@ export async function handleText(ctx: BotContext): Promise<void> {
   }
   await markReceived(ctx);
 
-  const [allowed, retryAfter] = rateLimiter.check(userId);
-  if (!allowed) {
-    await auditLogRateLimit(userId, username, retryAfter!);
-    await ctx.reply(
-      `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
-    );
-    await markFailed(ctx);
-    return;
-  }
+  if (await rateLimitOrReply(ctx, userId, username)) return;
 
   session.lastMessage = message; // consumed by /retry
 
-  if (!session.isActive) {
-    const title =
-      message.length > 50 ? message.slice(0, 47) + "..." : message;
-    session.conversationTitle = title;
-  }
+  session.setTitleIfNew(message);
 
   const stopProcessing = session.startProcessing();
   const typing = startTypingIndicator(ctx);
@@ -77,13 +60,7 @@ export async function handleText(ctx: BotContext): Promise<void> {
       const errorStr = String(error);
       const isClaudeCodeCrash = errorStr.includes("exited with code");
 
-      for (const toolMsg of state.toolMessages) {
-        try {
-          await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
+      await state.deleteToolMessages(ctx);
 
       // Crash only — a user cancellation must not be retried behind their back.
       if (isClaudeCodeCrash && attempt < MAX_RETRIES) {

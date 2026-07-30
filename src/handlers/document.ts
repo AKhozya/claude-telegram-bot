@@ -11,13 +11,14 @@ import { join } from "path";
 import type { BotContext } from "../types";
 import { session } from "../session";
 import { TEMP_DIR } from "../config";
-import { rateLimiter } from "../security";
-import { auditLog, auditLogRateLimit, startTypingIndicator } from "../utils";
+import { auditLog, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
-import { createMediaGroupBuffer, handleProcessingError } from "./media-group";
+import { createMediaGroupBuffer } from "./media-group";
 import { processPhotos } from "./photo";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markDone, markFailed } from "./reactions";
+import { rateLimitOrReply } from "./rate-limit";
+import { runPrompt } from "./run-prompt";
 
 const TEXT_EXTENSIONS = [
   ".md",
@@ -343,12 +344,7 @@ async function processArchive(
       ? `Archive: ${fileName}\n\nFile tree (${tree.length} files):\n${treeStr}\n\nExtracted contents:\n${contentsStr}\n\n---\n\n${caption}`
       : `Please analyze this archive (${fileName}):\n\nFile tree (${tree.length} files):\n${treeStr}\n\nExtracted contents:\n${contentsStr}`;
 
-    if (!session.isActive) {
-      const rawTitle = caption || `[Archivio: ${fileName}]`;
-      const title =
-        rawTitle.length > 50 ? rawTitle.slice(0, 47) + "..." : rawTitle;
-      session.conversationTitle = title;
-    }
+    session.setTitleIfNew(caption || `[Archivio: ${fileName}]`);
 
     const statusCallback = createStatusCallback(ctx, state);
 
@@ -385,13 +381,7 @@ async function processArchive(
     } catch {
       // Ignore
     }
-    for (const toolMsg of state.toolMessages) {
-      try {
-        await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
-      } catch (cleanupError) {
-        console.debug("Failed to delete tool message:", cleanupError);
-      }
-    }
+    await state.deleteToolMessages(ctx);
     await ctx.reply(
       `❌ Failed to process archive: ${String(error).slice(0, 100)}`
     );
@@ -409,8 +399,6 @@ async function processDocuments(
   username: string,
   chatId: number
 ): Promise<void> {
-  const stopProcessing = session.startProcessing();
-
   let prompt: string;
   if (documents.length === 1) {
     const doc = documents[0]!;
@@ -426,43 +414,15 @@ async function processDocuments(
       : `Please analyze these ${documents.length} documents:\n\n${docList}`;
   }
 
-  if (!session.isActive) {
-    const docName = documents[0]?.name || "[Documento]";
-    const rawTitle = caption || `[Documento: ${docName}]`;
-    const title =
-      rawTitle.length > 50 ? rawTitle.slice(0, 47) + "..." : rawTitle;
-    session.conversationTitle = title;
-  }
+  const docName = documents[0]?.name || "[Documento]";
 
-  const typing = startTypingIndicator(ctx);
-
-  const state = new StreamingState();
-  const statusCallback = createStatusCallback(ctx, state);
-
-  try {
-    const response = await session.sendMessageStreaming(
-      prompt,
-      username,
-      userId,
-      statusCallback,
-      chatId,
-      ctx
-    );
-
-    await auditLog(
-      userId,
-      username,
-      "DOCUMENT",
-      `[${documents.length} docs] ${caption || ""}`,
-      response
-    );
-    await markDone(ctx);
-  } catch (error) {
-    await handleProcessingError(ctx, error, state.toolMessages);
-  } finally {
-    stopProcessing();
-    typing.stop();
-  }
+  await runPrompt(ctx, userId, username, chatId, {
+    prompt,
+    titleSeed: caption || `[Documento: ${docName}]`,
+    auditAction: "DOCUMENT",
+    // A summary, never the prompt: the prompt holds every document's full body.
+    auditInput: `[${documents.length} docs] ${caption || ""}`,
+  });
 }
 
 async function processDocumentPaths(
@@ -544,15 +504,7 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
   // Archives never buffer into an album — each is its own extraction + prompt.
   if (isArchiveFile) {
     console.log(`Received archive: ${fileName} from @${username}`);
-    const [allowed, retryAfter] = rateLimiter.check(userId);
-    if (!allowed) {
-      await auditLogRateLimit(userId, username, retryAfter!);
-      await ctx.reply(
-        `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
-      );
-      await markFailed(ctx);
-      return;
-    }
+    if (await rateLimitOrReply(ctx, userId, username)) return;
 
     await processArchive(
       ctx,
@@ -568,15 +520,7 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
 
   if (!mediaGroupId) {
     console.log(`Received document: ${fileName} from @${username}`);
-    const [allowed, retryAfter] = rateLimiter.check(userId);
-    if (!allowed) {
-      await auditLogRateLimit(userId, username, retryAfter!);
-      await ctx.reply(
-        `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
-      );
-      await markFailed(ctx);
-      return;
-    }
+    if (await rateLimitOrReply(ctx, userId, username)) return;
 
     try {
       if (isPdf) {

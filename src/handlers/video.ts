@@ -7,12 +7,12 @@
 import type { BotContext } from "../types";
 import { session } from "../session";
 import { TEMP_DIR } from "../config";
-import { rateLimiter } from "../security";
-import { auditLog, auditLogRateLimit, startTypingIndicator } from "../utils";
+import { auditLog, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { handleProcessingError } from "./media-group";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markDone, markFailed } from "./reactions";
+import { rateLimitOrReply } from "./rate-limit";
 
 // Local cap, not Telegram's. Checked against `file_size` before download so an
 // oversized clip is rejected without spending the transfer.
@@ -53,15 +53,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     return;
   }
 
-  const [allowed, retryAfter] = rateLimiter.check(userId);
-  if (!allowed) {
-    await auditLogRateLimit(userId, username, retryAfter!);
-    await ctx.reply(
-      `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
-    );
-    await markFailed(ctx);
-    return;
-  }
+  if (await rateLimitOrReply(ctx, userId, username)) return;
 
   console.log(`Received video from @${username}`);
 
@@ -99,12 +91,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
       ? `Here's a video file at path: ${videoPath}\n\nUser says: ${caption}`
       : `I've received a video file at path: ${videoPath}\n\nPlease transcribe it for me.`;
 
-    if (!session.isActive) {
-      const rawTitle = caption || "[Video]";
-      const title =
-        rawTitle.length > 50 ? rawTitle.slice(0, 47) + "..." : rawTitle;
-      session.conversationTitle = title;
-    }
+    session.setTitleIfNew(caption || "[Video]");
 
     const statusCallback = createStatusCallback(ctx, state);
 
@@ -134,7 +121,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
       // Ignore
     }
 
-    await handleProcessingError(ctx, error, state.toolMessages);
+    await handleProcessingError(ctx, error, state);
   } finally {
     stopProcessing();
     typing.stop();

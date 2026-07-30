@@ -8,10 +8,10 @@
 import type { Message } from "grammy/types";
 import type { BotContext } from "../types";
 import { MEDIA_GROUP_TIMEOUT } from "../config";
-import { rateLimiter } from "../security";
-import { auditLogRateLimit } from "../utils";
 import { session } from "../session";
+import { StreamingState } from "./streaming";
 import { markFailed } from "./reactions";
+import { rateLimitOrReply } from "./rate-limit";
 import { describeError } from "../formatting";
 
 interface PendingMediaGroup {
@@ -107,15 +107,7 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
   ): Promise<void> {
     if (!pendingGroups.has(mediaGroupId)) {
       // Rate limit on first item only
-      const [allowed, retryAfter] = rateLimiter.check(userId);
-      if (!allowed) {
-        await auditLogRateLimit(userId, username, retryAfter!);
-        await ctx.reply(
-          `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
-        );
-        await markFailed(ctx);
-        return;
-      }
+      if (await rateLimitOrReply(ctx, userId, username)) return;
 
       console.log(`Receiving ${config.itemLabel} album from @${username}`);
       const statusMsg = await ctx.reply(
@@ -158,18 +150,12 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
 export async function handleProcessingError(
   ctx: BotContext,
   error: unknown,
-  toolMessages: Message[]
+  state: StreamingState
 ): Promise<void> {
   console.error("Error processing media:", error);
   await markFailed(ctx);
 
-  for (const toolMsg of toolMessages) {
-    try {
-      await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
-    } catch (cleanupError) {
-      console.debug("Failed to delete tool message:", cleanupError);
-    }
-  }
+  await state.deleteToolMessages(ctx);
 
   const errorStr = String(error);
   if (errorStr.includes("abort") || errorStr.includes("cancel")) {

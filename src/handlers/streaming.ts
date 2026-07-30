@@ -154,6 +154,21 @@ export class StreamingState {
   toolMessages: Message[] = []; // ephemeral tool status messages
   lastEditTimes = new Map<number, number>(); // segment_id -> last edit time
   lastContent = new Map<number, string>(); // segment_id -> last sent content
+
+  /**
+   * Clear the ephemeral tool chatter. Every message is attempted: Telegram rejects a
+   * delete for a message already gone or older than 48 h, and one such rejection must
+   * not strand the rest on screen.
+   */
+  async deleteToolMessages(ctx: Context): Promise<void> {
+    for (const toolMsg of this.toolMessages) {
+      try {
+        await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
+      } catch (error) {
+        console.debug("Failed to delete tool message:", error);
+      }
+    }
+  }
 }
 
 function formatWithinLimit(
@@ -495,13 +510,7 @@ export function createStatusCallback(
         }
       } else if (statusType === "done") {
         // Only the ephemeral tool/thinking chatter is cleaned up; text segments stay.
-        for (const toolMsg of state.toolMessages) {
-          try {
-            await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
-          } catch (error) {
-            console.debug("Failed to delete tool message:", error);
-          }
-        }
+        await state.deleteToolMessages(ctx);
       }
     } catch (error) {
       console.error("Status callback error:", error);

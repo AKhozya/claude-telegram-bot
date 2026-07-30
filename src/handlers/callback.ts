@@ -120,13 +120,7 @@ export async function handleCallback(ctx: Context): Promise<void> {
   } catch (error) {
     console.error("Error processing callback:", error);
 
-    for (const toolMsg of state.toolMessages) {
-      try {
-        await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
-      } catch (error) {
-        console.debug("Failed to delete tool message:", error);
-      }
-    }
+    await state.deleteToolMessages(ctx);
 
     if (String(error).includes("abort") || String(error).includes("cancel")) {
       // Only show "Query stopped" if it was an explicit stop, not an interrupt from a new message
@@ -181,6 +175,9 @@ async function handleResumeCallback(
   const recapPrompt =
     "Please write a very concise recap of where we are in this conversation, to refresh my memory. Max 2-3 sentences.";
 
+  // After answerCallbackQuery, not before: that call is outside the try below, so an
+  // exception there would skip stopProcessing() and strand isRunning true for good.
+  const stopProcessing = session.startProcessing();
   const typing = startTypingIndicator(ctx);
   const state = new StreamingState();
   const statusCallback = createStatusCallback(ctx, state);
@@ -198,6 +195,7 @@ async function handleResumeCallback(
     console.error("Error getting recap:", error);
     // Don't show error to user - session is still resumed, recap just failed
   } finally {
+    stopProcessing();
     typing.stop();
   }
 }

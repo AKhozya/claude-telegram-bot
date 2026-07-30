@@ -5,14 +5,12 @@
  */
 
 import type { BotContext } from "../types";
-import { session } from "../session";
 import { TEMP_DIR } from "../config";
-import { rateLimiter } from "../security";
-import { auditLog, auditLogRateLimit, startTypingIndicator } from "../utils";
-import { StreamingState, createStatusCallback } from "./streaming";
-import { createMediaGroupBuffer, handleProcessingError } from "./media-group";
+import { createMediaGroupBuffer } from "./media-group";
 import { downloadTelegramFile } from "./download";
-import { markReceived, markDone, markFailed } from "./reactions";
+import { markReceived, markFailed } from "./reactions";
+import { rateLimitOrReply } from "./rate-limit";
+import { runPrompt } from "./run-prompt";
 
 const photoBuffer = createMediaGroupBuffer({
   emoji: "📷",
@@ -45,8 +43,6 @@ export async function processPhotos(
   username: string,
   chatId: number
 ): Promise<void> {
-  const stopProcessing = session.startProcessing();
-
   let prompt: string;
   if (photoPaths.length === 1) {
     prompt = caption
@@ -59,36 +55,14 @@ export async function processPhotos(
       : `Please analyze these ${photoPaths.length} images:\n${pathsList}`;
   }
 
-  if (!session.isActive) {
-    const rawTitle = caption || "[Foto]";
-    const title =
-      rawTitle.length > 50 ? rawTitle.slice(0, 47) + "..." : rawTitle;
-    session.conversationTitle = title;
-  }
-
-  const typing = startTypingIndicator(ctx);
-
-  const state = new StreamingState();
-  const statusCallback = createStatusCallback(ctx, state);
-
-  try {
-    const response = await session.sendMessageStreaming(
-      prompt,
-      username,
-      userId,
-      statusCallback,
-      chatId,
-      ctx
-    );
-
-    await auditLog(userId, username, "PHOTO", prompt, response);
-    await markDone(ctx);
-  } catch (error) {
-    await handleProcessingError(ctx, error, state.toolMessages);
-  } finally {
-    stopProcessing();
-    typing.stop();
-  }
+  // The prompt is the audit input here: it is a caption plus file paths, which is exactly
+  // the record of what was analysed. Documents cannot do this — see runPrompt.
+  await runPrompt(ctx, userId, username, chatId, {
+    prompt,
+    titleSeed: caption || "[Foto]",
+    auditAction: "PHOTO",
+    auditInput: prompt,
+  });
 }
 
 export async function handlePhoto(ctx: BotContext): Promise<void> {
@@ -108,15 +82,7 @@ export async function handlePhoto(ctx: BotContext): Promise<void> {
   let statusMsg: Awaited<ReturnType<typeof ctx.reply>> | null = null;
   if (!mediaGroupId) {
     console.log(`Received photo from @${username}`);
-    const [allowed, retryAfter] = rateLimiter.check(userId);
-    if (!allowed) {
-      await auditLogRateLimit(userId, username, retryAfter!);
-      await ctx.reply(
-        `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
-      );
-      await markFailed(ctx);
-      return;
-    }
+    if (await rateLimitOrReply(ctx, userId, username)) return;
 
     statusMsg = await ctx.reply("📷 Processing image...");
   }

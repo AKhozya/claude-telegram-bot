@@ -11,11 +11,11 @@ Branch `simplify-2026-07`, off `7b600c1`. Run `git log --oneline main..HEAD` —
 
 | Batch | State |
 |---|---|
-| 0, 0b docs · 1 free deletes · 2 docker · 3 bugs | **Done.** Codex clean on each |
-| 4 dedup helpers | Next. Item 0 carried over from Batch 3 |
-| 5 local shrinks · 6 tests · 7 comments | Not started |
+| 0, 0b docs · 1 free deletes · 2 docker · 3 bugs · 4 dedup helpers | **Done.** Codex clean on each |
+| 5 local shrinks | Next. **Not yet plan-reviewed** — its line numbers are from the `7b600c1` audit and Batches 1, 3 and 4 have moved the code under them |
+| 6 tests · 7 comments | Not started. Batch 6 also un-reviewed |
 
-Gate now reads **230 pass / 812 expect()**, up from the 228/808 baseline — Batch 3 added two audit-log tests. Batches 4 and 5 ship their own coverage (see the section before Batch 6), so this number rises; it must never fall.
+Gate now reads **248 pass / 848 expect()**, up from the 228/808 baseline — Batch 3 added two audit-log tests, Batch 4 added eighteen. Batch 5 ships its own coverage (see the section before Batch 6), so this number rises; it must never fall.
 
 ## Constraints agreed before the audit
 
@@ -219,6 +219,27 @@ Ordered smallest-blast-radius first so each lands green before the next.
 
    **`video.ts` — keep it out.** The audit said hold it until Batch 3 landed, because folding it earlier would have baked the `[]` bug into the helper. Batch 3 has landed and its catch now matches the two confirmed sites — but the plan review looked at the whole tail and the evidence favours exclusion: it edits a status message before sending and deletes it after `markDone`, its catch adds a video-specific log and deletes that status before calling `handleProcessingError`, and its audit input is `caption || "[video]"` rather than the prompt. Folding it needs lifecycle hooks or special-casing that risk reordering operations. Reopen only if the helper stays simple while preserving every one of those steps.
 
+### Batch 4 — Applied 2026-07-30
+
+All six items landed. The nine files they were extracted from go +97 / −218; the two new files (`handlers/rate-limit.ts`, `handlers/run-prompt.ts`) add 99. **−22 source lines net** — the payoff here is the removed drift surface, not the line count. Gate 230 pass / 812 expect() → **248 / 848**.
+
+- **Item 3's decision was re-justified on evidence, and the answer did not change.** `stop()` has exactly three callers — `interruptForNewMessage`, `handleNew`, `handleStop` — and all three want the settle, so folding it in *would* have worked: `interruptForNewMessage` guards on `isRunning` first, which is the same condition as the commands' `if (result)`. Declined anyway, for a reason the old text did not have: the settle exists for what the caller does **next** (`/new` kills the session, `/stop` clears the way for the next message), not for the stop itself. `stop()` stays a pure cancel request, and `interruptForNewMessage` keeps the variant that also marks the interrupt — which `/stop` must not do, or the preempted query stops showing "🛑 Query stopped.".
+- **Item 4** changed `handleProcessingError`'s third parameter from `toolMessages: Message[]` to `state: StreamingState`. Only two non-test callers exist (`video.ts`, `run-prompt.ts`); both pass `state`. `text.ts` gains the `console.debug` line it never emitted, as decided.
+- **Item 5 shipped with the four independent parameters.** `photo.ts` passes `auditInput: prompt`; `document.ts` passes `` `[${documents.length} docs] ${caption || ""}` ``, byte-identical to before. `video.ts` and `callback.ts` stayed out.
+- **Item 5's one reordering, checked and accepted.** `startProcessing()` used to run before the prompt was built; the caller now builds the prompt first. Unobservable: prompt construction is pure synchronous string building with no await, so nothing can interleave in the gap.
+
+**Coverage added** — five files that had none now have some. `text.test.ts`, `media-group.test.ts`, `callback.test.ts`, `prompt-audit.test.ts`, plus four tests appended to `commands.test.ts`.
+
+- Every behavior-preserving test was written against the **unrefactored** code and watched pass before the edit. Item 0's test was the exception and the proof: it failed first, because the missing `startProcessing()` was a real bug.
+- `prompt-audit.test.ts` spawns subprocesses. `AUDIT_LOG_PATH` binds at config module-eval and `bun test` shares one registry, so an in-process call would append test data to the real `/tmp/claude-telegram-audit.log`.
+- **Gap, stated not papered over:** `processDocuments` is not exported, so its audit input cannot be pinned against the pre-refactor code. What exists instead is a direct `runPrompt` guard — send `SECRET-DOCUMENT-BODY`, audit `[1 docs] a caption`, assert the log holds the second and not the first, with an exit-3 check that the prompt reached `sendMessageStreaming` so the negative assertion cannot pass vacuously.
+
+**Codex, three rounds.** Round 1 (source): no findings, SHIP. Round 2 (tests): three defects — a helper restoring prototype methods by assigning them back instead of deleting; two tests recording only *successful* deletions, so skipping the failing id produced the same array as attempting all three; and a throw-path test that a no-op handler would have passed. All three verified against source, fixed, and confirmed closed in round 3.
+
+Two claims Codex could not check from the diff were closed by direct grep instead of taken on faith: every `handleProcessingError` caller passes `state`, and `startProcessing()` sits after `answerCallbackQuery` (`callback.ts` :172 → :180 → try :185 → finally :198).
+
+**Still needs the live-bot pass:** text, photo, album, video, button, `/new`, `/stop`, and `/resume`'s recap. Item 0 changes what `/status` and `/stop` report during a resume recap, and items 1–5 touch every message path — none of which any in-process test reaches.
+
 ## Batch 5 — Local shrinks
 
 Each independent; drop any that reads worse after the edit.
@@ -382,7 +403,7 @@ Batch 6 (tests)                   ← last: the suite is the oracle for 1-5
 Batch 7 (comments)
 ```
 
-Per batch: `bun run typecheck` && `bun test`, then one commit. The counts must never fall below the batch before — **230 pass / 812 expect() after Batch 3**, and rising as Batches 4 and 5 add their coverage. A drop means a row was lost in porting. Baseline restated: a green typecheck does not prove runtime — `bun test` is the gate that matters, and neither covers the Telegram wire. Batch 3, and every Batch 4/5 item touching reactions or message flow, wants a live bot pass before the branch merges.
+Per batch: `bun run typecheck` && `bun test`, then one commit. The counts must never fall below the batch before — **248 pass / 848 expect() after Batch 4**, and rising as Batch 5 adds its coverage. A drop means a row was lost in porting. Baseline restated: a green typecheck does not prove runtime — `bun test` is the gate that matters, and neither covers the Telegram wire. Batch 3, and every Batch 4/5 item touching reactions or message flow, wants a live bot pass before the branch merges.
 
 ## Decisions — 2026-07-30
 

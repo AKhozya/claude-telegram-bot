@@ -33,33 +33,35 @@ export async function handleStart(ctx: Context): Promise<void> {
   );
 }
 
+/**
+ * Stop, wait for the abort to propagate, then clear stopRequested so the next message is
+ * not cancelled at query start. `session.ts` records that this pairing has already been
+ * dropped once by a hand-copy.
+ *
+ * Not folded into `ClaudeSession.stop()`: the settle is for whatever the caller does
+ * next, not for the stop itself, and `interruptForNewMessage` owns the variant that also
+ * marks the stop as an interrupt.
+ */
+async function stopAndSettle(): Promise<void> {
+  if (!session.isRunning) return;
+  const result = await session.stop();
+  if (result) {
+    await Bun.sleep(100);
+    session.clearStopRequested();
+  }
+}
+
 /** /new - Start a fresh session. */
 export async function handleNew(ctx: Context): Promise<void> {
-  if (session.isRunning) {
-    const result = await session.stop();
-    if (result) {
-      await Bun.sleep(100);
-      session.clearStopRequested();
-    }
-  }
-
+  await stopAndSettle();
   await session.kill();
 
   await ctx.reply("🆕 Session cleared. Next message starts fresh.");
 }
 
-/** /stop - Stop the current query (silently). */
-export async function handleStop(ctx: Context): Promise<void> {
-  if (session.isRunning) {
-    const result = await session.stop();
-    if (result) {
-      // Wait for the abort to be processed, then clear stopRequested so next message can proceed
-      await Bun.sleep(100);
-      session.clearStopRequested();
-    }
-    // Silent stop - no message shown
-  }
-  // If nothing running, also stay silent
+/** /stop - Stop the current query. Silent either way, running or not. */
+export async function handleStop(_ctx: Context): Promise<void> {
+  await stopAndSettle();
 }
 
 /** /status - Show detailed status. */

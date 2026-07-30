@@ -126,6 +126,16 @@ class ClaudeSession {
     this.stopRequested = false;
   }
 
+  /**
+   * Name the conversation from its opening message. No-op once a session exists, so a
+   * follow-up never renames it. The seed stays caller-side — each handler has its own
+   * fallback for an empty caption.
+   */
+  setTitleIfNew(seed: string): void {
+    if (this.isActive) return;
+    this.conversationTitle = seed.length > 50 ? seed.slice(0, 47) + "..." : seed;
+  }
+
   /** Returns the cleanup function; the caller must invoke it when done. */
   startProcessing(): () => void {
     this._isProcessing = true;
