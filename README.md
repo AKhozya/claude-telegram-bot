@@ -27,15 +27,15 @@ To achieve this, I set up a folder with a CLAUDE.md that teaches Claude about me
 - 🎬 **Video**: Video messages and video notes are processed by Claude
 - 🔄 **Session persistence**: Conversations continue across messages
 - 📨 **Message queuing**: Send multiple messages while Claude works - they queue up automatically. Prefix with `!` or use `/stop` to interrupt and send immediately
-- 🧠 **Extended thinking**: Trigger Claude's reasoning by using words like "think" or "reason" - you'll see its thought process as it works (configurable via `THINKING_TRIGGER_KEYWORDS`)
+- 🧠 **Extended thinking**: Say "think" for a 10k-token reasoning budget or "ultrathink" for 50k - you'll see its thought process as it works (configurable via `THINKING_KEYWORDS` and `THINKING_DEEP_KEYWORDS`)
 - 🔘 **Interactive buttons**: Claude can present options as tappable inline buttons via the built-in `ask_user` MCP tool
 - 📎 **File delivery**: Claude can send files (images, videos, audio, documents) back to the chat via the `send_file` MCP tool
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/linuz90/claude-telegram-bot?tab=readme-ov-file
-cd claude-telegram-bot-ts
+git clone https://github.com/linuz90/claude-telegram-bot
+cd claude-telegram-bot
 
 cp .env.example .env
 # Edit .env with your credentials
@@ -77,15 +77,15 @@ Note: API usage is billed per token and can get expensive quickly for heavy use.
 2. Send `/newbot` and follow the prompts to create your bot
 3. Copy the token (looks like `1234567890:ABC-DEF...`)
 
-Then send `/setcommands` to BotFather and paste this:
+No `/setcommands` step needed — the bot calls `setMyCommands` on every boot (`src/index.ts`) and overwrites whatever BotFather holds. The registered set:
 
 ```
-start - Show status and user ID
-new - Start a fresh session
-resume - Pick from recent sessions to resume
-stop - Interrupt current query
-status - Check what Claude is doing
-restart - Restart the bot
+new - Start a new Claude session
+stop - Stop the current query
+status - Show session status
+resume - Resume a saved session
+retry - Retry the last message
+restart - Restart the bot process
 ```
 
 ### 2. Configure Environment
@@ -120,8 +120,8 @@ ALLOWED_PATHS=/your/project,/other/path,~/.claude
 Copy and edit the MCP config:
 
 ```bash
-cp mcp-config.ts mcp-config.local.ts
-# Edit mcp-config.local.ts with your MCP servers
+cp mcp-config.example.ts mcp-config.ts
+# Edit mcp-config.ts with your MCP servers
 ```
 
 The bot includes two built-in MCP servers:
@@ -134,11 +134,12 @@ Add your own MCP servers (Things, Notion, Typefully, etc.) to give Claude access
 
 | Command    | Description                       |
 | ---------- | --------------------------------- |
-| `/start`   | Show status and your user ID      |
+| `/start`   | Show session status, working directory, and the command list (works, but not listed in the Telegram command menu) |
 | `/new`     | Start a fresh session             |
 | `/resume`  | Pick from last 5 sessions to resume (with recap) |
 | `/stop`    | Interrupt current query           |
 | `/status`  | Check what Claude is doing        |
+| `/retry`   | Re-run the last message           |
 | `/restart` | Restart the bot                   |
 
 ## Running as a Service (macOS)
@@ -192,13 +193,13 @@ bun run --bun tsc --noEmit
 Multiple layers protect against misuse:
 
 1. **User allowlist** - Only your Telegram IDs can use the bot
-2. **Intent classification** - AI filter blocks dangerous requests
-3. **Pre-execution tool gate** - A `PreToolUse` SDK hook validates every Bash/file tool call *before* it runs (denies under `bypassPermissions`), restricting file access to `ALLOWED_PATHS`
-4. **Command safety** - Destructive patterns like `rm -rf /` are blocked. This denylist is **best-effort only** — it is trivially bypassable by construction; real containment comes from the pre-execution gate, the path allowlist, and running the bot in a container
+2. **Pre-execution tool gate** - A `PreToolUse` SDK hook validates every Bash/file tool call *before* it runs (denies under `bypassPermissions`), restricting file access to `ALLOWED_PATHS` plus `/tmp`, `/private/tmp` and `/var/folders`, with a read-only exemption for `~/.claude`
+3. **OS Bash sandbox** - Bash runs under Seatbelt (macOS) or bubblewrap (Linux), fail-closed and on by default; `BASH_SANDBOX_ENABLED=false` only for environments that block unprivileged user namespaces
+4. **Command safety** - Destructive patterns like `rm -rf /` are blocked. This denylist is **best-effort only** — it is trivially bypassable by construction; real containment comes from the pre-execution gate, the OS sandbox, the path allowlist, and running the bot in a container
 5. **Rate limiting** - Prevents runaway usage
 6. **Audit logging** - All interactions logged to `/tmp/claude-telegram-audit.log`
 
-Because the bot runs the Agent SDK with `permissionMode: bypassPermissions`, layers 3–4 (plus the container boundary) are the enforcing controls — not the advisory system prompt.
+Because the bot runs the Agent SDK with `permissionMode: bypassPermissions`, layers 2–4 (plus the container boundary) are the enforcing controls — not the advisory system prompt.
 
 ## Troubleshooting
 

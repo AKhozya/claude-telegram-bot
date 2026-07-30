@@ -29,7 +29,7 @@ For example, I wanted my assistant to summarize videos, so I asked it to create 
 
 ![Video summary example](../assets/demo-video-summary.gif)
 
-So wether I launch a Claude Code session (usually with the `--dangerously-skip-permissions` flag) on my Mac or chat with the Telegram bot, **Claude is now my 24/7 executive assistant**.
+So whether I launch a Claude Code session (usually with the `--dangerously-skip-permissions` flag) on my Mac or chat with the Telegram bot, **Claude is now my 24/7 executive assistant**.
 
 ## CLAUDE.md is the Assistant's Brain
 
@@ -544,6 +544,6 @@ bun run cli/integrations/slack.ts thread <url>          # Full thread from a Sla
 
 Combined with Linear and Notion access, Claude can give me a complete picture of what's been happening at work — all from a quick Telegram message while I'm grabbing coffee.
 
-In the end, it's up to you wether to create scripts, skills, commands, or any combination of them to empower your agent to assist you. Sky's the limits, and seems like this is evolving every day now.
+In the end, it's up to you whether to create scripts, skills, commands, or any combination of them to empower your agent to assist you. Sky's the limits, and seems like this is evolving every day now.
 
 I'd love to know what you're building, [hit me up on X](https://x.com/linuz90).

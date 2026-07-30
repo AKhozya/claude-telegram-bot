@@ -59,19 +59,49 @@ Configure via:
 - `RATE_LIMIT_REQUESTS` - Requests per window (default: 20)
 - `RATE_LIMIT_WINDOW` - Window in seconds (default: 60)
 
-### Layer 3: Path Validation
+### Layer 3: Pre-Execution Tool Gate
+
+A `PreToolUse` SDK hook (`src/session.ts`, backed by `evaluateToolUse` in `src/security.ts`) runs before every tool call and returns `permissionDecision: "deny"` for anything it rejects. Under `bypassPermissions` this is the enforcing control for native tools — nothing else stops a Read, Write, Edit or Bash call.
+
+It denies:
+- Tools in `DENIED_TOOLS` (also passed to the SDK as `disallowedTools`, so the model rarely emits them)
+- `WebFetch` with a non-string `url`, and — when `url` is a non-empty string — a non-`http(s)` scheme, an unparseable URL, `localhost` / `*.localhost` / `*.local` / `*.internal` / `metadata.google.internal`, or a host resolving into `0/8`, `10/8`, `127/8`, `169.254/16`, `172.16/12`, `192.168/16`, `::1`, `::`, `fe80::/10` or `fc00::/7`. Domain names are resolved and every returned address re-checked, so `evil.example.com A 169.254.169.254` is caught; resolution failure blocks. **Not** a full public/private classifier — CGNAT (`100.64/10`) and other reserved ranges are not covered, and active DNS rebinding needs IP pinning the SDK does not expose. Egress policy is the backstop.
+- `Bash` commands failing the command-safety checks in Layer 6
+- `Read`/`Write`/`Edit`/`NotebookEdit` on paths outside `ALLOWED_PATHS` **and** outside the three `TEMP_PATHS` (see Layer 5 — temp is allowed for read *and* write). One exemption: a native `Read` under `$HOME/.claude/` is allowed even when that directory is not in `ALLOWED_PATHS`, so Claude can load its own config and skills. It fails closed if `HOME` is unset.
+- Within those same four tools, denied by name even inside an allowed path: credential stores (read and write), and the bot's own session, restart and audit files (read and write — reading exfils conversations, writing is DoS)
+- Code-execution control files (`settings*.json`, `.claude/hooks/**`, `.mcp.json`) — **write only**. `Read` is deliberately exempt so Claude can inspect its own config; the sandbox's `denyWrite` covers the Bash path separately
+- `Grep`/`Glob` with a search path outside the allowlist. Note this branch checks `isPathAllowed` only; the named runtime-file denials above do not apply to it
+
+The hook does **not** bind Bash syscalls. That is Layer 4's job, and the two are deliberately separate.
+
+### Layer 4: OS Bash Sandbox
+
+Bash runs inside an OS-level sandbox — Seatbelt on macOS, bubblewrap on Linux (`src/sandbox.ts`). Writes are confined to `ALLOWED_PATHS` plus one scratch dir (`/tmp/ctb-sandbox`); credential directories and the bot's own session/restart/audit files are read-denied.
+
+Fail-closed and **on by default**. An unrecognized value keeps it on; only an explicit `false`/`0`/`off`/`no` disables it:
+
+```bash
+BASH_SANDBOX_ENABLED=false
+```
+
+Set that **only** where bubblewrap cannot get unprivileged user namespaces — a hardened container (`seccompProfile: RuntimeDefault`, caps dropped), where the pod itself is the sandbox. Leaving it on there makes every Bash command fail closed.
+
+With the sandbox off, Layer 6's pattern matching is the only *filesystem* containment left on Bash — a real gap, not a redundancy. The env scrub (`sanitizeEnv`) and `strictMcpConfig` are independent of the sandbox and stay on either way.
+
+### Layer 5: Path Validation
 
 File operations are restricted to explicitly allowed directories.
 
 ```
 Default allowed paths:
-- CLAUDE_WORKING_DIR
+- CLAUDE_WORKING_DIR (or $HOME if unset)
 - ~/Documents
 - ~/Downloads
 - ~/Desktop
+- ~/.claude
 ```
 
-Customize via `ALLOWED_PATHS` (comma-separated).
+Customize via `ALLOWED_PATHS` (comma-separated). Setting it **overrides** the defaults — include `~/.claude` if you want plan mode to work.
 
 **Validation uses proper path containment checks:**
 - Symlinks are resolved before checking
@@ -79,12 +109,15 @@ Customize via `ALLOWED_PATHS` (comma-separated).
 - Only exact directory matches are allowed
 
 **Exception for temp files:**
-- Reading from /tmp/ and /var/folders/ is allowed
-- This enables handling of Telegram-downloaded files
+- `/tmp/`, `/private/tmp/` and `/var/folders/` are allowed, for **write as well as read** — `isPathAllowed` checks them before `ALLOWED_PATHS` and returns early
+- This enables handling of Telegram-downloaded files and the `ask_user` IPC files
+- Named exceptions still apply inside them: `Read`/`Write`/`Edit`/`NotebookEdit` on the session, restart and audit files are denied by path. `Grep`/`Glob` are not covered by that denial — a search rooted in `/tmp` can still match them
 
-### Layer 4: Command Safety
+### Layer 6: Command Safety
 
 Dangerous shell commands are blocked as defense-in-depth.
+
+**This denylist is best-effort only and trivially bypassable by construction** — an attacker who controls the command string has many spellings for the same effect. Real containment comes from Layers 3, 4 and 5, plus running the bot in a container. Treat this layer as a guard against accidents, not against an adversary.
 
 #### Completely Blocked Patterns
 
@@ -114,7 +147,7 @@ rm -r /tmp/mydir         # Allowed - /tmp is always permitted
 
 Each path argument is checked against `ALLOWED_PATHS` before execution.
 
-### Layer 5: System Prompt
+### Layer 7: System Prompt
 
 Claude receives a safety prompt that instructs it to:
 
@@ -123,9 +156,9 @@ Claude receives a safety prompt that instructs it to:
 3. **Never run dangerous commands** - Even if asked
 4. **Ask for confirmation on destructive actions**
 
-This is the primary protection layer. The other layers are defense-in-depth.
+**This layer is advisory, not enforcing.** A prompt cannot stop a tool call, and prompt injection targets it directly. The pre-execution gate (Layer 3) and the OS sandbox (Layer 4) are what actually deny; the prompt only makes compliance the default path.
 
-### Layer 6: Audit Logging
+### Layer 8: Audit Logging
 
 All interactions are logged for security review.
 

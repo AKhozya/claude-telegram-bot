@@ -8,12 +8,13 @@ Standing context for AI agents working in this repo. Claude Code also reads it t
 bun run start      # Run the bot
 bun run dev        # Run with auto-reload (--watch)
 bun run typecheck  # Run TypeScript type checking
+bun test           # Run the test suite (CI gates on this)
 bun install        # Install dependencies
 ```
 
 ## Architecture
 
-This is a Telegram bot (~3,300 lines TypeScript) that lets you control Claude Code from your phone via text, photos, and documents. Built with Bun and grammY.
+This is a Telegram bot that lets you control Claude Code from your phone via text, photos, and documents. Built with Bun and grammY. ~3,800 code lines in `src/`, ~5,700 across the repo including tests and the two MCP servers.
 
 ### Message Flow
 
@@ -25,8 +26,9 @@ Telegram message → Handler → Auth check → Rate limit → Claude session �
 
 - **`src/index.ts`** - Entry point, registers handlers, starts polling
 - **`src/config.ts`** - Environment parsing, MCP loading, safety prompts
-- **`src/session.ts`** - `ClaudeSession` class wrapping Agent SDK V2 with streaming, session persistence (`/tmp/claude-telegram-session.json`), and defense-in-depth safety checks
-- **`src/security.ts`** - `RateLimiter` (token bucket), path validation, command safety checks
+- **`src/session.ts`** - `ClaudeSession` class wrapping the Agent SDK with streaming, session persistence (`/tmp/claude-telegram-session.json`), and the `PreToolUse` hook that enforces the safety checks
+- **`src/security.ts`** - `RateLimiter` (token bucket), path validation, command safety, `evaluateToolUse` tool gate
+- **`src/sandbox.ts`** - OS-level Bash sandbox (Seatbelt / bubblewrap), env sanitizing, credential read-denies
 - **`src/formatting.ts`** - Markdown→HTML conversion for Telegram, tool status emoji formatting
 - **`src/utils.ts`** - Audit logging, typing indicators
 - **`src/types.ts`** - Shared TypeScript types
@@ -35,7 +37,7 @@ Telegram message → Handler → Auth check → Rate limit → Claude session �
 
 Each message type has a dedicated async handler:
 - **`commands.ts`** - `/start`, `/new`, `/stop`, `/status`, `/resume`, `/restart`, `/retry`
-- **`text.ts`** - Text messages with intent filtering
+- **`text.ts`** - Text messages; a `!` prefix interrupts the running query, `!stop` is a `/stop` alias
 - **`media.ts`** - Voice/audio reply that transcription isn't supported (STT removed)
 - **`photo.ts`** - Image analysis with media group buffering (1s timeout for albums)
 - **`document.ts`** - PDF extraction (pdftotext CLI), text files, archives
@@ -43,29 +45,62 @@ Each message type has a dedicated async handler:
 - **`callback.ts`** - Inline keyboard button handling for ask_user MCP
 - **`streaming.ts`** - Shared `StreamingState` and status callback factory
 
+Supporting modules in the same directory:
+- **`auth.ts`** - `authGate` middleware, the single choke point for the user allowlist
+- **`media-group.ts`** - Generic album buffer; rate-limits once per album, not per item
+- **`download.ts`** - Shared file download via the files plugin (honours `TELEGRAM_API_ROOT`)
+- **`reactions.ts`** - Best-effort 👀/👌/👎 message reactions
+- **`trigger.ts`** - HTTP endpoint that injects a prompt as if the first allowed user sent it. Binds `TRIGGER_HOST` (default `127.0.0.1`); disabled unless `TRIGGER_SECRET` is set
+- **`index.ts`** - Barrel re-exporting the above for `src/index.ts`
+
 ### Security Layers
 
 1. User allowlist (`TELEGRAM_ALLOWED_USERS`)
 2. Rate limiting (token bucket, configurable)
-3. Path validation (`ALLOWED_PATHS`)
-4. Command safety (blocked patterns)
-5. System prompt constraints
-6. Audit logging
+3. `PreToolUse` hook (`evaluateToolUse`) — the enforcing gate under `bypassPermissions`
+4. OS Bash sandbox (`BASH_SANDBOX_ENABLED`, on by default, fail-closed)
+5. Path validation (`ALLOWED_PATHS`)
+6. Command safety (blocked patterns — best-effort, trivially bypassable)
+7. System prompt constraints (advisory only)
+8. Audit logging
+
+Full detail in [SECURITY.md](SECURITY.md).
 
 ### Configuration
 
-All config via `.env` (copy from `.env.example`). Key variables:
-- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USERS` (required)
-- `CLAUDE_WORKING_DIR` - Working directory for Claude
-- `ALLOWED_PATHS` - Directories Claude can access
+All config via `.env` (copy from `.env.example`). Every configuration variable the code reads — OS-supplied ones (`HOME`, `PATH`, `TMPDIR`) excluded:
 
-MCP servers defined in `mcp-config.ts`.
+| Variable | Purpose |
+|---|---|
+| `TELEGRAM_BOT_TOKEN` | Required. From @BotFather |
+| `TELEGRAM_ALLOWED_USERS` | Required. Comma-separated numeric user IDs |
+| `TELEGRAM_API_ROOT` | Alternate Bot API server |
+| `CLAUDE_WORKING_DIR` | Working directory for Claude |
+| `CLAUDE_CODE_PATH` | Explicit path to the Claude CLI (auto-detected otherwise) |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` | Consumed by the SDK child, not by this code. `sandbox.ts` `AUTH_KEEP` passes them through to the child while still hiding them from sandboxed Bash |
+| `ALLOWED_PATHS` | Directories Claude can access — overrides all defaults |
+| `BASH_SANDBOX_ENABLED` | OS Bash sandbox; on unless explicitly `false`/`0`/`off`/`no` |
+| `RATE_LIMIT_ENABLED`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW` | Token bucket |
+| `THINKING_KEYWORDS`, `THINKING_DEEP_KEYWORDS` | Extended-thinking triggers |
+| `AUDIT_LOG_PATH`, `AUDIT_LOG_JSON` | Audit log location and format |
+| `SESSION_FILE_PATH`, `RESTART_FILE_PATH`, `TEMP_DIR` | Runtime file overrides |
+| `TEMP_REAP_INTERVAL_MS`, `TEMP_RETENTION_HOURS` | Temp-dir sweep cadence (default 1h) and file age (default 24h). Nothing else clears `TEMP_DIR` |
+| `TRIGGER_SECRET`, `TRIGGER_PORT`, `TRIGGER_HOST` | HTTP trigger; disabled without a secret |
+| `TELEGRAM_CHAT_ID` | Not user config — `session.ts` sets it so the MCP servers know the recipient |
+
+MCP servers defined in `mcp-config.ts` (copy from `mcp-config.example.ts`; absent means no MCPs).
 
 ### Runtime Files
 
-- `/tmp/claude-telegram-session.json` - Session persistence for `/resume`
-- `/tmp/telegram-bot/` - Downloaded photos/documents
-- `/tmp/claude-telegram-audit.log` - Audit log
+| Path | Purpose | Override |
+|---|---|---|
+| `/tmp/claude-telegram-session.json` | Session persistence for `/resume` | `SESSION_FILE_PATH` |
+| `/tmp/claude-telegram-restart.json` | Chat/message ids so `/restart` can edit its own status message | `RESTART_FILE_PATH` |
+| `/tmp/claude-telegram-audit.log` | Audit log | `AUDIT_LOG_PATH` |
+| `/tmp/telegram-bot/` | Downloaded photos/documents | `TEMP_DIR` |
+| `/tmp/ctb-sandbox` | Bash sandbox scratch dir — the only writable path outside `ALLOWED_PATHS` | — |
+| `/tmp/ask-user-<uuid>.json` | IPC file for one `ask_user` round trip | — |
+| `/tmp/send-file-<uuid>.json` | IPC file for one `send_file` request; polled by `streaming.ts` | — |
 
 ## Patterns
 
@@ -75,7 +110,7 @@ MCP servers defined in `mcp-config.ts`.
 
 **Streaming pattern**: All handlers use `createStatusCallback()` from `streaming.ts` and `session.sendMessageStreaming()` for live updates.
 
-**Type checking**: Run `bun run typecheck` periodically while editing TypeScript files. Fix any type errors before committing.
+**Before committing**: `bun run typecheck && bun test`. A green typecheck does not prove the bot runs — the suite is the gate that matters, and neither covers the Telegram wire.
 
 **After code changes**: Restart the bot so changes can be tested. Use `launchctl kickstart -k gui/$(id -u)/com.claude-telegram-ts` if running as a service, or `bun run start` for manual runs.
 
