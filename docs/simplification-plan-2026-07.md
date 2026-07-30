@@ -130,7 +130,21 @@ Compiler-checked, mechanical.
 - `.dockerignore` — add `.*.bun-build`. Two 63 MB leftovers are in the repo root right now and `COPY . .` ships all of it. Already in `.gitignore:46`.
 - `Dockerfile:6-7` — fold the `ARG BUILD_TS` cache-buster `RUN echo` into the `bun update` line; line 51 already uses that idiom. One layer.
 
-~469 MB off the image for three lines of text.
+**Measured on apply (2026-07-30, linux/arm64, `oven/bun:1.3-alpine`).** The ~469 MB
+estimate understated it — it assumed `node_modules` ≈343 MB; the real layer is 617 MB.
+
+| Layer | Before | After |
+|---|---|---|
+| `RUN chown -R akhozya:akhozya /app` | 744 MB | gone (8.19 kB non-recursive dir chown) |
+| `COPY . .` | 127 MB | 905 kB |
+| Layer sum | 2390 MB | 1520 MB |
+
+**−870 MB** for three lines of text — 744 from the duplicated recursive chown, 126 from
+the two `.bun-build` leftovers. `docker image ls` reports 3.27 GB → 2.12 GB.
+
+Equivalence checked in the built image, not assumed: uid 1000, `/app`, `/app/node_modules`
+and `/app/src` all `akhozya:akhozya`, `/app` writable, `import("grammy")` resolves,
+`.bun-build` absent, node and pdftotext present.
 
 ## Batch 3 — Bugs and one security fix
 

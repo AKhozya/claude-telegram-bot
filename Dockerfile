@@ -4,9 +4,8 @@ WORKDIR /app
 # install pins to bun.lock and rebuilds refresh nothing (froze SDK at 0.2.119).
 # bunfig.toml = minimumReleaseAge supply-chain gate.
 ARG BUILD_TS=local
-RUN echo "build: $BUILD_TS"
 COPY package.json bun.lock* bunfig.toml ./
-RUN bun update
+RUN echo "build: $BUILD_TS" && bun update
 
 FROM oven/bun:1.3-alpine
 
@@ -52,15 +51,18 @@ RUN echo "codex refresh: ${BUILD_TS}" \
     && npm install -g @openai/codex@latest \
     && codex --version
 
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY . .
-
 # oven/bun:alpine already has UID 1000 as 'bun' user.
-# Create akhozya as alias + home dir for K8s securityContext (runAsUser: 1000)
+# Create akhozya as alias + home dir for K8s securityContext (runAsUser: 1000).
+# Must precede the COPYs below — --chown resolves the name from /etc/passwd.
 RUN deluser bun && adduser -D -u 1000 -h /home/akhozya akhozya
 
-RUN chown -R akhozya:akhozya /app
+WORKDIR /app
+# --chown on each COPY, not a trailing `chown -R /app`: recursive chown rewrites
+# every inode into a new layer, duplicating node_modules (+744MB measured).
+RUN chown akhozya:akhozya /app
+COPY --from=deps --chown=akhozya:akhozya /app/node_modules ./node_modules
+COPY --chown=akhozya:akhozya . .
+
 USER akhozya
 
 CMD ["bun", "run", "src/index.ts"]
