@@ -213,9 +213,34 @@ Each independent; drop any that reads worse after the edit.
 | `photo.ts:29`, `document.ts:98`, `session.ts:87` | three spellings of "unique suffix" (`Date.now()+Math.random`, x2, and `randomUUID`) | `Bun.randomUUIDv7()`, one spelling |
 | `security.ts:488` / `sandbox.ts:31` | the credential-dir list maintained in two files; `security.ts:465` already says "Mirrors READ_DENY" | one exported `CREDENTIAL_DIRS`, **both enforcement sites kept** (no-cut #2) |
 
+## Coverage for Batches 4 and 5 — added 2026-07-30
+
+**The gap this closes.** Batch 6 below converts tests that already exist; it adds no coverage. Nothing anywhere in this plan tested `text.ts`, `photo.ts`, `video.ts`, `media-group.ts` or `callback.ts` — which is precisely the set Batches 4 and 5 rewrite. `bun test` stays green through any regression in them. Assuming Batch 6 covered this was wrong.
+
+**Rule: a Batch 4 or 5 item ships its test in the same commit as its edit.**
+
+**Order matters more than the tests do.** Write the test against the **unrefactored** code and watch it pass *before* touching anything. A test written after a behavior-preserving refactor only describes the new code — it cannot show behavior held, which is the single thing these two batches claim. Any test that will not pass before the edit is testing the wrong thing.
+
+No conflict with Batch 6's "run last": that rule forbids **rewriting** the existing suite mid-flight, because the suite is the oracle. Adding new coverage builds more oracle. Opposite direction.
+
+**Do not `mock.module("../session", …)`.** `mock.restore()` does not undo it in Bun 1.3.14, and Bun's test-file order is neither lexicographic nor settable, so a leak lands on an arbitrary set of later files — the hazard `session-reset.test.ts:11-14` records. The handlers use the `session` singleton, so assign over the one or two methods under test and restore them in `afterAll`. No module mocking, no leak class.
+
+What each item needs:
+
+| Item | Test |
+|---|---|
+| 4.0 `handleResumeCallback` | `isRunning` true during the query, false after — and after a throw |
+| 4.1 `setTitleIfNew` | the >50 truncation, and that an already-active session keeps its title. Then one call site per handler |
+| 4.2 `rateLimitOrReply` | over-limit replies and returns true; the album path charges once, not once per item |
+| 4.4 `deleteToolMessages` | every message attempted even when one delete throws — that swallow is the point |
+| 4.5 `runPrompt` | `processPhotos` and `processDocuments` only. Success and catch paths |
+| Batch 5 | Per row, and only where the row has observable behavior: `photo.ts:108-165`, `document.ts:81-84`, `document.ts:160-172`, `commands.ts:223-237`, `reactions.ts:10-19` |
+
+**Still uncovered after all of it:** the Telegram wire. A manual pass at deploy stays the check for that — nothing in-process reaches it.
+
 ## Batch 6 — Tests
 
-Run **after** all source batches are green. The test suite is the oracle for everything above; rewriting it mid-flight destroys the only signal that the refactors held.
+Run **after** all source batches are green. The test suite is the oracle for everything above; rewriting it mid-flight destroys the only signal that the refactors held. This batch **converts existing tests only** — the new coverage for Batches 4 and 5 is specified above.
 
 - `bunfig.toml` `[test] preload` — the `TELEGRAM_BOT_TOKEN`/`ALLOWED_USERS` preamble repeats in 12 of 16 test files. ~-29.
 - `security.test.ts:409-675` — 58 single-assertion `checkCommandSafety` blocks → `test.each` per describe, row[0] as the test name so failure output is unchanged. ~-97.
@@ -223,7 +248,7 @@ Run **after** all source batches are green. The test suite is the oracle for eve
 - `reactions/auth/streaming.test.ts` — 7 hand-rolled `const calls: any[] = []` push-closures → `mock()` + `toHaveBeenCalledWith`. ~-9.
 - `streaming.test.ts:43,60,78` — `await import("./streaming")` inside 3 tests when line 94 already imports it top-level. ~-3.
 
-Gate: test count must stay ≥228 and `expect()` calls ≥808 after each conversion. A drop means a row was lost in porting.
+Gate: neither the test count nor the `expect()` count may fall below what the branch carried into this batch. A drop means a row was lost in porting.
 
 ## Batch 7 — Comment sweep
 
@@ -323,7 +348,7 @@ Batch 6 (tests)                   ← last: the suite is the oracle for 1-5
 Batch 7 (comments)
 ```
 
-Per batch: `bun run typecheck` && `bun test` (≥228 pass, ≥808 expect), then one commit. Baseline restated: a green typecheck does not prove runtime — `bun test` is the gate that matters, and neither covers the Telegram wire. Batch 3 and any Batch 4 item touching reactions want a live bot smoke test before the branch merges.
+Per batch: `bun run typecheck` && `bun test`, then one commit. The counts must never fall below the batch before — **230 pass / 812 expect() after Batch 3**, and rising as Batches 4 and 5 add their coverage. A drop means a row was lost in porting. Baseline restated: a green typecheck does not prove runtime — `bun test` is the gate that matters, and neither covers the Telegram wire. Batch 3, and every Batch 4/5 item touching reactions or message flow, wants a live bot pass before the branch merges.
 
 ## Decisions — 2026-07-30
 
