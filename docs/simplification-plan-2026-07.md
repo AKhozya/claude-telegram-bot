@@ -5,6 +5,18 @@ Source: 41 TS files, 5,695 code lines, 982 comment lines (measured, not the 766 
 
 Eight parallel audits: core `src/`, `src/handlers/`, comments (x2), architecture, security, tests+MCP+infra, docs.
 
+## Where this stands — 2026-07-30
+
+Branch `simplify-2026-07`, off `7b600c1`. Run `git log --oneline main..HEAD` — that, not this block, is the authority on what landed.
+
+| Batch | State |
+|---|---|
+| 0, 0b docs · 1 free deletes · 2 docker · 3 bugs | **Done.** Codex clean on each |
+| 4 dedup helpers | Next. Item 0 carried over from Batch 3 |
+| 5 local shrinks · 6 tests · 7 comments | Not started |
+
+Gate now reads **230 pass / 812 expect()**, up from the 228/808 baseline — Batch 3 added two audit-log tests. Batches 4 and 5 ship their own coverage (see the section before Batch 6), so this number rises; it must never fall.
+
 ## Constraints agreed before the audit
 
 | Constraint | Value |
@@ -166,24 +178,46 @@ Note on 2: folding `callback.ts`'s catch into `handleProcessingError` also **add
 
   The real fix for secrets in the log is **redaction**, not the file mode — `AUDIT_LOG_JSON=true` writes message and response untruncated, and 0600 only decides who can read them. Still out of scope here.
 
-## Batch 4 — The actual win: six copies of one handler tail
+## Batch 4 — Five helpers for duplicated handler code
+
+*(Was headed "six copies of one handler tail". Misleading: six is the rate-limit-block count in item 2. The `runPrompt` tail in item 5 has two confirmed sites.)*
 
 Ordered smallest-blast-radius first so each lands green before the next.
 
-0. **`handleResumeCallback` `startProcessing()`** — carried over from Batch 3, approved 2026-07-30. It runs a query with no `startProcessing()`, exactly the drift Batch 3 fixed one function up in `handleCallback`. Same shape: the call after the guards, `stopProcessing()` in the existing `finally`. Behavior-changing like the rest of Batch 3 — `/status` and `/stop` start reporting the resume recap as running. No `isRunning` interrupt check precedes it, so placement is free.
+**Locate by grep, not by line number.** Every item below lands in files the item before it just moved, so any line number written here is wrong by the time it is read. The anchors given are stable strings. Line numbers still in Batch 5 are from the original audit against `7b600c1` and have already drifted through Batches 1 and 3 — re-derive those too.
 
-1. **`session.setTitleIfNew(seed)`** — the `if (!session.isActive) { …len>50 ? slice(0,47)+"..." : raw }` block is copied 5x (`text.ts:48`, `photo.ts:62`, `document.ts:342`, `document.ts:419`, `video.ts:98`). `conversationTitle` and `isActive` are both session state written from five handler files. 4-line method, five one-line call sites. ~25 → ~9.
-2. **`rateLimitOrReply(ctx, userId, username): Promise<boolean>`** — the same 9 lines (check → `auditLogRateLimit` → `⏳ Rate limited` → `markFailed` → return) at `text.ts:36`, `photo.ts:111`, `video.ts:56`, `document.ts:537`, `document.ts:561`, `media-group.ts:103`. Not middleware — albums are charged once per album, per `photo.ts:106`. Free bonus: `document.ts`'s two copies are sibling branches of one function; hoisting above the split kills one with no helper at all. ~-32.
+0. **`handleResumeCallback` `startProcessing()`** — carried over from Batch 3, approved 2026-07-30. It runs a query with no `startProcessing()`, exactly the drift Batch 3 fixed one function up in `handleCallback`. Behavior-changing like the rest of Batch 3 — `/status` and `/stop` start reporting the resume recap as running.
+
+   **Placement is not free** (plan review, 2026-07-30 — the first draft of this item said it was). "After the guards" is too early: `editMessageText` and the bare `await ctx.answerCallbackQuery(…)` still run before the `try`, and `answerCallbackQuery` is unguarded. Starting processing before it means a throw there skips `stopProcessing()` and strands `isRunning` true for the process lifetime. Put the call **after `answerCallbackQuery`, immediately before `const typing = …`** — the same position Batch 3 used in `handleCallback` — or widen the `try/finally` to cover every await after it. The narrower claim does hold: no `isRunning` interrupt check precedes this function's query, unlike `handleCallback`.
+
+1. **`session.setTitleIfNew(seed)`** — the `if (!session.isActive) { …len>50 ? slice(0,47)+"..." : raw }` block, copied 5x. `grep -n "if (!session.isActive)" src/handlers/*.ts` — `text.ts`, `photo.ts`, `video.ts`, and **two** in `document.ts`. `conversationTitle` and `isActive` are both session state written from **five sites across four files**. 4-line method, five one-line call sites. ~25 → ~9. Plan review confirms all five are identical apart from the seed string.
+2. **`rateLimitOrReply(ctx, userId, username): Promise<boolean>`** — the same 9 lines (check → `auditLogRateLimit` → `⏳ Rate limited` → `markFailed` → return), 6x. `grep -n auditLogRateLimit src/handlers/*.ts` — `text.ts`, `photo.ts`, `video.ts`, `media-group.ts`, and **two** in `document.ts`. Not middleware — albums are charged once per album (see the `mediaGroupId` branch in `photo.ts`). ~-32.
+
+   Plan review confirms the six blocks themselves are interchangeable: same check, same `auditLogRateLimit`, same exact reply text, same `markFailed`, same bare return from a `Promise<void>` caller. A boolean helper must still make the caller return, and each call must stay inside its existing guard.
+
+   **The "free hoist" in `document.ts` was wrong — do not do it** (plan review, 2026-07-30). The two copies are not parallel branches of one split. The first sits inside `if (isArchiveFile) { … return; }`; the second inside `if (!mediaGroupId)`. Hoisting above them would charge **every album item individually**, breaking the once-per-album rule this same item relies on. A `downloadDocument` failure path also `return`s before both, so a hoisted check would rate-limit requests that currently return first. Keep both calls where they are.
 3. **`stopAndSettle()`** in `commands.ts` — `handleNew:38-44` re-inlines `handleStop:53-60`'s stop → `Bun.sleep(100)` → `clearStopRequested` dance. That 100 ms + clear pairing is exactly the coupling `session.ts:170-178` records as already dropped once by a hand-copy. ~-6.
-   *Not* folding the sleep into `ClaudeSession.stop()`: `session.test.ts:35-57` asserts the literal `["mark","stop","clear"]` sequence as the regression guard for that drift. Rewriting the test that exists to catch this class of change is the wrong trade.
-4. **`state.deleteToolMessages(ctx)`** on `StreamingState` — the 7-line swallow-and-delete loop at `streaming.ts:498`, `callback.ts:121`, `media-group.ts:165`, `text.ts:80`. It already owns the array. ~-19.
+   The duplication itself is confirmed: both handlers run the same `isRunning` → `stop()` → successful-result → `sleep(100)` → `clearStopRequested` sequence.
+
+   **The stated reason for not folding the sleep into `ClaudeSession.stop()` was false** (plan review, 2026-07-30). That test exercises `session.interruptForNewMessage()`, not `handleNew`/`handleStop`, and it stubs `s.stop` — so moving a sleep into the real `stop()` would not fail it. It guards mark/stop/clear **ordering**, nothing about the sleep. The decision to leave `stop()` alone may still be right, but it needs a real reason: check `stop()`'s other callers first and confirm none of them would be wrong with a 100 ms settle baked in. Decide at apply time on that evidence, not on this test.
+4. **`state.deleteToolMessages(ctx)`** on `StreamingState` — the 7-line swallow-and-delete loop. `grep -n "for (const toolMsg of" src/handlers/*.ts`. It already owns the array. ~-19.
+
+   **Five sites now, not the four the audit found** — Batch 3 added one to `document.ts`'s `processArchive` catch. `media-group.ts`'s copy is inside `handleProcessingError` and takes `toolMessages` as a parameter, not `state`; converting it means changing that signature or passing the state in. Decide which at apply time.
+
+   Per plan-review finding 3, the unified version **logs** (`console.debug("Failed to delete tool message:", …)`). `text.ts` swallows silently today and gains that line. Debug-level, no user-visible change, recorded rather than absorbed.
 5. **`runPrompt(ctx, {...})`** — the full tail (`startProcessing` → title → typing → `StreamingState` + `createStatusCallback` → `sendMessageStreaming` → `auditLog` → `markDone` → catch → `finally`).
 
-   **CORRECTED after plan review.** The original claim — "three byte-identical sites: `processPhotos`, `processDocuments`, the `processArchive` tail" — was wrong. The success paths match; the catch blocks do not. `processPhotos` and `processDocuments` catch with `handleProcessingError(ctx, error, state.toolMessages)` (`document.ts:451`). `processArchive`'s catch (`document.ts:377-387`) is a different shape: `console.error` → `markFailed` → delete **only** `statusMsg` → `ctx.reply(\`❌ Failed to process archive: ${String(error).slice(0,100)}\`)`. It never touches `state.toolMessages`.
+   **CORRECTED after plan review.** The original claim — "three byte-identical sites: `processPhotos`, `processDocuments`, the `processArchive` tail" — was wrong. The success paths match; the catch blocks do not. `processPhotos` and `processDocuments` catch with `handleProcessingError(ctx, error, state.toolMessages)`. `processArchive` still catches differently: `console.error` → `markFailed` → delete `statusMsg` → its own `❌ Failed to process archive: …` text. (Batch 3 added a tool-message loop there, so the *leak* is gone, but the error text and shape still differ — folding it would change what the user reads.)
 
-   Real behavior-preserving scope is **two** sites: `processPhotos` and `processDocuments`. Folding `processArchive` in would change the user-facing error text and start deleting tool messages — an unflagged behavior change.
+   Confirmed scope is **two** sites: `processPhotos` and `processDocuments`.
 
-   **Do not fold in `callback.ts`** — it calls no `markFailed`. (Decision 1 approved its `isRunning` fix, not folding its catch; Batch 3 as applied left the catch inline.) Hold `video.ts` until Batch 3 lands, or the refactor silently preserves the bug.
+   **CRITICAL, from the 2026-07-30 plan review — the two "matching" success paths do not match.** `photo.ts` audits the **full constructed prompt** (`auditLog(userId, username, "PHOTO", prompt, response)`); `document.ts` audits a summary (`` `[${documents.length} docs] ${caption || ""}` ``) precisely because the prompt holds entire document bodies. A helper that derives its audit input from `prompt` would start writing **whole documents into the audit log** — which Batch 3 established is written unredacted under `AUDIT_LOG_JSON`. The helper therefore needs `prompt`, `titleSeed`, `auditAction` and `auditInput` as four independent parameters, never derived from one another.
+
+   Second constraint from the same finding: prompt construction currently happens after `startProcessing()` but **outside** the `try`. Precomputing it for the helper, or moving it inside, shifts the exception boundary. Preserve the existing order and boundary — or skip this extraction. Of the five items this is the one with the least margin; dropping it costs the least too.
+
+   **Do not fold in `callback.ts`** — it calls no `markFailed`. (Decision 1 approved its `isRunning` fix, not folding its catch; Batch 3 as applied left the catch inline.)
+
+   **`video.ts` — keep it out.** The audit said hold it until Batch 3 landed, because folding it earlier would have baked the `[]` bug into the helper. Batch 3 has landed and its catch now matches the two confirmed sites — but the plan review looked at the whole tail and the evidence favours exclusion: it edits a status message before sending and deletes it after `markDone`, its catch adds a video-specific log and deletes that status before calling `handleProcessingError`, and its audit input is `caption || "[video]"` rather than the prompt. Folding it needs lifecycle hooks or special-casing that risk reordering operations. Reopen only if the helper stays simple while preserving every one of those steps.
 
 ## Batch 5 — Local shrinks
 
