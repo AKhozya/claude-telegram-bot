@@ -560,11 +560,9 @@ An adversarial review of this plan against the source found four defects in it. 
 
 ### Open risk — accepted or fixed before merge
 
-The per-batch gate (`bun run typecheck` + `bun test`) **cannot catch findings 1, 3, or 4.** There is no `text.test.ts`, `photo.test.ts`, `video.test.ts`, `media-group.test.ts`, or `callback.test.ts` — and Batch 4/5's dedup work touches exactly those five files. The suite stays green through every regression above.
+The per-batch gate (`bun run typecheck` + `bun test`) **cannot catch findings 1, 3, or 4.** There was no `text.test.ts`, `photo.test.ts`, `video.test.ts`, `media-group.test.ts`, or `callback.test.ts` — and Batch 4/5's dedup work touches exactly those five files. The suite stayed green through every regression above.
 
-Batch 2 (Dockerfile, `.dockerignore`) is outside the gate entirely — it needs a real `docker build` plus image inspection to confirm the ~469 MB claim.
-
-Before Batch 4/5 merge, one of: add smoke coverage for the five untested handlers, or run a live-bot pass over text / photo / video / album / button paths. Batch 2 needs its own `docker build` check.
+**Resolved as written, 2026-07-30.** Batches 4 and 5 shipped `text.test.ts`, `media-group.test.ts` and `callback.test.ts` with their edits. `photo.ts` and `video.ts` are still untested and stay on the live-bot pass at the end of this document. Batch 2 was measured at apply time with a real `docker build` — see the Batch 2 section, which supersedes the ~469 MB estimate with −870 MB.
 
 ### Consequence of decision 3
 
@@ -596,10 +594,12 @@ what Batches 3, 4 and 5 left behind, unchanged.
 | `/resume` | pick a saved session | check what `/status` and `/stop` report **during the recap** — Batch 4 changed it |
 | `/restart` | once | Batch 7 could not settle statically whether the 500 ms sleep is what stops a redelivered `/restart` looping. Watch for a restart loop |
 
-### 2. Batch 2 is outside the gate
+### 2. Batch 2 — already closed, not outstanding
 
-The Dockerfile and `.dockerignore` changes need a real `docker build` plus image inspection
-to confirm the ~469 MB claim. Nothing in the suite touches them.
+The Dockerfile and `.dockerignore` changes sit outside `bun test` entirely, so they were
+verified separately **at apply time**: a real `docker build` on linux/arm64 plus in-image
+inspection. Numbers and equivalence checks are in the Batch 2 section above. Nothing further
+is needed unless the base image moves.
 
 ### 3. The MCP `registerTool` rewrite, if it is taken
 
