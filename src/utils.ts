@@ -16,6 +16,10 @@ import {
 
 // ============== Audit Logging ==============
 
+// The chmod promise, not a boolean: a second audit write must wait for the first one's
+// chmod, not skip it because a flag was already flipped and append to the 0644 file.
+let auditModeEnforced: Promise<void> | null = null;
+
 async function writeAuditLog(event: AuditEvent): Promise<void> {
   try {
     let content: string;
@@ -37,7 +41,20 @@ async function writeAuditLog(event: AuditEvent): Promise<void> {
     }
 
     const fs = await import("fs/promises");
-    await fs.appendFile(AUDIT_LOG_PATH, content);
+    // 0600, not the umask default 0644: under AUDIT_LOG_JSON the message and response
+    // are written unredacted, and the default path is world-readable /tmp.
+    //
+    // The chmod runs BEFORE the append, not after: `mode` is ignored when the file
+    // already exists, so appending first would put one record in a 0644 file left by an
+    // older build and only close it afterwards. ENOENT is the ordinary first-run case —
+    // there is nothing to tighten and the append below creates it 0600.
+    auditModeEnforced ??= fs.chmod(AUDIT_LOG_PATH, 0o600).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        console.error("Failed to restrict audit log permissions:", error);
+      }
+    });
+    await auditModeEnforced;
+    await fs.appendFile(AUDIT_LOG_PATH, content, { mode: 0o600 });
   } catch (error) {
     console.error("Failed to write audit log:", error);
   }

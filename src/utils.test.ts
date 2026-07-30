@@ -1,10 +1,12 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   mkdirSync,
   writeFileSync,
   utimesSync,
   lutimesSync,
   lstatSync,
+  statSync,
+  chmodSync,
   existsSync,
   rmSync,
   symlinkSync,
@@ -13,6 +15,8 @@ import {
 // config.ts (pulled in transitively) reads these at module-eval time.
 process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
 process.env.TELEGRAM_ALLOWED_USERS = "1";
+const AUDIT_PATH = `/tmp/audit-mode-test-${process.pid}.log`;
+process.env.AUDIT_LOG_PATH = AUDIT_PATH;
 
 const { reapTempDir } = await import("./utils");
 
@@ -23,6 +27,51 @@ const age = (path: string, hoursAgo: number) => {
   const t = (Date.now() - hoursAgo * HOUR) / 1000;
   utimesSync(path, t, t);
 };
+
+// The JSON branch writes the message and response unredacted, so a world-readable log
+// hands any local user whatever was pasted into Telegram.
+//
+// Each case runs in a subprocess: AUDIT_LOG_PATH is read once at config module-eval and
+// bun test shares one module registry across files, so an in-process call here would
+// write to the real /tmp/claude-telegram-audit.log. A fresh process also resets the
+// once-per-process chmod flag, which is the only way to exercise both cases.
+const writeTwoAuditLines = async (): Promise<number> => {
+  const proc = Bun.spawn(
+    [
+      "bun",
+      "-e",
+      `const { auditLog } = await import("${import.meta.dir}/utils.ts");
+       await auditLog(1, "tester", "TEXT", "hunter2", "ok");
+       await auditLog(1, "tester", "TEXT", "again");`,
+    ],
+    {
+      env: { ...process.env, AUDIT_LOG_PATH: AUDIT_PATH },
+      stdout: "ignore",
+      stderr: "inherit",
+    }
+  );
+  return await proc.exited;
+};
+
+describe("audit log permissions", () => {
+  // Unconditional: a failed assertion would otherwise strand the log on disk, and the
+  // case that fails is the one that leaves it readable.
+  beforeEach(() => rmSync(AUDIT_PATH, { force: true }));
+  afterEach(() => rmSync(AUDIT_PATH, { force: true }));
+
+  test("creates the log 0600, not the umask default 0644", async () => {
+    expect(await writeTwoAuditLines()).toBe(0);
+    expect(statSync(AUDIT_PATH).mode & 0o777).toBe(0o600);
+  });
+
+  test("tightens a log an older build left world-readable", async () => {
+    writeFileSync(AUDIT_PATH, "");
+    chmodSync(AUDIT_PATH, 0o644); // writeFileSync's mode is subject to umask; this is not
+
+    expect(await writeTwoAuditLines()).toBe(0);
+    expect(statSync(AUDIT_PATH).mode & 0o777).toBe(0o600);
+  });
+});
 
 describe("reapTempDir", () => {
   const dir = `/tmp/reaper-test-${process.pid}`;

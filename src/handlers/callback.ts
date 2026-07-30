@@ -99,6 +99,8 @@ export async function handleCallback(ctx: Context): Promise<void> {
     await session.interruptForNewMessage();
   }
 
+  // Must follow the interrupt check above — it reads isRunning, which this sets.
+  const stopProcessing = session.startProcessing();
   const typing = startTypingIndicator(ctx);
 
   const state = new StreamingState();
@@ -136,6 +138,7 @@ export async function handleCallback(ctx: Context): Promise<void> {
       await ctx.reply(`❌ Error: ${describeError(error)}`);
     }
   } finally {
+    stopProcessing();
     typing.stop();
   }
 }

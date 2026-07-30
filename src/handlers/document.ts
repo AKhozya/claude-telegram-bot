@@ -316,6 +316,10 @@ async function processArchive(
     parse_mode: "HTML",
   });
 
+  // Declared outside the try so the catch can still reach the tool messages the
+  // status callback posted — inside, a mid-query failure leaked every one of them.
+  const state = new StreamingState();
+
   try {
     console.log(`Extracting archive: ${fileName}`);
     const extractDir = await extractArchive(archivePath, fileName);
@@ -346,7 +350,6 @@ async function processArchive(
       session.conversationTitle = title;
     }
 
-    const state = new StreamingState();
     const statusCallback = createStatusCallback(ctx, state);
 
     const response = await session.sendMessageStreaming(
@@ -381,6 +384,13 @@ async function processArchive(
       await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id);
     } catch {
       // Ignore
+    }
+    for (const toolMsg of state.toolMessages) {
+      try {
+        await ctx.api.deleteMessage(toolMsg.chat.id, toolMsg.message_id);
+      } catch (cleanupError) {
+        console.debug("Failed to delete tool message:", cleanupError);
+      }
     }
     await ctx.reply(
       `❌ Failed to process archive: ${String(error).slice(0, 100)}`

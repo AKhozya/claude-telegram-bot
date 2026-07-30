@@ -84,6 +84,10 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
   const stopProcessing = session.startProcessing();
   const typing = startTypingIndicator(ctx);
 
+  // Declared outside the try so the catch can still reach the tool messages the
+  // status callback posted — inside, a mid-query failure leaked every one of them.
+  const state = new StreamingState();
+
   try {
     await ctx.api.editMessageText(
       chatId,
@@ -102,7 +106,6 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
       session.conversationTitle = title;
     }
 
-    const state = new StreamingState();
     const statusCallback = createStatusCallback(ctx, state);
 
     const response = await session.sendMessageStreaming(
@@ -131,7 +134,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
       // Ignore
     }
 
-    await handleProcessingError(ctx, error, []);
+    await handleProcessingError(ctx, error, state.toolMessages);
   } finally {
     stopProcessing();
     typing.stop();

@@ -156,6 +156,14 @@ and `/app/src` all `akhozya:akhozya`, `/app` writable, `import("grammy")` resolv
 
 Note on 2: folding `callback.ts`'s catch into `handleProcessingError` also **adds a 👎 reaction** it does not currently post. Do that knowingly or leave the catch inline.
 
+**Applied 2026-07-30.** Four items: the two above plus `processArchive` (plan-review finding 2, same leak class) and the audit-log mode.
+
+- `processArchive` got the minimal fix — `state` hoisted, a delete loop added — **not** a fold into `handleProcessingError`. Its error text and `markFailed` are unchanged, so Batch 4 item 5's two-site scope still holds.
+- **`callback.ts`'s catch stays inline.** The plan permitted either; inline wins on a fact the plan did not record: `callback.ts` calls neither `markDone` nor `markFailed`, so folding would post 👎 on failure while success still posts nothing. Asymmetric reactions are a worse outcome than the missing one.
+- `handleResumeCallback`, the next function down in `callback.ts`, runs a query with no `startProcessing()` either — the same drift. **Not applied**: outside the four approved items. Raised instead.
+- Audit log: the chmod runs **before** the append (`mode` is ignored on an existing file, so appending first writes one record into the 0644 file), and the once-per-process guard is a memoized promise, not a boolean — a boolean lets a concurrent second writer skip the pending chmod. Both were Codex findings against the first draft.
+- **Open question, deliberately not decided here.** When `chmod` fails with anything but `ENOENT`, the append still proceeds. Making it fail closed would drop audit records, which is a policy change this plan does not authorise. Codex accepted the deferral and noted the case is narrower than it looks: `chmod` needs ownership while append needs only write permission, so the usual way to hit it is group/other/ACL write on a file someone else owns. Not the only way — an append-only flag, or a transient filesystem error, gets there too.
+
 ## Batch 4 — The actual win: six copies of one handler tail
 
 Ordered smallest-blast-radius first so each lands green before the next.
@@ -171,7 +179,7 @@ Ordered smallest-blast-radius first so each lands green before the next.
 
    Real behavior-preserving scope is **two** sites: `processPhotos` and `processDocuments`. Folding `processArchive` in would change the user-facing error text and start deleting tool messages — an unflagged behavior change.
 
-   **Do not fold in `callback.ts`** (no `markFailed`, and decision 1 declined its fix). Hold `video.ts` until Batch 3 lands, or the refactor silently preserves the bug.
+   **Do not fold in `callback.ts`** — it calls no `markFailed`. (Decision 1 approved its `isRunning` fix, not folding its catch; Batch 3 as applied left the catch inline.) Hold `video.ts` until Batch 3 lands, or the refactor silently preserves the bug.
 
 ## Batch 5 — Local shrinks
 
@@ -326,9 +334,9 @@ Per batch: `bun run typecheck` && `bun test` (≥228 pass, ≥808 expect), then 
 
 All three land in Batch 3, before Batch 4 touches any of the same files.
 
-- Fixing `callback.ts` means folding its inlined catch into `handleProcessingError` **adds a 👎 reaction it does not post today**. That is the point of the fix — the drift is what dropped it — but it is user-visible on a failed button-initiated query.
+- Folding `callback.ts`'s inlined catch into `handleProcessingError` would **add a 👎 reaction it does not post today**. **Declined at apply time** — the fold restores no pair, because `callback.ts` posts no 👌 on success either; it only makes the reactions asymmetric. The `isRunning` fix landed without it.
 - Once `isRunning` is correct on the callback path, `/status` and `/stop` start reporting button-initiated queries as running. Anything that assumed the old (wrong) reading changes with it.
-- The audit-log mode fix is `mode: 0o600` on create plus an explicit chmod, mirroring `sandbox.ts:22`. It does not redact anything — under `AUDIT_LOG_JSON=true` the full message and response are still written, just no longer world-readable. Redaction is a separate question, not in this plan.
+- The audit-log mode fix is `mode: 0o600` on create plus a chmod for a log an older build left behind, mirroring `ensureScratchDir`'s `0o700` in `sandbox.ts`. It does not redact anything — under `AUDIT_LOG_JSON=true` the full message and response are still written, no longer world-readable **once the chmod succeeds**. When it cannot, see the open question above. Redaction is a separate question, not in this plan.
 
 ## Plan review — findings folded in
 
