@@ -158,6 +158,20 @@ Equivalence checked in the built image, not assumed: uid 1000, `/app`, `/app/nod
 and `/app/src` all `akhozya:akhozya`, `/app` writable, `import("grammy")` resolves,
 `.bun-build` absent, node and pdftotext present.
 
+**Re-measured 2026-07-30 at HEAD `1dce85b`**, both sides rebuilt from scratch on linux/arm64
+— the after side from the working tree, the before side from a detached worktree at
+`7b600c1` with the two `.bun-build` artifacts copied in, since they are untracked and a
+clean checkout does not carry them. Every figure above reproduced: `docker image ls`
+3.27 GB → 2.12 GB, layer sum 2390 MB → 1520 MB, the recursive chown 744 MB → 8.19 kB, and
+`node_modules` 617 MB on both sides. The two 63 MB `.bun-build` files were confirmed present
+inside the before image and absent from the after one. Ownership and the `import("grammy")`
+resolve are identical across both images, so the per-`COPY --chown` form is equivalent to
+the recursive chown it replaced.
+
+One figure drifted, as expected: `COPY . .` reads **934 kB** now against the 905 kB recorded
+at apply time — Batches 3-7 added test files to the build context. Nothing else moved, and
+`Dockerfile`/`.dockerignore` have not changed since `0cdb2f9`.
+
 ## Batch 3 — Bugs and one security fix
 
 **Behavior-changing by intent.** Each needs a yes.
