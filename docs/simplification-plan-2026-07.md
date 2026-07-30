@@ -643,13 +643,15 @@ blast radius is the whole prompt rather than one button.
 
 ## What is still unverified when the branch merges
 
-All seven batches are green under `bun run typecheck` + `bun test`. Neither reaches the
-Telegram wire, and no in-process test can. Three things need a human at deploy.
+All seven batches and the MCP rewrite are green under `bun run typecheck` + `bun test`.
+Neither reaches the Telegram wire, and no in-process test can. Three things need a human at
+deploy.
 
 ### 1. The live-bot pass
 
-Batches 6 and 7 changed no runtime behaviour — tests and comments only — so this list is
-what Batches 3, 4 and 5 left behind, unchanged.
+Batches 6 and 7 changed no runtime behaviour — tests and comments only — so most of this
+list is what Batches 3, 4 and 5 left behind, unchanged. The last two rows are the MCP
+rewrite, which did change behaviour and whose tests stop at the server.
 
 | Path | What to send | What changed under it |
 |---|---|---|
@@ -660,7 +662,8 @@ what Batches 3, 4 and 5 left behind, unchanged.
 | Album | 3+ images at once | the debounce was rewritten as one `arm()` closure. The album must be rate-limited **once**, not once per image |
 | Video | a video and a video note | the catch used to pass `[]` and leak tool messages; that is the Batch 3 fix |
 | Document | a PDF, a text file, and **two archives uploaded together** | the two-archive case is the Batch 5 fix: extraction dirs used to collide within a millisecond and delete each other's files mid-read |
-| Button | an `ask_user` prompt, then tap an option | the keyboard is now built with `.text().primary().row()`; `isRunning` must be true during the query and false after |
+| Button | an `ask_user` prompt, then tap an option | the keyboard is now built with `.text().primary().row()`; `isRunning` must be true during the query and false after. Also the first live exercise of the rewritten `ask_user` server — the tests prove it writes the right file, nothing proves `callback.ts` still finds it |
+| File | ask Claude to send a file back, with and without a caption | the rewritten `send_file` server. Same gap: the tests cover the write, not `streaming.ts` reading it. Send one image and one non-media file, so both the `replyWithPhoto` and `replyWithDocument` branches run |
 | `/new`, `/stop` | during a running query | the stop → settle → clear sequence |
 | `/resume` | pick a saved session | check what `/status` and `/stop` report **during the recap** — Batch 4 changed it |
 | `/restart` | once | Batch 7 could not settle statically whether the 500 ms sleep is what stops a redelivered `/restart` looping. Watch for a restart loop |
