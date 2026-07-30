@@ -69,6 +69,39 @@ Zero runtime risk. Highest ratio in the plan.
 
 **Rejected from the docs findings:** AGENTS.md:28 "Agent SDK V2" vs `session.ts:320` "// Use V1 query() API". These name different things — package generation vs API surface within the package. Not a contradiction. Drop the version marker rather than flip it to V1.
 
+### Batch 0b — Prose trims (itemised 2026-07-30, awaiting approval)
+
+Batch 0 shipped the factual corrections and skipped the plan's un-itemised "~17 lines of prose bloat". Itemised here. Real total is ~10 lines, not 17 — the original estimate counted the author's first-person narrative, which is register, not bloat.
+
+**Accepted — DELETE.** Each restates a heading, a code block, or a sentence already on the page.
+
+| # | Site | Text | Why |
+|---|---|---|---|
+| 1 | `SECURITY.md:3` | "This document describes the security architecture of the Claude Telegram Bot." | Restates the H1 above it. |
+| 2 | `SECURITY.md:20` (3rd sentence) | "Instead of per-action prompts, we rely on defense-in-depth with multiple security layers described below." | The `## Defense in Depth` heading two sections down is the same statement. Keep sentences 1-2. |
+| 3 | `SECURITY.md:35` | "The bot implements multiple layers of security:" | Restates the heading directly above. |
+| 4 | `SECURITY.md:148` | "Each path argument is checked against `ALLOWED_PATHS` before execution." | The code block immediately above demonstrates exactly this, four times, with per-line comments. |
+| 5 | `README.md:62` (final sentence) | "This uses your Claude Code subscription which is much more cost-effective for heavy usage." | Duplicates the table's "High usage, cost-effective" *and* the API-cost note at `:70`. Keep `:70`. |
+
+**Accepted — TRIM.**
+
+| # | Site | Cut | Keep |
+|---|---|---|---|
+| 6 | `README.md:190` | "for details on how permissions work and what protections are in place" | The link. A doc titled "Security Model" needs no gloss. |
+| 7 | `AGENTS.md:36` | "Each message type has a dedicated async handler:" | "Message-type handlers:" |
+
+**Considered and rejected.**
+
+| Site | Why it stays |
+|---|---|
+| `README.md:152` "The bot will start automatically on login and restart if it crashes." | Reads as restating "LaunchAgent", but a reader who doesn't know launchd learns the behaviour here. |
+| `README.md:189` security warning | Hedges and intensifiers are load-bearing in a warning. |
+
+**Protected — do not sweep.**
+
+- `README.md:12-20`, the "Claude Code as a Personal Assistant" section — the author's first-person pitch. Voice, not bloat.
+- **All of `docs/personal-assistant-guide.md`.** First-person narrative throughout, and lines 75, 304-306 and 355 are quoted `CLAUDE.md` prompt content — editing those changes a worked example, not prose. The `wether`→`whether` fix already applied is the whole of the intended change to this file.
+
 ## Batch 1 — Free deletes
 
 Compiler-checked, mechanical.
