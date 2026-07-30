@@ -59,7 +59,7 @@ The bot uses the `@anthropic-ai/claude-agent-sdk` which supports two authenticat
 | **CLI Auth** (recommended) | High usage, cost-effective              | Run `claude` once to authenticate |
 | **API Key**                | CI/CD, environments without Claude Code | Set `ANTHROPIC_API_KEY` in `.env` |
 
-**CLI Auth** (recommended): The SDK automatically uses your Claude Code login. Just ensure you've run `claude` at least once and authenticated. This uses your Claude Code subscription which is much more cost-effective for heavy usage.
+**CLI Auth** (recommended): The SDK automatically uses your Claude Code login. Just ensure you've run `claude` at least once and authenticated. Usage bills against your Claude Code subscription, not per token.
 
 **API Key**: For environments where Claude Code isn't installed. Get a key from [console.anthropic.com](https://console.anthropic.com/) and add to `.env`:
 
@@ -188,7 +188,7 @@ bun run --bun tsc --noEmit
 
 > **⚠️ Important:** This bot runs Claude Code with **all permission prompts bypassed**. Claude can read, write, and execute commands without confirmation within the allowed paths. This is intentional for a seamless mobile experience, but you should understand the implications before deploying.
 
-**→ [Read the full Security Model](SECURITY.md)** for details on how permissions work and what protections are in place.
+**→ [Read the full Security Model](SECURITY.md)**
 
 Multiple layers protect against misuse:
 

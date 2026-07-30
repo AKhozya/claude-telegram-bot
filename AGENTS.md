@@ -35,10 +35,9 @@ Telegram message → Handler → Auth check → Rate limit → Claude session �
 
 ### Handlers (`src/handlers/`)
 
-Each message type has a dedicated async handler:
+Message-type handlers:
 - **`commands.ts`** - `/start`, `/new`, `/stop`, `/status`, `/resume`, `/restart`, `/retry`
 - **`text.ts`** - Text messages; a `!` prefix interrupts the running query, `!stop` is a `/stop` alias
-- **`media.ts`** - Voice/audio reply that transcription isn't supported (STT removed)
 - **`photo.ts`** - Image analysis with media group buffering (1s timeout for albums)
 - **`document.ts`** - PDF extraction (pdftotext CLI), text files, archives
 - **`video.ts`** - Video messages and video notes
@@ -51,7 +50,8 @@ Supporting modules in the same directory:
 - **`download.ts`** - Shared file download via the files plugin (honours `TELEGRAM_API_ROOT`)
 - **`reactions.ts`** - Best-effort 👀/👌/👎 message reactions
 - **`trigger.ts`** - HTTP endpoint that injects a prompt as if the first allowed user sent it. Binds `TRIGGER_HOST` (default `127.0.0.1`); disabled unless `TRIGGER_SECRET` is set
-- **`index.ts`** - Barrel re-exporting the above for `src/index.ts`
+
+Voice and audio have no dedicated handler — `src/index.ts` replies inline that speech-to-text isn't supported, so users get a reply instead of silence.
 
 ### Security Layers
 
@@ -106,7 +106,7 @@ MCP servers defined in `mcp-config.ts` (copy from `mcp-config.example.ts`; absen
 
 **Adding a command**: Create handler in `commands.ts`, register in `index.ts` with `bot.command("name", handler)`
 
-**Adding a message handler**: Create in `handlers/`, export from `index.ts`, register in `index.ts` with appropriate filter
+**Adding a message handler**: Create in `handlers/`, import it directly in `src/index.ts`, register with the appropriate filter
 
 **Streaming pattern**: All handlers use `createStatusCallback()` from `streaming.ts` and `session.sendMessageStreaming()` for live updates.
 

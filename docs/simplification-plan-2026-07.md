@@ -83,6 +83,11 @@ Batch 0 shipped the factual corrections and skipped the plan's un-itemised "~17 
 | 4 | `SECURITY.md:148` | "Each path argument is checked against `ALLOWED_PATHS` before execution." | The code block immediately above demonstrates exactly this, four times, with per-line comments. |
 | 5 | `README.md:62` (final sentence) | "This uses your Claude Code subscription which is much more cost-effective for heavy usage." | Duplicates the table's "High usage, cost-effective" *and* the API-cost note at `:70`. Keep `:70`. |
 
+Rows 4 and 5 were both wrong, caught by the Codex review of the applied batch and reinstated in shortened form:
+
+- Row 4 — all four examples are single-target. `security.ts:207-248`'s rm parser loops every non-flag argument (`:211` skips anything starting with `-`) and rejects the whole command on the first out-of-bounds one; the code block never shows that. Replaced with one line stating it.
+- Row 5 — the table row says "cost-effective" and `:70` says the API is per-token, but neither states that CLI auth bills against the **subscription**. That is the mechanism a reader picks between. Replaced with one clause.
+
 **Accepted — TRIM.**
 
 | # | Site | Cut | Keep |

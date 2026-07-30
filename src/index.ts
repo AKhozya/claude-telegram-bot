@@ -12,7 +12,6 @@ import { TELEGRAM_TOKEN, WORKING_DIR, ALLOWED_USERS, RESTART_FILE } from "./conf
 import { unlinkSync, readFileSync, existsSync } from "fs";
 import { startTempReaper } from "./utils";
 import {
-  authGate,
   handleStart,
   handleNew,
   handleStop,
@@ -20,14 +19,14 @@ import {
   handleResume,
   handleRestart,
   handleRetry,
-  handleText,
-  handlePhoto,
-  handleDocument,
-  handleUnsupportedMedia,
-  handleVideo,
-  handleCallback,
-  startTriggerServer,
-} from "./handlers";
+} from "./handlers/commands";
+import { authGate } from "./handlers/auth";
+import { handleText } from "./handlers/text";
+import { handlePhoto } from "./handlers/photo";
+import { handleDocument } from "./handlers/document";
+import { handleVideo } from "./handlers/video";
+import { handleCallback } from "./handlers/callback";
+import { startTriggerServer } from "./handlers/trigger";
 
 // Create bot instance. TELEGRAM_API_ROOT (unset by default) points every
 // api/ctx.api call at a self-hosted Bot API server — needed for >20MB files.
@@ -78,10 +77,11 @@ bot.command("retry", handleRetry);
 
 bot.on("message:text", handleText);
 
-// No speech-to-text in this build; these reply with an "unsupported" notice
-// rather than falling through to the text handler with an empty body.
-bot.on("message:voice", handleUnsupportedMedia);
-bot.on("message:audio", handleUnsupportedMedia);
+// No speech-to-text in this build. Without this, voice/audio match no filter at
+// all — `message:text` needs a `text` field — and the user gets silence.
+bot.on(["message:voice", "message:audio"], (ctx) =>
+  ctx.reply("🎤 Voice and audio aren't supported — please send text.")
+);
 
 bot.on("message:photo", handlePhoto);
 

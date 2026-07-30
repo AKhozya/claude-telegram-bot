@@ -4,10 +4,9 @@
  * Rate limiting, path validation, command safety.
  */
 
-import { resolve, normalize, dirname, basename, join } from "path";
+import { resolve, dirname, basename, join } from "path";
 import { realpathSync, lstatSync, readlinkSync } from "fs";
 import { lookup } from "dns/promises";
-import type { RateLimitBucket } from "./types";
 import {
   ALLOWED_PATHS,
   AUDIT_LOG_PATH,
@@ -22,6 +21,11 @@ import {
 } from "./config";
 
 // ============== Rate Limiter ==============
+
+interface RateLimitBucket {
+  tokens: number;
+  lastUpdate: number;
+}
 
 class RateLimiter {
   private buckets = new Map<number, RateLimitBucket>();

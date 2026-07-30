@@ -1,7 +1,5 @@
 # Security Model
 
-This document describes the security architecture of the Claude Telegram Bot.
-
 ## Permission Mode: Full Bypass
 
 **This bot runs Claude Code with all permission prompts disabled.**
@@ -17,7 +15,7 @@ This means Claude can:
 - **Execute shell commands** without permission prompts
 - **Use all tools** (Bash, Edit, Write, etc.) autonomously
 
-This is intentional. The bot is designed for personal use from mobile, where confirming every file read or command would be impractical. Instead of per-action prompts, we rely on defense-in-depth with multiple security layers described below.
+This is intentional. The bot is designed for personal use from mobile, where confirming every file read or command would be impractical.
 
 **This is not configurable** - the bot always runs in bypass mode. If you need permission prompts, use Claude Code directly instead.
 
@@ -31,8 +29,6 @@ The bot is designed for **personal use by trusted users**. The primary threats w
 4. **Credential exposure** - Attempts to extract API keys, passwords, or secrets
 
 ## Defense in Depth
-
-The bot implements multiple layers of security:
 
 ### Layer 1: User Allowlist
 
@@ -145,7 +141,7 @@ rm -rf ./node_modules    # Allowed if cwd is in ALLOWED_PATHS
 rm -r /tmp/mydir         # Allowed - /tmp is always permitted
 ```
 
-Each path argument is checked against `ALLOWED_PATHS` before execution.
+Every non-flag target is checked, not just the first — one out-of-bounds target rejects the whole command. Tokens starting with `-` are skipped as flags.
 
 ### Layer 7: System Prompt
 

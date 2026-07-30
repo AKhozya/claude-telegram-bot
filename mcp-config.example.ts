@@ -10,15 +10,12 @@
 
 import { homedir } from "os";
 import { dirname } from "path";
+import type { McpServerConfig } from "./src/types";
 
 const HOME = homedir();
 const REPO_ROOT = dirname(import.meta.path);
 
-export const MCP_SERVERS: Record<
-  string,
-  | { command: string; args?: string[]; env?: Record<string, string> }
-  | { type: "http"; url: string; headers?: Record<string, string> }
-> = {
+export const MCP_SERVERS: Record<string, McpServerConfig> = {
   // Ask User - present options as Telegram inline keyboard buttons
   // Uncomment to enable interactive button prompts
   // "ask-user": {

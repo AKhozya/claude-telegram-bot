@@ -3,7 +3,6 @@
  */
 
 import type { Context, Api } from "grammy";
-import type { Message } from "grammy/types";
 import type { FileFlavor, FileApiFlavor } from "@grammyjs/files";
 
 export type StatusCallback = (
@@ -11,12 +10,6 @@ export type StatusCallback = (
   content: string,
   segmentId?: number
 ) => Promise<void>;
-
-// Rate limit bucket for token bucket algorithm
-export interface RateLimitBucket {
-  tokens: number;
-  lastUpdate: number;
-}
 
 // Session persistence
 export interface SavedSession {
@@ -69,11 +62,3 @@ export interface AuditEvent {
 // Flavored with the files plugin so ctx.getFile().download() exists on the context.
 export type BotContext = FileFlavor<Context>;
 export type BotApi = FileApiFlavor<Api>;
-
-export interface PendingMediaGroup {
-  items: string[];
-  ctx: BotContext;
-  caption?: string;
-  statusMsg?: Message;
-  timeout: Timer;
-}

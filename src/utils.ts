@@ -4,7 +4,6 @@
  * Audit logging, typing indicator.
  */
 
-import type { Chat } from "grammy/types";
 import type { Context } from "grammy";
 import type { AuditEvent } from "./types";
 import {
@@ -82,11 +81,7 @@ export async function auditLogRateLimit(
 
 // ============== Typing Indicator ==============
 
-export interface TypingController {
-  stop: () => void;
-}
-
-export function startTypingIndicator(ctx: Context): TypingController {
+export function startTypingIndicator(ctx: Context): { stop: () => void } {
   let running = true;
 
   const loop = async () => {

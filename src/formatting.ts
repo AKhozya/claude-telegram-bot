@@ -194,7 +194,6 @@ export function formatToolStatus(
     WebSearch: "🔍",
     WebFetch: "🌐",
     Task: "🎯",
-    TodoWrite: "📋",
     mcp__: "🔧",
   };
 

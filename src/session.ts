@@ -65,18 +65,6 @@ function getThinkingLevel(message: string): number {
   return 0;
 }
 
-function getTextFromMessage(msg: SDKMessage): string | null {
-  if (msg.type !== "assistant") return null;
-
-  const textParts: string[] = [];
-  for (const block of msg.message.content) {
-    if (block.type === "text") {
-      textParts.push(block.text);
-    }
-  }
-  return textParts.length > 0 ? textParts.join("") : null;
-}
-
 /**
  * Write JSON to disk atomically: write to a unique temp file, then rename.
  * Rename is atomic on the same filesystem, so a crash mid-write can't leave

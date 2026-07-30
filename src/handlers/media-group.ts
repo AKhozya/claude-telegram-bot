@@ -6,13 +6,21 @@
  */
 
 import type { Message } from "grammy/types";
-import type { BotContext, PendingMediaGroup } from "../types";
+import type { BotContext } from "../types";
 import { MEDIA_GROUP_TIMEOUT } from "../config";
 import { rateLimiter } from "../security";
 import { auditLogRateLimit } from "../utils";
 import { session } from "../session";
 import { markFailed } from "./reactions";
 import { describeError } from "../formatting";
+
+interface PendingMediaGroup {
+  items: string[];
+  ctx: BotContext;
+  caption?: string;
+  statusMsg?: Message;
+  timeout: Timer;
+}
 
 export interface MediaGroupConfig {
   /** Emoji for status messages (e.g., "📷" or "📄") */
@@ -89,7 +97,6 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
     }
   }
 
-  /** @returns false when the album was rejected by the rate limiter. */
   async function addToGroup(
     mediaGroupId: string,
     itemPath: string,
@@ -97,7 +104,7 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
     userId: number,
     username: string,
     processCallback: ProcessGroupCallback
-  ): Promise<boolean> {
+  ): Promise<void> {
     if (!pendingGroups.has(mediaGroupId)) {
       // Rate limit on first item only
       const [allowed, retryAfter] = rateLimiter.check(userId);
@@ -107,7 +114,7 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
           `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
         );
         await markFailed(ctx);
-        return false;
+        return;
       }
 
       console.log(`Receiving ${config.itemLabel} album from @${username}`);
@@ -143,15 +150,9 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
         MEDIA_GROUP_TIMEOUT
       );
     }
-
-    return true;
   }
 
-  return {
-    addToGroup,
-    processGroup,
-    pendingGroups,
-  };
+  return { addToGroup };
 }
 
 export async function handleProcessingError(

@@ -63,7 +63,6 @@ Rank by **bug class prevented**, not by percent. The list below does that; the r
 ## Deliberately not tested
 
 - `index.ts` — wiring only. A test would assert `bot.on` was called, which the next refactor breaks for no signal.
-- `handlers/media.ts` — one `ctx.reply`.
 - Telegram API round-trips. `@grammyjs/auto-retry` owns retry; not ours to verify.
 
 ## Ratchet
