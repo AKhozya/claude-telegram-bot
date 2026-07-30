@@ -21,6 +21,9 @@ const {
   isUnsafeMemberName,
   stripLinks,
   listArchiveMembers,
+  isArchive,
+  getArchiveExtension,
+  uniqueTempDir,
 } = await import("./document");
 
 const lexists = (p: string): boolean => {
@@ -186,3 +189,51 @@ test.skipIf(!hasInfoZip)(
     }
   }
 );
+
+// ── archive extension detection ───────────────────────────────────────────────
+// `isArchive` picks the branch; `getArchiveExtension` picks the extractor. They read the
+// same four extensions, so the pair must never disagree: an extension one accepts and the
+// other returns "" for reaches `Unknown archive type` after the file is already extracted.
+
+test.each([
+  ["a.zip", ".zip"],
+  ["a.tar", ".tar"],
+  ["a.tar.gz", ".tar.gz"],
+  ["a.tgz", ".tgz"],
+])("%s is an archive of type %s", (name, ext) => {
+  expect(isArchive(name)).toBe(true);
+  expect(getArchiveExtension(name)).toBe(ext);
+});
+
+test("the longer extension wins, whatever order the list is in", () => {
+  // ".tar.gz".endsWith(".tar") is false, so ".tar" cannot shadow it — the property the
+  // single-pass `find` spelling depends on.
+  expect("a.tar.gz".endsWith(".tar")).toBe(false);
+  expect(getArchiveExtension("a.tar.gz")).toBe(".tar.gz");
+});
+
+test("extension matching is case-insensitive", () => {
+  expect(isArchive("A.ZIP")).toBe(true);
+  expect(getArchiveExtension("A.TAR.GZ")).toBe(".tar.gz");
+});
+
+test.each(["notes.txt", "a.gz", "a.zipx", "zip", "a.tar.bz2"])(
+  "%s is not an archive and has no extension",
+  (name) => {
+    expect(isArchive(name)).toBe(false);
+    expect(getArchiveExtension(name)).toBe("");
+  }
+);
+
+// The extraction dir was `archive_${Date.now()}` with no random part, so two archives
+// uploaded in the same millisecond shared one dir — and the first to finish `rm -rf`'d
+// the second's files mid-read. The PDF path already had the random suffix; this is the
+// same spelling applied to both.
+test("temp dir names do not collide within one millisecond", () => {
+  // Stripping the timestamp is what makes this non-vacuous: two calls landing in
+  // different milliseconds would differ even with no random suffix at all. The lookahead
+  // matters — the pre-fix name ENDED at the timestamp, so a pattern requiring a trailing
+  // `_` would strip nothing and let the buggy version pass whenever the clock ticked.
+  const strip = (d: string) => d.replace(/_\d+(?=_|$)/, "_T");
+  expect(strip(uniqueTempDir("archive"))).not.toBe(strip(uniqueTempDir("archive")));
+});

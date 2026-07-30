@@ -6,7 +6,7 @@ process.env.TELEGRAM_ALLOWED_USERS = "1";
 
 const { session } = await import("../session");
 const { rateLimiter } = await import("../security");
-const { handleText } = await import("./text");
+const { handleText, checkInterrupt } = await import("./text");
 
 // No mock.module: it survives mock.restore() in Bun 1.3.14 and leaks into whichever
 // files happen to run after this one. Assigning over the singleton's own methods and
@@ -166,5 +166,76 @@ describe("handleText tool-message cleanup", () => {
     expect(rec.deleted).toEqual([901, 902, 903]);
     expect(rec.replies.slice(-1)).toEqual(["❌ Error: Error: boom"]);
     expect(rec.reactions).toEqual(["👀", "👎"]);
+  });
+});
+
+// ── `!` interrupt prefix ──────────────────────────────────────────────────────
+// text.ts routes every incoming message through this before doing anything else, so its
+// three outcomes (passthrough, strip-and-forward, swallow) decide what Claude ever sees.
+
+
+/**
+ * Assign over the singleton's own methods and delete the assignment afterwards. No
+ * mock.module: it survives mock.restore() in Bun 1.3.14 and leaks into whichever files
+ * run after this one. delete, not assign-back — assigning the prototype method onto the
+ * instance leaves an own property shadowing it.
+ */
+const withRunningSession = async (
+  isRunning: boolean,
+  body: (interrupts: number[]) => Promise<void>
+): Promise<void> => {
+  const s = session as any;
+  const interrupts: number[] = [];
+  const savedIsRunning = Object.getOwnPropertyDescriptor(s, "isRunning");
+  Object.defineProperty(s, "isRunning", { value: isRunning, configurable: true });
+  s.interruptForNewMessage = async () => { interrupts.push(1); };
+  try {
+    await body(interrupts);
+  } finally {
+    delete s.interruptForNewMessage;
+    delete (s as any).isRunning;
+    if (savedIsRunning) Object.defineProperty(s, "isRunning", savedIsRunning);
+  }
+};
+
+describe("checkInterrupt", () => {
+  test("text without a ! prefix passes through untouched and interrupts nothing", async () => {
+    await withRunningSession(true, async (interrupts) => {
+      expect(await checkInterrupt("hello world")).toBe("hello world");
+      expect(interrupts).toEqual([]);
+    });
+  });
+
+  test("empty text passes through", async () => {
+    await withRunningSession(true, async (interrupts) => {
+      expect(await checkInterrupt("")).toBe("");
+      expect(interrupts).toEqual([]);
+    });
+  });
+
+  test("a ! prefix strips the marker and forwards the rest", async () => {
+    await withRunningSession(true, async (interrupts) => {
+      expect(await checkInterrupt("!  do the thing")).toBe("do the thing");
+      expect(interrupts).toEqual([1]); // the interrupt is the point of the prefix
+    });
+  });
+
+  // !stop is a /stop alias: cancel, and do NOT forward "stop" as a new prompt.
+  test.each(["!stop", "!/stop", "! STOP ", "!/StOp"])(
+    "%s cancels and forwards nothing",
+    async (input) => {
+      await withRunningSession(true, async (interrupts) => {
+        expect(await checkInterrupt(input)).toBe("");
+        expect(interrupts).toEqual([1]);
+      });
+    }
+  );
+
+  // The strip still happens with nothing running — only the interrupt is conditional.
+  test("with no query running the text is still stripped, but nothing is interrupted", async () => {
+    await withRunningSession(false, async (interrupts) => {
+      expect(await checkInterrupt("!next prompt")).toBe("next prompt");
+      expect(interrupts).toEqual([]);
+    });
   });
 });

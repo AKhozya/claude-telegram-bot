@@ -48,6 +48,20 @@ export function getThinkingConfig(message: string): NonNullable<Options["thinkin
     : { type: "enabled", budgetTokens: budget };
 }
 
+/**
+ * Wait for an out-of-band file to appear: the MCP servers write their request files
+ * after the tool event is streamed, so the event can land before the file exists.
+ * One settle, then 3 attempts, no sleep after the last. Returns whether `check` ever won.
+ */
+async function pollFor(check: () => Promise<boolean>): Promise<boolean> {
+  await Bun.sleep(200);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (await check()) return true;
+    if (attempt < 2) await Bun.sleep(100);
+  }
+  return false;
+}
+
 function getThinkingLevel(message: string): number {
   const msgLower = message.toLowerCase();
 
@@ -398,34 +412,13 @@ class ClaudeSession {
               }
 
               if (toolName.startsWith("mcp__ask-user") && ctx && chatId) {
-                // The MCP server writes its request file out-of-band, so the
-                // event can land before the file exists. Poll rather than assume.
-                await new Promise((resolve) => setTimeout(resolve, 200));
-
-                for (let attempt = 0; attempt < 3; attempt++) {
-                  const buttonsSent = await checkPendingAskUserRequests(
-                    ctx,
-                    chatId
-                  );
-                  if (buttonsSent) {
-                    askUserTriggered = true;
-                    break;
-                  }
-                  if (attempt < 2) {
-                    await new Promise((resolve) => setTimeout(resolve, 100));
-                  }
+                if (await pollFor(() => checkPendingAskUserRequests(ctx, chatId))) {
+                  askUserTriggered = true;
                 }
               }
 
               if (toolName.startsWith("mcp__send-file") && ctx && chatId) {
-                await new Promise((resolve) => setTimeout(resolve, 200));
-                for (let attempt = 0; attempt < 3; attempt++) {
-                  const sent = await checkPendingSendFileRequests(ctx, chatId);
-                  if (sent) break;
-                  if (attempt < 2) {
-                    await new Promise((resolve) => setTimeout(resolve, 100));
-                  }
-                }
+                await pollFor(() => checkPendingSendFileRequests(ctx, chatId));
                 // NO break — Claude continues generating
               }
             }

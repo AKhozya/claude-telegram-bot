@@ -180,6 +180,11 @@ function code(text: string): string {
   return `<code>${escapeHtml(text)}</code>`;
 }
 
+// Reading one of these reports "👀 Viewing" and no path — the image itself follows.
+// `$` here is end-of-input: JS does not exempt a trailing newline the way Python does,
+// so this stays equivalent to the endsWith list it replaced. Never add the `m` flag.
+const IMAGE_EXTENSIONS = /\.(jpe?g|png|gif|webp|bmp|svg|ico)$/i;
+
 export function formatToolStatus(
   toolName: string,
   toolInput: Record<string, unknown>
@@ -210,17 +215,7 @@ export function formatToolStatus(
   if (toolName === "Read") {
     const filePath = String(toolInput.file_path || "file");
     const shortPath = shortenPath(filePath);
-    const imageExtensions = [
-      ".jpg",
-      ".jpeg",
-      ".png",
-      ".gif",
-      ".webp",
-      ".bmp",
-      ".svg",
-      ".ico",
-    ];
-    if (imageExtensions.some((ext) => filePath.toLowerCase().endsWith(ext))) {
+    if (IMAGE_EXTENSIONS.test(filePath)) {
       return "👀 Viewing";
     }
     return `${emoji} Reading ${code(shortPath)}`;

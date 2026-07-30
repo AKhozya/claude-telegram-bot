@@ -105,6 +105,11 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
     username: string,
     processCallback: ProcessGroupCallback
   ): Promise<void> {
+    // The album is only complete once MEDIA_GROUP_TIMEOUT passes with no further parts,
+    // since Telegram delivers them as separate updates.
+    const arm = () =>
+      setTimeout(() => processGroup(mediaGroupId, processCallback), MEDIA_GROUP_TIMEOUT);
+
     if (!pendingGroups.has(mediaGroupId)) {
       // Rate limit on first item only
       if (await rateLimitOrReply(ctx, userId, username)) return;
@@ -119,10 +124,7 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
         ctx,
         caption: ctx.message?.caption,
         statusMsg,
-        timeout: setTimeout(
-          () => processGroup(mediaGroupId, processCallback),
-          MEDIA_GROUP_TIMEOUT
-        ),
+        timeout: arm(),
       });
     } else {
       const group = pendingGroups.get(mediaGroupId)!;
@@ -134,13 +136,8 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
         group.caption = ctx.message.caption;
       }
 
-      // Debounce: the album is only complete once MEDIA_GROUP_TIMEOUT passes with
-      // no further parts, since Telegram delivers them as separate updates.
-      clearTimeout(group.timeout);
-      group.timeout = setTimeout(
-        () => processGroup(mediaGroupId, processCallback),
-        MEDIA_GROUP_TIMEOUT
-      );
+      clearTimeout(group.timeout); // debounce: this part restarts the wait
+      group.timeout = arm();
     }
   }
 

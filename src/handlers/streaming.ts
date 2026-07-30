@@ -30,8 +30,7 @@ export function createAskUserKeyboard(
       option.length > BUTTON_LABEL_MAX_LENGTH
         ? option.slice(0, BUTTON_LABEL_MAX_LENGTH) + "..."
         : option;
-    const callbackData = `askuser:${requestId}:${idx}`;
-    keyboard.add({ text: display, callback_data: callbackData, style: "primary" }).row();
+    keyboard.text(display, `askuser:${requestId}:${idx}`).primary().row();
   }
   return keyboard;
 }

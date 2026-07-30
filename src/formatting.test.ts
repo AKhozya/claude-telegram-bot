@@ -1,5 +1,5 @@
-import { test, expect } from "bun:test";
-import { convertMarkdownToHtml, describeError } from "./formatting";
+import { describe, test, expect } from "bun:test";
+import { convertMarkdownToHtml, describeError, formatToolStatus } from "./formatting";
 
 // #5 audit: code was restored via `text.replace(placeholder, "<pre>"+code+"</pre>")`.
 // A STRING replacement interprets `$$`/`$&`/`` $` ``/`$'` in the code as special
@@ -65,4 +65,39 @@ test("a literal backslash before the closing quote does not swallow the envelope
   expect(describeError(wrapped)).toBe(
     "You've hit your monthly spend limit. Check C:\\\\"
   );
+});
+
+// Reading an image is reported as "👀 Viewing" with no path, because the image itself is
+// about to be sent. Every other Read reports the path. Pins the extension set so the
+// list-vs-regex spelling cannot quietly change which files count as images.
+describe("formatToolStatus image detection", () => {
+  const viewing = (p: string) => formatToolStatus("Read", { file_path: p });
+
+  test.each([
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".ico",
+  ])("%s is an image", (ext) => {
+    expect(viewing(`/tmp/shot${ext}`)).toBe("👀 Viewing");
+  });
+
+  test("the match is case-insensitive", () => {
+    expect(viewing("/tmp/SHOT.PNG")).toBe("👀 Viewing");
+    expect(viewing("/tmp/shot.JpEg")).toBe("👀 Viewing");
+  });
+
+  test.each([
+    ["/tmp/notes.md", "a non-image extension"],
+    ["/tmp/shot.jpgx", "an extension that only starts the same way"],
+    ["/tmp/jpg", "a bare name matching an extension without its dot"],
+    ["/tmp/shot.png.txt", "an image extension that is not last"],
+  ])("%s is not an image (%s)", (path) => {
+    expect(viewing(path)).not.toBe("👀 Viewing");
+    expect(viewing(path)).toContain("Reading");
+  });
+
+  // `$` in a JS regex does not match before a trailing newline the way it does in Python,
+  // so a regex spelling stays equivalent to endsWith here. Pinned because a stray `m`
+  // flag would break it silently.
+  test("a trailing newline is not stripped before matching", () => {
+    expect(viewing("/tmp/shot.png\n")).not.toBe("👀 Viewing");
+  });
 });

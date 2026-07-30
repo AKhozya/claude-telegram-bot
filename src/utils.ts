@@ -5,6 +5,7 @@
  */
 
 import type { Context } from "grammy";
+import * as fs from "node:fs/promises";
 import type { AuditEvent } from "./types";
 import {
   AUDIT_LOG_PATH,
@@ -40,7 +41,6 @@ async function writeAuditLog(event: AuditEvent): Promise<void> {
       content = lines.join("\n") + "\n";
     }
 
-    const fs = await import("fs/promises");
     // 0600, not the umask default 0644: under AUDIT_LOG_JSON the message and response
     // are written unredacted, and the default path is world-readable /tmp.
     //
@@ -142,7 +142,6 @@ export async function reapTempDir(
     return 0;
   }
 
-  const fs = await import("fs/promises");
   let entries: string[];
   try {
     entries = await fs.readdir(dir);
@@ -181,38 +180,3 @@ export function startTempReaper(
   return { stop: () => clearInterval(timer) };
 }
 
-// ============== Message Interrupt ==============
-
-// Import session lazily to avoid circular dependency
-let sessionModule: {
-  session: {
-    isRunning: boolean;
-    interruptForNewMessage: () => Promise<void>;
-  };
-} | null = null;
-
-export async function checkInterrupt(text: string): Promise<string> {
-  if (!text || !text.startsWith("!")) {
-    return text;
-  }
-
-  if (!sessionModule) {
-    sessionModule = await import("./session");
-  }
-
-  const strippedText = text.slice(1).trimStart();
-  const normalizedInterrupt = strippedText.trim().toLowerCase();
-
-  if (sessionModule.session.isRunning) {
-    console.log("! prefix - interrupting current query");
-    await sessionModule.session.interruptForNewMessage();
-  }
-
-  // Treat !stop as a pure stop alias (same behavior as /stop):
-  // cancel current work and do not forward "stop" as a new prompt.
-  if (normalizedInterrupt === "stop" || normalizedInterrupt === "/stop") {
-    return "";
-  }
-
-  return strippedText;
-}

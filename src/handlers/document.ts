@@ -95,8 +95,7 @@ export function sortPdfPagePaths(names: string[]): string[] {
 async function renderPdfToImages(
   filePath: string
 ): Promise<{ dir: string; images: string[] }> {
-  // Random suffix: Date.now() alone collides on concurrent same-ms uploads.
-  const dir = `${TEMP_DIR}/pdf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const dir = uniqueTempDir("pdf");
   await Bun.$`mkdir -p ${dir}`.quiet();
   try {
     // timeout: bound pdftocairo against huge-MediaBox / decompression-bomb PDFs.
@@ -158,18 +157,27 @@ async function extractText(
   throw new Error(`Unsupported file type: ${extension || mimeType}`);
 }
 
-function isArchive(fileName: string): boolean {
-  const lower = fileName.toLowerCase();
-  return ARCHIVE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+/**
+ * A temp dir nobody else will pick. The random suffix is load-bearing: Date.now() alone
+ * collides on concurrent same-ms uploads, and the loser's cleanup deletes the winner's
+ * files. Exported for the collision test.
+ */
+export function uniqueTempDir(prefix: string): string {
+  return `${TEMP_DIR}/${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
-function getArchiveExtension(fileName: string): string {
+/**
+ * The archive's extension, or "" if it is not one. Order-independent: no entry of
+ * ARCHIVE_EXTENSIONS is a suffix of another (".tar.gz" does not end with ".tar"), so the
+ * first match is the only match. One source for both the branch and the extractor.
+ */
+export function getArchiveExtension(fileName: string): string {
   const lower = fileName.toLowerCase();
-  if (lower.endsWith(".tar.gz")) return ".tar.gz";
-  if (lower.endsWith(".tgz")) return ".tgz";
-  if (lower.endsWith(".tar")) return ".tar";
-  if (lower.endsWith(".zip")) return ".zip";
-  return "";
+  return ARCHIVE_EXTENSIONS.find((ext) => lower.endsWith(ext)) ?? "";
+}
+
+export function isArchive(fileName: string): boolean {
+  return getArchiveExtension(fileName) !== "";
 }
 
 /**
@@ -227,7 +235,7 @@ async function extractArchive(
   fileName: string
 ): Promise<string> {
   const ext = getArchiveExtension(fileName);
-  const extractDir = `${TEMP_DIR}/archive_${Date.now()}`;
+  const extractDir = uniqueTempDir("archive");
   await Bun.$`mkdir -p ${extractDir}`;
 
   // Refuse the whole archive if any member would escape extractDir. Cheaper and

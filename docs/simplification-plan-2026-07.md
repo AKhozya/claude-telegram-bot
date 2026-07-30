@@ -11,11 +11,10 @@ Branch `simplify-2026-07`, off `7b600c1`. Run `git log --oneline main..HEAD` —
 
 | Batch | State |
 |---|---|
-| 0, 0b docs · 1 free deletes · 2 docker · 3 bugs · 4 dedup helpers | **Done.** Codex clean on each |
-| 5 local shrinks | Next. **Not yet plan-reviewed** — its line numbers are from the `7b600c1` audit and Batches 1, 3 and 4 have moved the code under them |
-| 6 tests · 7 comments | Not started. Batch 6 also un-reviewed |
+| 0, 0b docs · 1 free deletes · 2 docker · 3 bugs · 4 dedup helpers · 5 local shrinks | **Done.** Codex clean on each |
+| 6 tests · 7 comments | Not started. Batch 6 **not yet plan-reviewed** |
 
-Gate now reads **248 pass / 848 expect()**, up from the 228/808 baseline — Batch 3 added two audit-log tests, Batch 4 added eighteen. Batch 5 ships its own coverage (see the section before Batch 6), so this number rises; it must never fall.
+Gate now reads **282 pass / 906 expect()**, up from the 228/808 baseline — Batch 3 added two audit-log tests, Batch 4 eighteen, Batch 5 thirty-four. It must never fall.
 
 ## Constraints agreed before the audit
 
@@ -242,31 +241,71 @@ Two claims Codex could not check from the diff were closed by direct grep instea
 
 ## Batch 5 — Local shrinks
 
-Each independent; drop any that reads worse after the edit.
+Plan-reviewed 2026-07-30 against re-derived anchors — every line number in the original
+table had drifted through Batches 1, 3 and 4. **Seven of twenty rows survived.** The
+review's job here was mostly subtraction: most rows traded a real behavior risk for one to
+nine lines.
+
+Two rows an earlier review had already resolved as dropped — `csvEnv` and the `callback.ts`
+regex routing rewrite — were **still sitting in this table**, contradicting their own
+recorded resolutions further down this document. Deleted here.
+
+### Applied
 
 | File | Cut | Replacement |
 |---|---|---|
-| `session.ts:402-432` | two near-identical "sleep 200, then 3 attempts x 100 ms" pollers | one `pollFor(check)` + two call lines |
-| `config.ts:37,77,141` | three hand-rolled comma-env splitters | one `csvEnv(name, fallback, map?)` |
-| `session.ts:562-574` | `Bun.file().size` probe before `readFileSync` | `try { JSON.parse(readFileSync(...)) } catch` — `JSON.parse("")` already throws into the same catch |
-| `session.ts:203` | `getThinkingLevel` called twice per message (log label, then inside `getThinkingConfig`) | call once, derive the label from `.budgetTokens` |
-| `formatting.ts:211-289` | Read/Write/Edit branches differing only by verb | 3-entry verb table + one shared return; leave the other 9 branches alone |
-| `formatting.ts:214-226` | 8-element `imageExtensions` + `.some(endsWith)` | one regex |
-| `utils.ts:40,133` | `await import("fs/promises")` re-executed per call | one top-level `node:fs/promises` import |
-| `utils.ts:172-206` | `checkInterrupt`'s lazy-import cycle guard (A2: no cycle) + structural type + cache | move the body into `text.ts`, its only caller, which already imports `session` |
-| `callback.ts:14-50` | manual `startsWith` prefix dispatch + `parts.length` check + charset regex | `bot.callbackQuery(/^askuser:([A-Za-z0-9_-]+):(\d+)$/, …)` reading `ctx.match`, plus a trailing catch-all `bot.on("callback_query", …)` to keep the unmatched-data ack. **The charset class must survive verbatim** — see no-cut #19 |
-| `media-group.ts:118-144` | the `setTimeout(processGroup, …)` written once per branch | one `arm()` closure |
-| `streaming.ts:113-133` | extension-Set ternary chain evaluated twice | one `{video:[action,method], photo:…, audio:…}` lookup |
-| `streaming.ts:22-36` | keyboard object literal in a loop | `keyboard.text(...).primary().row()` |
-| `commands.ts:143-172` | raw `reply_markup:{inline_keyboard:[...]}` | `InlineKeyboard` — one spelling repo-wide |
-| `reactions.ts:10-19` | manual `ctx.chat?.id`/`ctx.msg?.message_id` + guard | `ctx.react(emoji)` inside the existing try/catch |
-| `document.ts:81-84` | `parseInt(match(/-(\d+)\.png$/))` comparator | `toSorted((a,b)=>a.localeCompare(b,undefined,{numeric:true}))` — satisfies `document.test.ts:71-86` |
-| `document.ts:99,108,230,370` | `Bun.$\`mkdir -p\`` / `Bun.$\`rm -rf\`` — 4 subprocess spawns | `mkdir`/`rm` from `node:fs/promises` |
-| `document.ts:160-172` | `isArchive` + `getArchiveExtension` over the same list | one `find(endsWith)`; order-independent since `"x.tar.gz".endsWith(".tar")` is false |
-| `photo.ts:108-165` | nullable `statusMsg`, a re-test, and an unreachable `if (!mediaGroupId) return` | hoist the album branch to the top; the rest is straight-line with a non-nullable `statusMsg` |
-| `commands.ts:223-237` | `withMessageText`'s `Object.create(getPrototypeOf(ctx))` + `Object.assign` | `new Context({...ctx.update, message:{...ctx.message, text}}, ctx.api, ctx.me)` — public constructor |
-| `photo.ts:29`, `document.ts:98`, `session.ts:87` | three spellings of "unique suffix" (`Date.now()+Math.random`, x2, and `randomUUID`) | `Bun.randomUUIDv7()`, one spelling |
-| `security.ts:488` / `sandbox.ts:31` | the credential-dir list maintained in two files; `security.ts:465` already says "Mirrors READ_DENY" | one exported `CREDENTIAL_DIRS`, **both enforcement sites kept** (no-cut #2) |
+| `session.ts` | two near-identical "sleep 200, then 3 attempts x 100 ms" pollers | one `pollFor(check)` + two call lines |
+| `formatting.ts` | 8-element `imageExtensions` + `.some(endsWith)` | one `IMAGE_EXTENSIONS` regex |
+| `utils.ts` | `await import("fs/promises")` re-executed per call, at two sites | one top-level `node:fs/promises` import |
+| `utils.ts` | `checkInterrupt`'s lazy-import cycle guard + structural type + module cache | moved into `text.ts`, its only caller, which already imports `session` |
+| `media-group.ts` | the `setTimeout(processGroup, …)` written once per branch | one `arm()` closure. `clearTimeout` stays explicit in the debounce branch — folding it in hides which branch is a restart |
+| `streaming.ts` | keyboard object literal in a loop | `keyboard.text(display, data).primary().row()` |
+| `document.ts` | `isArchive` + `getArchiveExtension` over the same list | one `find(endsWith)`; order-independent since `"x.tar.gz".endsWith(".tar")` is false |
+
+Plus one behavior fix, not a shrink, surfaced by a row that was dropped — see below.
+
+### Dropped, with the reason
+
+| Row | Why |
+|---|---|
+| `config.ts` `csvEnv` | Already resolved dropped; the three splitters are not parallel. Row deleted |
+| `callback.ts` regex routing | Already resolved dropped; loses two specific error toasts and touches the no-cut #19 charset guard. Row deleted |
+| `session.ts` `Bun.file().size` probe | Not equivalent for every path the config allows: on a FIFO the probe returns 0 and short-circuits where `readFileSync` would block on a writer. Three lines is not worth a hang |
+| `session.ts` `getThinkingLevel` twice | The proposed mechanism is itself broken — the adaptive branch returns `{type:"adaptive"}` with no `budgetTokens`, so the derived label reads `"undefined"`. And there is nothing to save: it is a pure scan of two keyword arrays |
+| `formatting.ts` verb table | `Read` is not symmetric with `Write`/`Edit` — it carries the image early-return. Lifting that back out leaves the same line count plus an indirection |
+| `security.ts` / `sandbox.ts` `CREDENTIAL_DIRS` | Two different matching models — basename equality plus `under()` containment, vs. glob strings for the SDK — over two non-identical sets. A shared constant needs a mode flag to serve both. Security layer: the fold has to be exact or not happen |
+| `streaming.ts` extension lookup | A method-name table needs `ctx[method](...)` and loses type safety; an arrow table is longer. Two `Set.has` calls are not a problem |
+| `commands.ts` `InlineKeyboard` | Replaces a `.map()` with a loop. The options object stays regardless because of `parse_mode`. Saves nothing |
+| `commands.ts` `new Context(...)` | Constructor shape is right and files hydration does survive (it rides `ctx.api`), but `bot.command()` sets `ctx.match` as an **own property** — probe-verified, `own keys: ["update","api","me","match"]` — which `Object.assign(…, ctx, …)` copies and the constructor drops. Zero lines saved, and it turns a type-only import into a runtime one |
+| `reactions.ts` `ctx.react` | `ctx.react` exists, but it `orThrow`s on a missing chat/message where the current guard returns silently, and six test files build fake contexts stubbing `api.setMessageReaction` with no `.react`. One of them would keep passing **vacuously**, via a swallowed TypeError instead of the guard it claims to test. Four source lines do not buy that |
+| `document.ts` `localeCompare` comparator | Old and new agreed on every case spiked, but it swaps a deterministic numeric parse for locale-dependent collation, and the output is PDF **page order** fed to a vision prompt — a wrong sort is silent. One line |
+| `document.ts` `mkdir`/`rm` via `node:fs/promises` | Error text changes, and `processArchive`'s catch puts `String(error).slice(0,100)` in front of the user. The perf argument does not survive contact: every one of those spawns sits beside a `pdftocairo`/`unzip`/`tar` spawn on the same path |
+| `photo.ts` album-branch hoist | Not a local shrink. The download is shared but its failure reporting differs by path — edit a status message vs. reply — so hoisting means duplicating ~18 lines or extracting a helper. `handlePhoto` has no test |
+| `Bun.randomUUIDv7()` everywhere | The row conflated four things. Kept the part that was a real bug (below); dropped swapping stdlib `randomUUID` in `session.ts`'s atomic-write path for a Bun-only API, and dropped the two `doc_${Date.now()}` **filename fallbacks**, which are not unique-suffix sites at all |
+
+### The one behavior change
+
+`extractArchive` used `${TEMP_DIR}/archive_${Date.now()}` with no random part, while the
+PDF path two functions above already carried a random suffix and a comment saying why.
+Two archives uploaded in the same millisecond shared an extraction dir, and the first to
+finish `rm -rf`'d the second's files mid-read. Both sites now call one exported
+`uniqueTempDir(prefix)`.
+
+A fix, not a shrink, and the only row in Batch 5 that changes behavior. Its test is the
+only one here that **failed before the edit**.
+
+### Coverage
+
+Thirty-four new tests; 248/848 → **282/906**.
+
+- `formatting.test.ts` — `formatToolStatus` image detection: all eight extensions, case-insensitivity, four near-miss paths, and a trailing newline. `formatToolStatus` had no test at all before.
+- `text.test.ts` — `checkInterrupt`: passthrough, strip-and-forward, the four `!stop` spellings, and that the strip still happens with nothing running.
+- `document.test.ts` — `isArchive`/`getArchiveExtension` asserted as a **pair**, since a disagreement between them surfaces as `Unknown archive type` only after the file is already extracted. Plus the temp-dir collision guard.
+- Written against the unrefactored code and watched pass first, except the collision guard.
+- The collision guard strips the timestamp before comparing (`_\d+_` → `_T_`). Comparing raw would pass on two calls that merely landed in different milliseconds — the vacuous-assertion shape Batch 4's review caught twice.
+
+Not covered, stated rather than papered over: `pollFor` is reachable only through an MCP
+round trip, and the `node:fs/promises` import has no observable behavior. Neither got a test.
 
 ## Coverage for Batches 4 and 5 — added 2026-07-30
 
@@ -289,7 +328,7 @@ What each item needs:
 | 4.2 `rateLimitOrReply` | over-limit replies and returns true; the album path charges once, not once per item |
 | 4.4 `deleteToolMessages` | every message attempted even when one delete throws — that swallow is the point |
 | 4.5 `runPrompt` | `processPhotos` and `processDocuments` only. Success and catch paths |
-| Batch 5 | Per row, and only where the row has observable behavior: `photo.ts:108-165`, `document.ts:81-84`, `document.ts:160-172`, `commands.ts:223-237`, `reactions.ts:10-19` |
+| Batch 5 | Per row, and only where the row has observable behavior. Four of the five rows named here were dropped at plan review; the survivor (`getArchiveExtension`) shipped its test, as did two rows this list never anticipated. See Batch 5's own Coverage block |
 
 **Still uncovered after all of it:** the Telegram wire. A manual pass at deploy stays the check for that — nothing in-process reaches it.
 
@@ -403,7 +442,7 @@ Batch 6 (tests)                   ← last: the suite is the oracle for 1-5
 Batch 7 (comments)
 ```
 
-Per batch: `bun run typecheck` && `bun test`, then one commit. The counts must never fall below the batch before — **248 pass / 848 expect() after Batch 4**, and rising as Batch 5 adds its coverage. A drop means a row was lost in porting. Baseline restated: a green typecheck does not prove runtime — `bun test` is the gate that matters, and neither covers the Telegram wire. Batch 3, and every Batch 4/5 item touching reactions or message flow, wants a live bot pass before the branch merges.
+Per batch: `bun run typecheck` && `bun test`, then one commit. The counts must never fall below the batch before — **282 pass / 906 expect() after Batch 5**. A drop means a row was lost in porting. Baseline restated: a green typecheck does not prove runtime — `bun test` is the gate that matters, and neither covers the Telegram wire. Batch 3, and every Batch 4/5 item touching reactions or message flow, wants a live bot pass before the branch merges.
 
 ## Decisions — 2026-07-30
 

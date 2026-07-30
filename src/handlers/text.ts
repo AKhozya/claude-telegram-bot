@@ -4,11 +4,39 @@
 
 import type { BotContext } from "../types";
 import { session } from "../session";
-import { auditLog, checkInterrupt, startTypingIndicator } from "../utils";
+import { auditLog, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { markReceived, markDone, markFailed } from "./reactions";
 import { rateLimitOrReply } from "./rate-limit";
 import { describeError } from "../formatting";
+
+/**
+ * Resolve a leading `!`: cancel whatever is running, then return what should be sent on.
+ * `!stop` and `!/stop` return "" — a pure stop, forwarding nothing. Anything else keeps
+ * its text and rides the same interrupt.
+ *
+ * Exported for test. Lived in utils.ts behind a lazy import to dodge a cycle that does
+ * not exist — nothing session.ts reaches imports utils.ts.
+ */
+export async function checkInterrupt(text: string): Promise<string> {
+  if (!text || !text.startsWith("!")) {
+    return text;
+  }
+
+  const strippedText = text.slice(1).trimStart();
+  const normalizedInterrupt = strippedText.trim().toLowerCase();
+
+  if (session.isRunning) {
+    console.log("! prefix - interrupting current query");
+    await session.interruptForNewMessage();
+  }
+
+  if (normalizedInterrupt === "stop" || normalizedInterrupt === "/stop") {
+    return "";
+  }
+
+  return strippedText;
+}
 
 export async function handleText(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
