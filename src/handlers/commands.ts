@@ -143,7 +143,6 @@ export async function handleResume(ctx: Context): Promise<void> {
   }
 
   const buttons = sessions.map((s) => {
-    // Format date: "18/01 10:30"
     const date = new Date(s.saved_at);
     const dateStr = date.toLocaleDateString("it-IT", {
       day: "2-digit",
@@ -196,7 +195,10 @@ export async function handleRestart(ctx: Context): Promise<void> {
     }
   }
 
-  // Give time for the message to send
+  // Not "time for the message to send" — the reply and the write above are both awaited.
+  // What is outstanding is the runner: this path skips the runner.stop() that the SIGINT
+  // and SIGTERM handlers call, so polling is live at process.exit. Whether 500 ms is what
+  // stops a redelivered /restart from looping is untested — do not drop it blind.
   await Bun.sleep(500);
 
   // The supervisor restarts us (launchd on macOS, Kubernetes in the cluster).

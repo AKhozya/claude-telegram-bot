@@ -11,10 +11,11 @@ Branch `simplify-2026-07`, off `7b600c1`. Run `git log --oneline main..HEAD` —
 
 | Batch | State |
 |---|---|
-| 0, 0b docs · 1 free deletes · 2 docker · 3 bugs · 4 dedup helpers · 5 local shrinks · 6 tests | **Done.** Codex clean on each |
-| 7 comments | Not started |
+| 0, 0b docs · 1 free deletes · 2 docker · 3 bugs · 4 dedup helpers · 5 local shrinks · 6 tests · 7 comments | **Done.** Codex clean on each. All batches complete |
 
-Gate now reads **282 pass / 906 expect()**, up from the 228/808 baseline — Batch 3 added two audit-log tests, Batch 4 eighteen, Batch 5 thirty-four. It must never fall. Batch 6 held it at exactly 282/906: it converted tests and added none, so an increase would have hidden a lost case as readily as a decrease would have exposed one.
+Gate now reads **283 pass / 911 expect()**, up from the 228/808 baseline — Batch 3 added two audit-log tests, Batch 4 eighteen, Batch 5 thirty-four, Batch 7 one. It must never fall. Batch 6 held it at exactly 282/906: it converted tests and added none, so an increase would have hidden a lost case as readily as a decrease would have exposed one.
+
+**Still uncovered, and the reason this is not finished:** the Telegram wire. Nothing in-process reaches it, so a manual pass at deploy is the only check. See the end of this document for what that pass has to cover.
 
 ## Constraints agreed before the audit
 
@@ -388,44 +389,80 @@ one behind an increase just as easily as a decrease would expose it.
 
 Net **-332 lines**.
 
-## Batch 7 — Comment sweep
+## Batch 7 — Comment sweep — Applied 2026-07-30
 
-Two passes disagreed hard. Pass 1: 1 finding out of 982 comment lines. Pass 2 (adversarial, same files): 55 DELETE / 17 TRIM. Neither is taken as-is.
+Two passes disagreed hard. Pass 1: 1 finding out of 982 comment lines. Pass 2 (adversarial,
+same files): 55 DELETE / 17 TRIM. Neither was taken as-is, and the plan review that followed
+cut the reconciled list again — from ~35 DELETE + ~17 TRIM down to **13 deletions**.
 
-Runs **after Batch 4** — the `deleteToolMessages` and `statusMessage` helpers delete most of the duplicated `try/catch { /* ignore */ }` sites outright, so sweeping their comments first is wasted work.
+Ran after Batch 4, as planned: the `deleteToolMessages` and `statusMessage` helpers had
+already removed most of the duplicated `try/catch { /* ignore */ }` sites.
 
-**Accepted — DELETE (~35).** Pure restatement of the line beneath.
-- `commands.ts:69,76,92,100,115,123` — `// Session status`, `// Query status`, `// Last activity`, `// Usage stats`, `// Error status`, `// Working directory`.
-- `commands.ts:144` — `// Format date: "18/01 10:30"` above a function named for it.
-- `formatting.ts:75,78,81,84,87,93,96,99` — the `// Bold: **text** -> <b>text</b>` run; each restates the regex on the next line.
-- `formatting.ts:152` — `// Handle blockquote at end` (the only finding both passes agreed on).
-- `types.ts:15,21`, `streaming.ts:76`, `callback.ts:25,31`, `index.ts:154`, `document.ts:258,291`, `security.ts:120,207,311,312,319,346,368`.
-- `session.ts:320,477` — `// Use V1 query() API` / `// V1 query completes…`. Deleting these also removes the source of the V1-vs-V2 doc confusion in Batch 0.
+### Applied — 13 deletions
 
-**Accepted — TRIM (~17).** Pass 2's replacements are good; the `session.ts:170` `interruptForNewMessage` rewrite in particular keeps the drift warning while cutting the narration. Apply as given, except the two listed below.
-
-**Rejected (14).** Each names a constraint the code cannot show, and most sit inside the security reviewer's explicit protect-list:
-
-| Rejected delete | Why it stays |
+| Site | Comment |
 |---|---|
-| `security.ts:176` `// #10: output-redirect targets — a write-anywhere…` | Protect-list 176-187. Names the primitive the parser exists to close. |
-| `security.ts:237` `// Plain path — resolve relative to WORKING_DIR` | Protect-list. Names the resolution base, which is not visible at the call. |
-| `security.ts:513` dangerous-tools rationale | Protect-list 504-507. |
-| `security.ts:563` bot's own audit log / session state | Protect-list 559-561, 567-575. |
-| `document.ts:247` `// Drop extracted symlink/hard-link members…` | Archive link-exfil rationale — the *why* behind `stripLinks`. |
-| `document.ts:108` `// don't leak the temp dir on failure` | Names the cleanup constraint. |
-| `media-group.ts:102` `// Rate limit on first item only` | Security no-cut #10 cites this exact comment as the record of the deliberate album/single split. Batch 4 item 2 depends on a reader knowing it. |
-| `plugins.test.ts:10` `// Wiring must not throw at install time.` | It is the reason the test exists. Deleting it invites deleting the test — which a separate agent already proposed. |
-| `streaming.ts:348,385,398` | The fallback-ladder comments. Each names which Telegram rejection its level handles. TRIM, not DELETE. |
-| `video.ts:123,131`, `document.ts:375,383`, `text.ts:84`, `streaming.ts:102,108,143` | Bare `catch {}` reads as an oversight; the marker records a deliberate swallow. Most of these sites disappear in Batch 4 anyway — re-check what survives rather than deleting now. |
+| `commands.ts` | `// Format date: "18/01 10:30"` — the template two statements below assembles `${dateStr} ${timeStr}` in plain sight |
+| `formatting.ts` x7 | Headers, Bold, Double underscore, Blockquotes, Bullet lists, Horizontal rules, Links — each restated the regex beneath it |
+| `formatting.ts` | `// Handle blockquote at end` — the one finding both passes agreed on |
+| `security.ts` x2 | `// flags / empty tokens` (translates `!arg \|\| arg.startsWith("-")`) and `// file:, gopher:, ...` (restates an explicit http/https allowlist) |
+| `session.ts` x2 | `// Use V1 query() API …` and `// V1 query completes …`. The installed SDK exports one `query`; there is no V1/V2 split for the marker to name |
 
-**Corrected.** Pass 2 filed `utils.ts:174` as KEEP on the grounds that "session.ts imports utils.ts; cycle". That is false — verified A2: `session.ts` imports config/formatting/sandbox/security/types/handlers-streaming, and none of those reaches `utils.ts`. The comment and the machinery it guards both go, per Batch 5.
+### The TRIM half was DROPPED, not applied
 
-**Open, do not blind-delete.** `commands.ts:197` `// Give time for the message to send` — pass 2 showed the claim is false (the `ctx.reply` and the `Bun.write` are both awaited before the sleep), but could not determine what the 500 ms actually protects. Deleting the comment leaves an unexplained sleep, which is worse. Investigate the restart path, then either document the real reason or drop the sleep.
+The plan said "Pass 2's replacements are good … **apply as given**" for ~17 trims, but
+**the replacement texts are nowhere in this document**. They lived in a pass-2 agent output
+that was never captured. Reconstructing them means running a fresh adversarial comment pass
+— a new audit, not execution of the reconciled plan. Dropped and recorded rather than
+re-derived. The one trim the plan named by hand, `session.ts` `interruptForNewMessage`, was
+already in its trimmed form; an earlier batch had done it.
 
-Protected, do not sweep: the `// ===== Name =====` section banners, commented-out code (all of `mcp-config.example.ts`), and every security-constraint comment in the no-cut list below.
+### Kept, against the DELETE list
 
----
+The standing rule — never delete a correct section banner — overrode the list for: all six
+`commands.ts` `/status` markers, `types.ts` "Session persistence", `streaming.ts` "File
+extensions grouped by Telegram send method", `index.ts` "Graceful shutdown", and
+`security.ts` "IPv4 literal".
+
+Kept on content: both `callback.ts` markers, which record the **callback-data wire format**
+the `startsWith` checks parse, not a translation of them; both `document.ts` limits, which
+name the unit and scope of otherwise bare magic numbers (files per archive, characters per
+file); and the `security.ts` address-classification run — `::` meaning "unspecified" and
+`fe[89ab]` meaning `fe80::/10` are knowledge, not restatement, and deleting two of three
+RFC1918 markers would have left an inconsistent block.
+
+### Two things the deletions forced
+
+**A dangling back-reference.** Cutting `// Bold: **text** -> <b>text</b>` orphaned the next
+comment, which opened "**Also** handle `*text*` as bold" — a pointer to a line that no
+longer existed. Both surviving comments in that chain were rewritten to stand alone.
+
+Rewriting them turned up a real asymmetry that neither comment had recorded, and that the
+first rewrite got wrong in the other direction:
+
+| Pass | Regex | Excludes the doubled form on its own? |
+|---|---|---|
+| single `*` | `/(?<!\*)\*(.+?)\*(?!\*)/` | **No.** `(.+?)` spans the inner delimiters, so `**x**` alone yields `<b>*x*</b>`. The `**` pass above must run first |
+| single `_` | `/(?<!_)_([^_]+)_(?!_)/` | **Yes.** `[^_]+` cannot span them, so order is irrelevant |
+
+Nothing covered this. A reorder is silent — the output stays well-formed HTML, so the
+tag-balance fuzz tests in `streaming.test.ts` cannot see it. A guard test landed in
+`formatting.test.ts`, mutation-checked by swapping the two `*` replace lines.
+
+**The `/restart` sleep, the plan's one Open item.** The stated reason is false — `ctx.reply`
+and `Bun.write` are both awaited before `await Bun.sleep(500)`. But something IS
+outstanding: `index.ts` runs `@grammyjs/runner`, whose SIGINT/SIGTERM handlers call
+`runner.stop()`; `handleRestart` calls `process.exit(0)` directly and never does, so
+long-polling is live at exit. Blame puts both the sleep and its comment in the initial
+import `d9c94bb`, with no recorded race. Whether 500 ms is what stops a redelivered
+`/restart` from looping cannot be settled statically. The sleep stays; the false comment was
+replaced with the established facts and an explicit do-not-drop-blind. Settling it needs a
+live restart-path run against the supervisor.
+
+### Gate
+
+`bun run typecheck` exit 0. **283 pass / 911 expect() / 20 files**, up from 282/906 — the
+one added test is the ordering guard above. Net −11 lines.
 
 ## No-cut list
 
@@ -532,3 +569,40 @@ Before Batch 4/5 merge, one of: add smoke coverage for the five untested handler
 ### Consequence of decision 3
 
 The `registerTool` rewrite is the plan's only accepted behavior change beyond the `video.ts` fix. Malformed MCP input moves from JSON-RPC `-32603` with a custom message to `-32602` carrying zod validation text. Valid calls are byte-identical (probed). `bun test` will not catch a regression here — neither MCP server has a test. Verify by calling each tool once through a live session before merging.
+
+---
+
+## What is still unverified when the branch merges
+
+All seven batches are green under `bun run typecheck` + `bun test`. Neither reaches the
+Telegram wire, and no in-process test can. Three things need a human at deploy.
+
+### 1. The live-bot pass
+
+Batches 6 and 7 changed no runtime behaviour — tests and comments only — so this list is
+what Batches 3, 4 and 5 left behind, unchanged.
+
+| Path | What to send | What changed under it |
+|---|---|---|
+| Text | a normal message | `setTitleIfNew`, `rateLimitOrReply`, `deleteToolMessages` — five call sites folded into one each |
+| Text | `!` + a follow-up while a query runs | `checkInterrupt` moved from `utils.ts` into `text.ts`; the preempted query must stay silent, not print "🛑 Query stopped." |
+| Text | `!stop` and `!/stop` | both must cancel and forward nothing |
+| Photo | one image | shared `runPrompt`; the whole constructed prompt is audited here, deliberately |
+| Album | 3+ images at once | the debounce was rewritten as one `arm()` closure. The album must be rate-limited **once**, not once per image |
+| Video | a video and a video note | the catch used to pass `[]` and leak tool messages; that is the Batch 3 fix |
+| Document | a PDF, a text file, and **two archives uploaded together** | the two-archive case is the Batch 5 fix: extraction dirs used to collide within a millisecond and delete each other's files mid-read |
+| Button | an `ask_user` prompt, then tap an option | the keyboard is now built with `.text().primary().row()`; `isRunning` must be true during the query and false after |
+| `/new`, `/stop` | during a running query | the stop → settle → clear sequence |
+| `/resume` | pick a saved session | check what `/status` and `/stop` report **during the recap** — Batch 4 changed it |
+| `/restart` | once | Batch 7 could not settle statically whether the 500 ms sleep is what stops a redelivered `/restart` looping. Watch for a restart loop |
+
+### 2. Batch 2 is outside the gate
+
+The Dockerfile and `.dockerignore` changes need a real `docker build` plus image inspection
+to confirm the ~469 MB claim. Nothing in the suite touches them.
+
+### 3. The MCP `registerTool` rewrite, if it is taken
+
+Not applied on this branch. If it is, malformed MCP input moves from JSON-RPC `-32603` with
+a custom message to `-32602` carrying zod validation text. Valid calls are byte-identical
+(probed). Neither MCP server has a test, so each tool needs one live call.

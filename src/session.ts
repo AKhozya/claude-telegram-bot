@@ -329,7 +329,6 @@ class ClaudeSession {
     let askUserTriggered = false;
 
     try {
-      // Use V1 query() API - supports all options including cwd, mcpServers, etc.
       const queryInstance = query({
         prompt: messageToSend,
         options: {
@@ -465,7 +464,6 @@ class ClaudeSession {
         }
       }
 
-      // V1 query completes automatically when the generator ends
     } catch (error) {
       const errorStr = String(error).toLowerCase();
       const isCleanupError =

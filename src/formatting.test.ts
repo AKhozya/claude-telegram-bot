@@ -6,6 +6,19 @@ import { convertMarkdownToHtml, describeError, formatToolStatus } from "./format
 // patterns — `$&` would re-inject the placeholder match — corrupting the output.
 // The fix passes a replacement FUNCTION, which is not subject to `$` interpretation.
 
+// The `**` pass must run before the single-`*` pass: the single-`*` regex uses `(.+?)`,
+// which spans the inner delimiters, so on its own it turns `**x**` into <b>*x*</b>. The
+// `_` pair does not have this coupling — `[^_]+` cannot span them. Nothing else covers
+// the ordering, and a reorder is silent: the output stays well-formed HTML.
+test("** stays bold and does not leak literal asterisks (pass ordering)", () => {
+  expect(convertMarkdownToHtml("**x**")).toContain("<b>x</b>");
+  expect(convertMarkdownToHtml("**x**")).not.toContain("<b>*x*</b>");
+  expect(convertMarkdownToHtml("*y*")).toContain("<b>y</b>");
+  // The underscore pair, for contrast: order-independent by construction.
+  expect(convertMarkdownToHtml("__z__")).toContain("<b>z</b>");
+  expect(convertMarkdownToHtml("_w_")).toContain("<i>w</i>");
+});
+
 test("inline code containing $& survives verbatim (no pattern corruption)", () => {
   const out = convertMarkdownToHtml("run `echo $&` now");
   expect(out).toContain("<code>echo $&amp;</code>");

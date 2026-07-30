@@ -208,7 +208,7 @@ export function checkCommandSafety(
         // The shell removes quotes before rm sees the path, so strip them here too —
         // otherwise `"/etc/passwd"` reads as a relative (in-tree) token and escapes.
         const arg = raw.replace(/['"]/g, "");
-        if (!arg || arg.startsWith("-")) continue; // flags / empty tokens
+        if (!arg || arg.startsWith("-")) continue;
 
         // Unresolvable shell expansion ($VAR, `cmd`, $(cmd), ${..}, brace list) can
         // produce `..`, so DENY. Also denies a literal filename containing $/`/{} —
@@ -347,7 +347,7 @@ async function isBlockedFetchTarget(rawUrl: string): Promise<boolean> {
   let host: string;
   try {
     const u = new URL(rawUrl);
-    if (u.protocol !== "http:" && u.protocol !== "https:") return true; // file:, gopher:, ...
+    if (u.protocol !== "http:" && u.protocol !== "https:") return true;
     // Strip IPv6 brackets and a trailing dot (`localhost.` / FQDN-root form).
     // The WHATWG URL parser already folds decimal/octal/hex IPv4 to dotted form.
     host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");

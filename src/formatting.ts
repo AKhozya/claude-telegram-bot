@@ -72,31 +72,23 @@ export function convertMarkdownToHtml(text: string): string {
 
   text = escapeHtml(text);
 
-  // Headers: ## Header -> <b>Header</b>
   text = text.replace(/^#{1,6}\s+(.+)$/gm, "<b>$1</b>\n");
-
-  // Bold: **text** -> <b>text</b>
   text = text.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
 
-  // Also handle *text* as bold (single asterisk)
+  // A single * is bold in this dialect. Order is load-bearing here in a way it is not
+  // below: `(.+?)` spans the inner delimiters, so on `**x**` the lookarounds alone give
+  // <b>*x*</b> — the ** pass above has to run first.
   text = text.replace(/(?<!\*)\*(.+?)\*(?!\*)/g, "<b>$1</b>");
 
-  // Double underscore: __text__ -> <b>text</b>
   text = text.replace(/__([^_]+)__/g, "<b>$1</b>");
 
-  // Italic: _text_ -> <i>text</i> (but not __text__)
+  // _ is italic, __ is bold. `[^_]+` cannot span the inner delimiters, so unlike the *
+  // pair above this one excludes `__x__` on its own, whatever the order.
   text = text.replace(/(?<!_)_([^_]+)_(?!_)/g, "<i>$1</i>");
 
-  // Blockquotes: &gt; text -> <blockquote>text</blockquote>
   text = convertBlockquotes(text);
-
-  // Bullet lists: - item or * item -> • item
   text = text.replace(/^[-*] /gm, "• ");
-
-  // Horizontal rules: --- or *** -> blank line
   text = text.replace(/^[-*]{3,}$/gm, "");
-
-  // Links: [text](url) -> <a href="url">text</a>
   text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
 
   // Restore code blocks. Use a replacement FUNCTION, not a string — a string
@@ -149,7 +141,6 @@ function convertBlockquotes(text: string): string {
     }
   }
 
-  // Handle blockquote at end
   if (inBlockquote) {
     result.push("<blockquote>" + blockquoteLines.join("\n") + "</blockquote>");
   }
