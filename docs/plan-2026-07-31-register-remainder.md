@@ -35,7 +35,7 @@ Flux like any other bump.
 ## Findings that changed the plan
 
 Every item below was verified against the code or the running system before being scheduled.
-Four of the nine turned out to differ from the register.
+Four of the eight turned out to differ from the register.
 
 | # | Register said | Investigation found | Verdict |
 |---|---|---|---|
@@ -43,9 +43,9 @@ Four of the nine turned out to differ from the register.
 | 15 | Astral ignorables "cannot be" covered — no `u` flag | **Wrong.** A surrogate-pair + lookbehind pattern rejects U+E0100-U+E01EF while still accepting emoji, U+1F100, U+1F1E6 | Correct the comment, **don't ship the pattern** |
 | 16 | Reopen only if the archive feature is used | **3 `ARCHIVE` audit events** in 13,377 lines on the live pod | Keep the feature, evidence recorded |
 | 18 | `net.BlockList` rejected, needs differential fuzz | Unchanged | Stays rejected — the fuzz harness is YAGNI |
-| 19 | "Real gap **when** `BASH_SANDBOX_ENABLED=false`" | That **is** the production configuration — `deployment.yaml:227` sets it `false` because bubblewrap needs user namespaces the pod's `seccompProfile: RuntimeDefault` blocks | Register understates it; see decision D2 |
+| 19 | "Real gap **when** `BASH_SANDBOX_ENABLED=false`" | That **is** the production configuration — homelab `deployment.yaml` sets `BASH_SANDBOX_ENABLED=false` because bubblewrap needs user namespaces the pod's `seccompProfile: RuntimeDefault` blocks | Register understates it; see decision D2 |
 | 20 | `photo.ts`/`video.ts` untested; item 8 added `run-prompt.ts`, `commands.ts` | `video.ts` is **absent from the coverage table entirely** — no test loads it. `document.ts` is 16.63 % of lines, worse than `commands.ts` at 13.23 % but far larger | Test `video.ts`; record the real numbers |
-| 23 | `mcp-config.example.ts` hides the repo's own servers | Unchanged | Owner's call — decision D1 |
+| 23 | `mcp-config.example.ts` hides the repo's own servers | Unchanged | Owner's call — **decided D1 2026-07-31: both enabled** |
 | 25 | `/var/folders/` can never match | **Confirmed by spike:** `isPathAllowed(TMPDIR)` is `false`; `realpath` gives `/private/var/folders/…` | Fix |
 
 ### Spike record
@@ -63,7 +63,7 @@ Four of the nine turned out to differ from the register.
 - **Item 20** — `bun test --coverage`: `photo.ts` 0.00 %/10.66 %, `run-prompt.ts` 0.00 %/13.89 %,
   `commands.ts` 58.33 %/13.23 %, `document.ts` 54.17 %/16.63 %, all files 83.58 %/78.82 %.
   `video.ts` produced **no row at all**. ✅ verified
-- **Item 19** — `deployment.yaml:222-228` states the reason and sets the value. ✅ verified
+- **Item 19** — `deployment.yaml` states the reason beside the `BASH_SANDBOX_ENABLED` env entry. ✅ verified
 
 ### Assumptions and cut corners
 
@@ -303,7 +303,7 @@ git commit -m "Cover the video handler's guard clauses" -- src/handlers/video.te
 
 **Files:**
 - Modify: `ask_user_mcp/server.ts:42-45`
-- Modify: `docs/open-questions-2026-07-31.md:342-356`
+- Modify: `docs/open-questions-2026-07-31.md`, the "Tier 3 — remaining" table
 
 No behaviour changes. Two separate problems, one commit each.
 
@@ -340,7 +340,7 @@ git commit -m "Say why astral ignorables are uncovered, not that they cannot be"
 - [ ] **Step 4: Rewrite the "Tier 3 — remaining" table**
 
 The table is stale, and omits 25 entirely — 25 lives in the "Found while working tier 3"
-section at line 255, not in the table. Replace rows 14-23 with the verdicts from *Findings
+table, not in this one. Replace rows 14-23 with the verdicts from *Findings
 that changed the plan* above, carrying each item's evidence (file:line, or the command and its
 output). Keep every "Why it was left" note that is still true; do not delete the section
 banners.
@@ -355,8 +355,8 @@ The three already-done rows are **not** in that findings table — take them fro
 
 - [ ] **Step 5: Update the gate line**
 
-`docs/open-questions-2026-07-31.md:361-363` records the gate history. Append the new figure
-once tasks 1-2 have landed.
+The gate history sits under "Working rules for whoever picks this up" in
+`docs/open-questions-2026-07-31.md`. Append the new figure once tasks 1-2 have landed.
 
 - [ ] **Step 6: Commit**
 
@@ -378,8 +378,10 @@ Codex versions; adding auth status turns a month of silence into a line you see 
 
 - [ ] **Step 1: Read the current card construction**
 
-Run: `sed -n '148,158p' ~/source-code/homelab/apps/claude-telegram/deployment.yaml`
-It builds `MSG` from `CLI`, `SDK`, `CODEX` via `printf` into a markdown table.
+Run: `grep -n 'CLI=\$' -A 16 ~/source-code/homelab/apps/claude-telegram/deployment.yaml`
+It builds `MSG` from `CLI`, `SDK`, `CODEX` via `printf` into a markdown table. Anchored on
+the code, not a line range — this file grows, and the range this step first carried had
+already stopped covering the block by the time the step was done.
 
 - [ ] **Step 2: Capture auth status alongside the version**
 
@@ -479,6 +481,11 @@ git commit -m "Match the kubectl pin to the cluster's minor" -- Dockerfile
 
 ## Decisions for the owner — not mine to make
 
+**Both were decided on 2026-07-31, as recommended.** D1: the repo's own two MCP servers are
+enabled in `mcp-config.example.ts`; the third-party entries stay commented. D2: the Bash
+denylist is left alone and item 19 stays open as a standing ceiling. The reasoning below is
+what was put to the owner, kept as written.
+
 **D1 — Item 23: `mcp-config.example.ts` hides the repo's own two servers.** Copy the example
 and `ask_user`/`send_file` are silently absent, sitting commented out beside third-party
 entries that need external setup. It is an outward-facing product default. Options: enable
@@ -488,7 +495,7 @@ ships and tests should not be off by default.
 
 **D2 — Item 19: extend the Bash denylist, or leave the ceiling documented?** The register
 says "real gap **when** `BASH_SANDBOX_ENABLED=false`". That is production:
-`deployment.yaml:227` sets it `false` because bubblewrap needs user namespaces the pod's
+homelab `deployment.yaml` sets `BASH_SANDBOX_ENABLED=false` because bubblewrap needs user namespaces the pod's
 `seccompProfile: RuntimeDefault` blocks. So `tee`, `dd of=`, `cp`, `mv`, `find -delete` are
 unparsed in the deployed configuration.
 

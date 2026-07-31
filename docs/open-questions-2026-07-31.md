@@ -10,8 +10,9 @@ and missed the `/tmp` leak underneath it entirely.
 Tiers 1 and 2 and part of tier 3 were worked on 2026-07-31; their entries record what each
 turned out to be. Every pass makes the point again: item 1's headline claim was wrong and
 hid a real defect, item 10's stated justification was wrong, item 20 is wrong, and item 13
-was right about the mechanism but wrong that it failed visibly. Items 14-20 and 23 are
-still as first written.
+was right about the mechanism but wrong that it failed visibly. Items 14-23 were worked later
+the same day and carry their verdicts in "Tier 3 — remaining"; item 25 carries its own in
+"Found while working tier 3". Four of them differed from what this register had recorded.
 
 ## Tier 1 — worked 2026-07-31
 
@@ -20,9 +21,10 @@ Gate after this pass: **351 pass / 1111 expect() / 22 files**, typecheck 0.
 ### 1. The rewritten MCP servers may not be wired into anything — WRONG, but it hid a real defect
 
 Not a defect. `mcp-config.ts` is **gitignored** (`.gitignore:26`) and user-supplied, so its
-absence here is by design, and the example ships every entry commented out because each one
-is opt-in. Written by hand and loaded, the chain works end to end: `Loaded 2 MCP servers
-from mcp-config.ts`, both reaching `session.ts:262 mcpServers: MCP_SERVERS`. Started with a
+absence here is by design, and the example then shipped every entry commented out because
+each one was opt-in — item 23 has since enabled the repo's own two. Written by hand and
+loaded, the chain works end to end: `Loaded 2 MCP servers from mcp-config.ts`, both reaching
+`mcpServers: MCP_SERVERS` in `src/session.ts` (line 248 today). Started with a
 throwaway token, the bot registers everything and gets as far as `getMe` (401 on the fake
 token) — so nothing before the network call is broken.
 
@@ -352,11 +354,11 @@ being dispositioned. Four differed from what the register had recorded.
 | 16 | Archive feature kept on inconclusive evidence | **Keep the feature — evidence now exists.** `grep -o 'ARCHIVE[A-Z_]*' "$AUDIT_LOG_PATH" \| sort \| uniq -c` on the live pod: 3 `ARCHIVE` events in 13,377 lines. Written by `src/handlers/document.ts:371` |
 | 17 | `/restart`'s 500 ms sleep | **Settled by the live pass — no loop.** See "Also settled" above. No code change |
 | 18 | `net.BlockList` for the SSRF classifier | **Stays rejected.** Unchanged on re-reading; the differential fuzz harness it would need is the reason, and nothing has made it cheaper |
-| 19 | Denylist misses `tee`, `dd of=`, `cp`, `mv`, `find -delete` | **Stays open as a standing ceiling — the wording above was wrong.** Not "a gap *when* the sandbox is off": that is the deployed configuration. Homelab `deployment.yaml:227` sets `BASH_SANDBOX_ENABLED=false` because bubblewrap needs user namespaces the pod's `seccompProfile: RuntimeDefault` blocks. For *this* deployment the compensating controls are real — `readOnlyRootFilesystem`, dropped caps, egress policy, and both writable surfaces already inside `ALLOWED_PATHS`/`TEMP_PATHS` — but that reasoning is container-specific and does not generalise. `SECURITY.md:116` already states the denylist is best-effort and trivially bypassable by construction; this item points there rather than restating the gap as conditional on a flag. Owner decision **D2** |
+| 19 | Denylist misses `tee`, `dd of=`, `cp`, `mv`, `find -delete` | **Stays open as a standing ceiling — the wording above was wrong.** Not "a gap *when* the sandbox is off": that is the deployed configuration. Homelab `deployment.yaml` sets `BASH_SANDBOX_ENABLED=false` because bubblewrap needs user namespaces the pod's `seccompProfile: RuntimeDefault` blocks. For *this* deployment the compensating controls are real — `readOnlyRootFilesystem`, dropped caps, egress policy, and both writable surfaces already inside `ALLOWED_PATHS`/`TEMP_PATHS` — but that reasoning is container-specific and does not generalise. `SECURITY.md:116` already states the denylist is best-effort and trivially bypassable by construction; this item points there rather than restating the gap as conditional on a flag. **Decided 2026-07-31 (D2): leave the denylist alone, keep this item open.** Parsing target arguments for five more commands with awkward shapes (`mv a b c dir`, `cp -r`, `find … -delete`) buys nothing against an adversary who controls the command string, and a false positive blocks legitimate work inside `ALLOWED_PATHS`. Reconsider fixing it if the bot is ever run outside a container, or with the sandbox off and no equivalent confinement |
 | 20 | `photo.ts` and `video.ts` remain the only untested handlers — **wrong**, see item 8: coverage puts `run-prompt.ts` at 0.00 % of functions too, and `commands.ts` at 13 % of lines | **Partly closed.** `video.ts` was worse than "untested" — it produced no coverage row at all, so no threshold could ever have flagged it. `src/handlers/video.test.ts` now covers both guard clauses and the download-failure path: **100.00 % functions / 56.47 % lines**. Measured the same run: `photo.ts` 0.00/10.66, `run-prompt.ts` 0.00/13.89, `commands.ts` 58.33/13.23, `document.ts` 54.17/16.63, all files 84.23/77.93. `document.ts` is the largest untested surface left (597 lines) — raised as item 27 |
 | 21 | The audit log is written **unredacted** under `AUDIT_LOG_JSON`; document prompts carry whole file bodies, and the `0o600` fix fails **open** when chmod fails | **Done** — `ce60a64`, "Write an audit record only through a descriptor proved private" |
 | 22 | Merge to `main` | **Done 2026-07-31**, shipped as image 1.27.23. Not one SHA: `main` was fast-forwarded to the branch tip `214ab9a`, then merged with `origin/main` twice as Renovate landed lockfile PRs #52-#54 mid-push, so `git merge-base --is-ancestor 214ab9a` holds for both merge commits. Cite the branch tip and the pushed tip `3d11819` |
-| 23 | `mcp-config.example.ts` ships the repo's **own** `ask_user` and `send_file` entries commented out, beside third-party examples that need external setup. Copy the example and both features are silently absent | **Owner decision D1, still open.** Unchanged on re-reading: an outward-facing product default, not a defect to fix unilaterally. Recommendation on the table is to enable both — they need no external setup and the repo tests them |
+| 23 | `mcp-config.example.ts` ships the repo's **own** `ask_user` and `send_file` entries commented out, beside third-party examples that need external setup. Copy the example and both features are silently absent | **Closed 2026-07-31 (D1): both enabled by default.** They ship in this repo, the suite tests them over a real MCP client, and they need no account or key — the reasons the third-party entries stay commented do not apply. Verified the enabled entries resolve to files that exist |
 
 Items 24-26 sit in the "Found while working tier 3" table above, not here; 24 and 26 have
 their own write-ups, and 25 was fixed this session.
