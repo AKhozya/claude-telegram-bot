@@ -104,13 +104,22 @@ U+FFFD, which is visible and sits inside the widened range.
 | 20 | `photo.ts` and `video.ts` remain the only untested handlers | — |
 | 21 | The audit log is written **unredacted** under `AUDIT_LOG_JSON`; document prompts carry whole file bodies, and the `0o600` fix fails **open** when chmod fails | Recorded as an open security question, never resolved |
 | 22 | Merge to `main` | Never discussed |
+| 23 | `mcp-config.example.ts` ships the repo's **own** `ask_user` and `send_file` entries commented out, beside third-party examples that need external setup. Copy the example and both features are silently absent | Surfaced 2026-07-31 while disproving tier-1 #1. Not changed: it is an outward-facing product default, the user's call, not a defect to fix unilaterally |
 
 ## Working rules for whoever picks this up
 
 - Verify each item against the code before acting. Push back with evidence rather than
   fixing on faith.
-- `bun run typecheck && bun test`, never below **345 / 1097**.
+- `bun run typecheck && bun test`, never below **351 / 1111** (was 345 / 1097 before the
+  tier-1 pass).
 - Mutation-test every fix against the exact scenario it claims to close. Two fixes last
-  session passed review and killed nothing.
+  session passed review and killed nothing. Anchor the mutation on the code construct, not
+  the first textual match — a comment table ate eight mutations once.
+- A test that asserts an error was *reported* must assert on something only the intended
+  error produces. One here passed on a resolver failure while claiming to test a parse
+  failure, and every mutation still died.
 - One single-line commit per item. `git status --short` first.
+- Do not add an `until` loop to wait for a Codex job. The dispatch already notifies; a
+  finished job leaves the Active-jobs table, so a poll for its terminal status never
+  matches and hangs until the session ends.
   1Password is locked — use `git -c commit.gpgsign=false commit`.
