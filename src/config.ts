@@ -248,11 +248,12 @@ export const TEMP_REAP_INTERVAL_MS = positiveNumberEnv(
 export const TEMP_RETENTION_MS =
   positiveNumberEnv("TEMP_RETENTION_HOURS", 24) * 60 * 60 * 1000;
 
-// How long an MCP request file may sit unread before the bot treats it as orphaned. The
-// server writes one and `session.ts` polls within a second; anything still `pending` after
-// this was abandoned by a crash or a restart, and delivering it means a question from
-// another session arriving with live buttons. Deliberately not configurable — the only
-// value that matters is "much longer than a poll, much shorter than a conversation".
+// How long an MCP request file may sit unread before the bot treats it as orphaned.
+// `pollFor` in `session.ts` gives a new file 400 ms of sleeps across three checks and
+// never looks again for that call, so one written after the last check waits for the poll
+// of a LATER ask_user call. This window is what that poll then decides: under it the old
+// question arrives beside the new one, over it the file is dropped — a query whose child
+// died with the bot must not put live buttons under a dead question. Not configurable.
 export const IPC_PENDING_TTL_MS = 5 * 60 * 1000;
 
 // Bun.write creates missing parent dirs, so this is how TEMP_DIR gets made.
