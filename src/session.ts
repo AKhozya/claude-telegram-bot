@@ -48,20 +48,6 @@ export function getThinkingConfig(message: string): NonNullable<Options["thinkin
     : { type: "enabled", budgetTokens: budget };
 }
 
-/**
- * Wait for an out-of-band file to appear: the MCP servers write their request files
- * after the tool event is streamed, so the event can land before the file exists.
- * One settle, then 3 attempts, no sleep after the last. Returns whether `check` ever won.
- */
-async function pollFor(check: () => Promise<boolean>): Promise<boolean> {
-  await Bun.sleep(200);
-  for (let attempt = 0; attempt < 3; attempt++) {
-    if (await check()) return true;
-    if (attempt < 2) await Bun.sleep(100);
-  }
-  return false;
-}
-
 function getThinkingLevel(message: string): number {
   const msgLower = message.toLowerCase();
 
@@ -327,6 +313,9 @@ class ClaudeSession {
     let lastTextUpdate = 0;
     let queryCompleted = false;
     let askUserTriggered = false;
+    // tool_use id -> which MCP UI it belongs to, so the tool_result branch below knows
+    // whose request file just landed.
+    const pendingMcpUi = new Map<string, "ask-user" | "send-file">();
 
     try {
       const queryInstance = query({
@@ -410,15 +399,15 @@ class ClaudeSession {
                 await statusCallback("tool", toolDisplay);
               }
 
-              if (toolName.startsWith("mcp__ask-user") && ctx && chatId) {
-                if (await pollFor(() => checkPendingAskUserRequests(ctx, chatId))) {
-                  askUserTriggered = true;
+              // Only remembered here. Reading the request file at this point raced the
+              // write and lost: the SDK dispatches a tool after the assistant message
+              // completes, so the file did not exist yet. See the tool_result branch.
+              if (ctx && chatId) {
+                if (toolName.startsWith("mcp__ask-user")) {
+                  pendingMcpUi.set(block.id, "ask-user");
+                } else if (toolName.startsWith("mcp__send-file")) {
+                  pendingMcpUi.set(block.id, "send-file");
                 }
-              }
-
-              if (toolName.startsWith("mcp__send-file") && ctx && chatId) {
-                await pollFor(() => checkPendingSendFileRequests(ctx, chatId));
-                // NO break — Claude continues generating
               }
             }
 
@@ -441,8 +430,41 @@ class ClaudeSession {
             }
           }
 
-          // The user now owns the turn — draining further events would emit
-          // messages behind the buttons they are still looking at.
+        }
+
+        /**
+         * Both MCP servers `await Bun.write` their request file before returning, so a
+         * successful tool_result means that write completed. That is the whole reason this runs
+         * here: the file is written when the SDK *dispatches* the tool, which happens
+         * after the assistant message completes, while the tool_use block is streamed
+         * before it. Reading on tool_use raced that write and lost every time — the
+         * question or file surfaced only when a later call of the same kind flushed it,
+         * one turn late, and `send_file` reported success for a file it never sent.
+         */
+        if (event.type === "user" && ctx && chatId) {
+          const content = event.message.content;
+          for (const block of Array.isArray(content) ? content : []) {
+            if (block.type !== "tool_result") continue;
+            const kind = pendingMcpUi.get(block.tool_use_id);
+            if (!kind) continue;
+            pendingMcpUi.delete(block.tool_use_id);
+
+            // An error result carries no guarantee that a whole request was written: both
+            // servers refuse outright for a missing or oversized file or no chat to send
+            // to, and a write that threw part-way arrives the same way. Reading on one
+            // would find only some earlier request still pending and deliver it against a
+            // call that failed.
+            if (block.is_error) continue;
+
+            if (kind === "ask-user") {
+              if (await checkPendingAskUserRequests(ctx, chatId)) {
+                askUserTriggered = true;
+              }
+            } else {
+              await checkPendingSendFileRequests(ctx, chatId);
+            }
+          }
+          // Same reason as above: once the buttons are up the turn belongs to the user.
           if (askUserTriggered) {
             break;
           }

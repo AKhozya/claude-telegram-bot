@@ -90,6 +90,10 @@ The number is slack, not a measurement, but the quantity it has to clear is in t
 `pollFor` (`session.ts:56`) gives a new request file 400 ms of sleeps across three checks
 and never looks again for that call. The comment now derives it.
 
+**Superseded by #26.** That poll lost its race with the MCP servers' own write every time,
+so the derivation rested on a defect. `pollFor` is gone and the comment no longer refers to
+it.
+
 Codex killed the first draft of that comment. It said a legitimate file "never comes close",
 which is false: one written after the last check is never re-polled for that call, and waits
 for the poll of some later `ask_user`. That is what the window actually decides — under it
@@ -99,8 +103,8 @@ live buttons under a dead session's question.
 ### 5b. The reap only runs when a poller runs — CONFIRMED, and sharper, `8dd7224`
 
 True, and narrower than written. Both pollers are called only from the
-`toolName.startsWith("mcp__ask-user")` and `mcp__send-file` branches of `session.ts:413-420`
-— the only production callers — and each scans its own glob. So an idle bot reaps nothing,
+`mcp__ask-user` and `mcp__send-file` branches of the stream loop — the only production
+callers, now on the tool_result side after #26 — and each scans its own glob. So an idle bot reaps nothing,
 and a stranded file waits for the next call **of its own kind**: an `ask_user` poll never
 touches an orphaned `send-file-*.json`.
 
@@ -200,7 +204,7 @@ megabytes do. **−870 MB** is this machine's number.
 
 ## Tier 3 — worked from 2026-07-31
 
-Gate after items 12, 13 and 24: **402 pass / 1303 expect() / 23 files**, typecheck 0.
+Gate after items 12, 13, 24 and 26: **410 pass / 1312 expect() / 24 files**, typecheck 0.
 
 ### 12. `send_file` caption over 1024 chars is unbounded — CONFIRMED, fixed in `d7c0d71`
 
@@ -249,6 +253,52 @@ killed, each verified to apply **and compile** first.
 |---|---|---|
 | 24 | `autoRetry` retries an `HttpError` in an unbounded loop | **CONFIRMED, fixed in the commit below.** See the entry under it |
 | 25 | `TEMP_PATHS` lists `/var/folders/` with no `/private` spelling, while `/tmp` gets both. `canonicalize` resolves `/var/folders/…` to `/private/var/folders/…` on macOS, so the entry can never match and `isPathAllowed` rejects the platform's own `TMPDIR` | Open. Fail-closed over-block, not a hole. Belongs with item 14 |
+| 26 | Both MCP features were broken end to end: the bot read the request file on the **tool_use** block, but the SDK dispatches a tool only after the assistant message completes, so the file did not exist yet | **CONFIRMED live, fixed.** See the entry below |
+
+### 26. The bot read every MCP request file before it existed — CONFIRMED live, fixed
+
+Found by the tier-1 #2 live pass, and by nothing else. `pollFor` (200 ms settle, 3 attempts,
+100 ms apart) ran when the `tool_use` block was streamed. Both servers `await Bun.write`
+their request file and only then return, and the SDK dispatches a tool only after the
+assistant message completes — so the read always came first and always found nothing.
+
+Two user-visible defects, one cause:
+
+| Feature | Symptom |
+|---|---|
+| `ask_user` | the question appeared one `ask_user` call late, so the buttons on screen answered the **previous** question. Observed three turns running |
+| `send_file` | the file was never sent, while Claude reported `Sent. README.md, 10 KB.` |
+
+`send_file` is the worse half: the tool is fire-and-forget, so nothing surfaced the failure
+to the model or the user. Item 13 made a *delivery* failure speak; this made delivery never
+happen at all.
+
+Fixed by reading when the matching **tool_result** arrives, which is the server's return
+value and therefore proof its write completed. `pollFor` is deleted — the fix removes code
+rather than widening a timeout. An `is_error` result is skipped: both servers refuse before
+writing for a missing or oversized file, and reading then would deliver some older pending
+request against a call that failed.
+
+Reverting to the read-on-tool_use fails 6 of the 7 ordering tests; the `is_error` guard has
+its own. Two Codex rounds: the first found the `is_error` case and a dead branch the fix had
+orphaned, the second two comment claims that were too absolute.
+
+The register's item 5 is now **obsolete in its reasoning**. `IPC_PENDING_TTL_MS` was derived
+from that 400 ms window; with the poll gone the TTL sees only genuinely orphaned requests,
+and its comment says so.
+
+### Also settled by the live pass
+
+- **Item 17 — `/restart` does not loop.** Under a supervisor, two unacknowledged `/restart`
+  messages were redelivered and produced exactly two restarts, then flat for 45 s. The
+  offset commits before exit. No code change.
+- **Not a defect: PDF.** `Could not read this PDF` on the dev host was a missing `poppler`
+  (`pdftotext` and `pdftocairo` both absent); the handler tried the text layer, tried the
+  render fallback, and reported both failing. `brew install poppler` fixed it. The pod image
+  already has it.
+- **Item 23 confirmed in the field.** The local run started with `No mcp-config.ts found -
+  running without MCPs`, so both features were simply absent until a config was written by
+  hand. Tier-1 #1's fix is the only reason that was visible rather than silent.
 
 ### 24. `autoRetry` retries an `HttpError` forever — CONFIRMED, fixed
 
@@ -296,7 +346,7 @@ deleted before the real one replaced it.
 | 14 | The `send_file` MCP server validates no paths; `isPathAllowed` runs only in the bot | Noted in the plan as load-bearing, never questioned as a defense-in-depth gap |
 | 15 | Astral default-ignorables (U+E0100) still make blank buttons | A JSON Schema `pattern` carries no `u` flag; closing it breaks advertised-equals-enforced. A test pins the acceptance |
 | 16 | Archive feature kept on inconclusive evidence | The stated way to reopen — `grep -c ARCHIVE "$AUDIT_LOG_PATH"` against the running bot — was never run |
-| 17 | `/restart`'s 500 ms sleep | Batch 7 could not settle statically whether it stops a redelivered `/restart` looping. Needs a live run against the supervisor |
+| 17 | `/restart`'s 500 ms sleep | **Settled by the live pass — no loop.** See "Also settled" above |
 | 18 | `net.BlockList` for the SSRF classifier | Rejected; would need a differential fuzz test as the gate |
 | 19 | Denylist misses `tee`, `dd of=`, `cp`, `mv`, `find -delete` | Real gap when `BASH_SANDBOX_ENABLED=false`. Self-documented as an accepted ceiling at `security.ts:144-149` |
 | 20 | `photo.ts` and `video.ts` remain the only untested handlers — **wrong**, see item 8: coverage puts `run-prompt.ts` at 0.00 % of functions too, and `commands.ts` at 13 % of lines | — |
@@ -308,9 +358,9 @@ deleted before the real one replaced it.
 
 - Verify each item against the code before acting. Push back with evidence rather than
   fixing on faith.
-- `bun run typecheck && bun test`, never below **402 / 1303** (345 / 1097 before tier 1,
+- `bun run typecheck && bun test`, never below **410 / 1312** (345 / 1097 before tier 1,
   351 / 1111 after it, 353 / 1117 after tier 2, 360 / 1135 after tier-3 #21, 390 / 1268
-  after #12 and #13).
+  after #12 and #13, 402 / 1303 after #24).
 - Mutation-test every fix against the exact scenario it claims to close. Two fixes last
   session passed review and killed nothing. Anchor the mutation on the code construct, not
   the first textual match — a comment table ate eight mutations once.
