@@ -7,10 +7,11 @@ Everything here is self-reported by the agent that did the work. Verify against 
 before acting: it was wrong about severity twice — it overstated `ask_user`'s blast radius
 and missed the `/tmp` leak underneath it entirely.
 
-Tiers 1 and 2 were worked on 2026-07-31 and their entries record what each turned out to be.
-Both passes make the point again: item 1's headline claim was wrong and hid a real defect,
-item 10's stated justification was wrong, and item 20 below is wrong. Tier 3 is still as
-first written, apart from that one correction.
+Tiers 1 and 2 and part of tier 3 were worked on 2026-07-31; their entries record what each
+turned out to be. Every pass makes the point again: item 1's headline claim was wrong and
+hid a real defect, item 10's stated justification was wrong, item 20 is wrong, and item 13
+was right about the mechanism but wrong that it failed visibly. Items 14-20 and 23 are
+still as first written.
 
 ## Tier 1 — worked 2026-07-31
 
@@ -197,12 +198,62 @@ The architecture caveat cannot be closed here: the only builder on this host is 
 (Rancher Desktop, no emulation). The mechanisms do not depend on the architecture; the
 megabytes do. **−870 MB** is this machine's number.
 
-## Tier 3 — deliberately not done
+## Tier 3 — worked from 2026-07-31
+
+Gate after items 12 and 13: **390 pass / 1268 expect() / 22 files**, typecheck 0.
+
+### 12. `send_file` caption over 1024 chars is unbounded — CONFIRMED, fixed in `d7c0d71`
+
+Real, and worse than "fails visibly": Telegram rejects the **whole send** over the limit,
+so an unclipped caption costs the file it was attached to. Nothing bounded it — the MCP
+schema is `z.string().optional()` and the tool description states no limit. Now clipped in
+the bot, where the Telegram limits already live.
+
+Counted in **code points**, which is the unit the limit is enforced in. Read off the
+enforcing line rather than assumed: `td/telegram/MessageContent.cpp:5241` compares
+`utf8_length(caption.text)` — UTF-8 lead bytes — against `message_caption_length_max`,
+default 1024 (`OptionManager.cpp:112`). tdlib keeps a separate `utf8_utf16_length` for
+entity offsets, so the choice is deliberate. Codex caught the first draft counting JS
+`.length`, which would clip 1024 emoji Telegram accepts and could cut a surrogate pair.
+
+The constant is pinned against the installed `@grammyjs/types` rather than itself: every
+other assertion is written in terms of `TELEGRAM_CAPTION_LIMIT`, so mutating 1024 to 2048
+moved code and assertions together and survived. Scoped to the four methods this bot
+calls — a file-wide scan finds `sendStory`'s 0-2048 and concludes the cap varies.
+
+Eight mutations, all killed.
+
+### 13. `send_file` queues an unreadable file — CONFIRMED as stated, fixed elsewhere, `c8bb6cf`
+
+Re-probed and exact: mode 000, `Bun.file().size` 7, `text()` and grammY's `InputFile` both
+`EACCES`. The register's reasoning holds and **no queue-time check was added** — it would
+be TOCTOU, it duplicates what the send already discovers, and doing it honestly means
+reading up to 50 MB.
+
+What was wrong was "fails visibly". The reply named only the file, so the cause reached
+nobody: the tool is fire-and-forget, the model is told "queued", and the reason lived only
+in stderr. Now the errno is reported — lifted off `.error` by name, never the nested
+message, because grammY drops that message unless `sensitiveLogs` is on and it can carry
+the token-bearing URL (`grammy/out/core/error.js:76`). A Telegram rejection needs none of
+that: `GrammyError` builds its own message as `... (error_code: description)`.
+
+Both halves of the reply are bounded, and the unlink moved into a `finally` — `ctx.reply`
+can itself reject, and the request was then left to fail again on every poll.
+
+Five Codex rounds, each finding a defect in the last round's fix. Nine mutations, all
+killed, each verified to apply **and compile** first.
+
+### Found while working tier 3 — not in the original register
+
+| # | Item | State |
+|---|---|---|
+| 24 | `autoRetry` retries an `HttpError` in an unbounded loop. `call()` in `@grammyjs/auto-retry/out/mod.js` loops `while (res === undefined)` with no counter; `remainingAttempts--` guards only the outer `do/while` over unsuccessful **results**. `rethrowHttpErrors` defaults false and `index.ts:38` does not set it, so `maxRetryAttempts: 3` does not govern this path. grammY converts any exception raised during a request into an `HttpError` (`core/client.js:58`) — including a filesystem error while streaming an upload. So an unreadable file retries forever with backoff capped at one hour, and item 13's report cannot be reached | Open. Affects every API call, not just `send_file`, so it gets its own commit. Codex reversed itself on this at round 5, claiming `maxRetryAttempts: 3` bounds it — it does not; `call()` never reads that variable |
+| 25 | `TEMP_PATHS` lists `/var/folders/` with no `/private` spelling, while `/tmp` gets both. `canonicalize` resolves `/var/folders/…` to `/private/var/folders/…` on macOS, so the entry can never match and `isPathAllowed` rejects the platform's own `TMPDIR` | Open. Fail-closed over-block, not a hole. Belongs with item 14 |
+
+## Tier 3 — remaining
 
 | # | Item | Why it was left |
 |---|---|---|
-| 12 | `send_file` caption over 1024 chars is unbounded | Fails visibly and self-heals. Out of spec per Bot API "0-1024", never observed failing |
-| 13 | `send_file` queues a non-empty but unreadable file (probed: size 7, `text()` throws `EACCES`) | Same — visible failure, self-healing |
 | 14 | The `send_file` MCP server validates no paths; `isPathAllowed` runs only in the bot | Noted in the plan as load-bearing, never questioned as a defense-in-depth gap |
 | 15 | Astral default-ignorables (U+E0100) still make blank buttons | A JSON Schema `pattern` carries no `u` flag; closing it breaks advertised-equals-enforced. A test pins the acceptance |
 | 16 | Archive feature kept on inconclusive evidence | The stated way to reopen — `grep -c ARCHIVE "$AUDIT_LOG_PATH"` against the running bot — was never run |
@@ -218,8 +269,8 @@ megabytes do. **−870 MB** is this machine's number.
 
 - Verify each item against the code before acting. Push back with evidence rather than
   fixing on faith.
-- `bun run typecheck && bun test`, never below **353 / 1117** (345 / 1097 before tier 1,
-  351 / 1111 after it).
+- `bun run typecheck && bun test`, never below **390 / 1268** (345 / 1097 before tier 1,
+  351 / 1111 after it, 353 / 1117 after tier 2, 360 / 1135 after tier-3 #21).
 - Mutation-test every fix against the exact scenario it claims to close. Two fixes last
   session passed review and killed nothing. Anchor the mutation on the code construct, not
   the first textual match — a comment table ate eight mutations once.
