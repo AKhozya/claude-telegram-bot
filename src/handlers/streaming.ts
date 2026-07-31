@@ -22,6 +22,18 @@ import {
 } from "../config";
 
 /**
+ * Where the MCP servers write their request files. Not configuration: the servers hardcode
+ * the same path in their own source, and `callback.ts` hardcodes it a third time, so this
+ * is one copy of a protocol convention rather than a symbol the three sides import.
+ *
+ * The pollers take it as a parameter anyway, because the reap deletes by age across every
+ * chat and runs *before* the chat filter. A test that drives a poller against the real
+ * `/tmp` therefore deletes the pending prompts of any bot running on the same host. Tests
+ * pass a scratch directory; nothing in production overrides it.
+ */
+const IPC_DIR = "/tmp";
+
+/**
  * Age by mtime, or `NaN` when it cannot be measured.
  *
  * Not `Infinity`: that reads as "older than any threshold" and would delete a live
@@ -96,13 +108,14 @@ export function createAskUserKeyboard(
 
 export async function checkPendingAskUserRequests(
   ctx: Context,
-  chatId: number
+  chatId: number,
+  dir: string = IPC_DIR
 ): Promise<boolean> {
   const glob = new Bun.Glob("ask-user-*.json");
   let buttonsSent = false;
 
-  for await (const filename of glob.scan({ cwd: "/tmp", absolute: false })) {
-    const filepath = `/tmp/${filename}`;
+  for await (const filename of glob.scan({ cwd: dir, absolute: false })) {
+    const filepath = `${dir}/${filename}`;
     const ageMs = fileAgeMs(filepath);
     // Before the parse — see reapIfOlderThan: a file too broken to read is exactly the
     // one that would otherwise be re-read forever.
@@ -146,13 +159,14 @@ const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".ogg", ".flac", ".m4a"]);
 
 export async function checkPendingSendFileRequests(
   ctx: Context,
-  chatId: number
+  chatId: number,
+  dir: string = IPC_DIR
 ): Promise<boolean> {
   const glob = new Bun.Glob("send-file-*.json");
   let fileSent = false;
 
-  for await (const filename of glob.scan({ cwd: "/tmp", absolute: false })) {
-    const filepath = `/tmp/${filename}`;
+  for await (const filename of glob.scan({ cwd: dir, absolute: false })) {
+    const filepath = `${dir}/${filename}`;
     const ageMs = fileAgeMs(filepath);
     // Before the parse — see reapIfOlderThan: a file too broken to read is exactly the
     // one that would otherwise be re-read forever.

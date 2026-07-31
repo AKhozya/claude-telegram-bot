@@ -1,5 +1,14 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, rmSync, symlinkSync, utimesSync } from "node:fs";
+import { afterAll, afterEach, describe, expect, test } from "bun:test";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const { isPathAllowed } = await import("../security");
 const {
@@ -389,9 +398,7 @@ describe("splitMarkdownForTelegram limit accounting inside fences", () => {
   });
 });
 
-// `bun test` runs test files sequentially in one process (spiked: file B finishes before
-// file A starts, same pid), so these can share /tmp with the MCP server tests without
-// racing them. The chat ids below still avoid any real chat.
+// The chat ids in both blocks below avoid any real chat.
 describe("MCP request files: the callback_data budget", () => {
   test("a whole-UUID request id still fits Telegram's 64-byte callback_data limit", () => {
     // This limit is why the id used to be truncated to 8 hex chars, which let two requests
@@ -418,13 +425,20 @@ describe("MCP request files: reaping the dead ones", () => {
   const OTHER_CHAT = 99000000004;
   const written: string[] = [];
 
+  // A directory of its own, never the `/tmp` root the pollers default to. The reap deletes
+  // by age across every chat and runs before the chat filter, so aiming these tests at the
+  // directory the MCP servers write to would delete the queued prompts of a bot running on
+  // this host. The glob carries no `**`, so a scratch dir under `/tmp` stays isolated.
+  const IPC = mkdtempSync(join(tmpdir(), "ctb-ipc-test-"));
+  afterAll(() => rmSync(IPC, { recursive: true, force: true }));
+
   /** Write a request file and backdate it, since the reap goes by mtime. */
   async function put(
     prefix: "ask-user" | "send-file",
     data: Record<string, unknown> | string,
     ageMs: number
   ): Promise<string> {
-    const path = `/tmp/${prefix}-${crypto.randomUUID()}.json`;
+    const path = `${IPC}/${prefix}-${crypto.randomUUID()}.json`;
     await Bun.write(path, typeof data === "string" ? data : JSON.stringify(data));
     const when = new Date(Date.now() - ageMs);
     utimesSync(path, when, when);
@@ -457,7 +471,7 @@ describe("MCP request files: reaping the dead ones", () => {
     );
     const { ctx, replies } = stubCtx();
 
-    expect(await checkPendingAskUserRequests(ctx, CHAT)).toBe(false);
+    expect(await checkPendingAskUserRequests(ctx, CHAT, IPC)).toBe(false);
     expect(replies).toHaveLength(0);
     expect(existsSync(path)).toBe(false);
   });
@@ -471,7 +485,7 @@ describe("MCP request files: reaping the dead ones", () => {
     );
     const { ctx, replies } = stubCtx();
 
-    expect(await checkPendingAskUserRequests(ctx, CHAT)).toBe(true);
+    expect(await checkPendingAskUserRequests(ctx, CHAT, IPC)).toBe(true);
     expect(replies).toHaveLength(1);
     expect(String(replies[0]![0])).toContain("a live question");
     // Delivered, so it survives for the tap — with its status flipped.
@@ -491,7 +505,7 @@ describe("MCP request files: reaping the dead ones", () => {
     );
     const { ctx } = stubCtx();
 
-    await checkPendingAskUserRequests(ctx, CHAT);
+    await checkPendingAskUserRequests(ctx, CHAT, IPC);
 
     expect(existsSync(live)).toBe(true);
     expect(existsSync(expired)).toBe(false);
@@ -508,7 +522,7 @@ describe("MCP request files: reaping the dead ones", () => {
     );
     const { ctx } = stubCtx();
 
-    await checkPendingAskUserRequests(ctx, CHAT);
+    await checkPendingAskUserRequests(ctx, CHAT, IPC);
     expect(existsSync(path)).toBe(false);
   });
 
@@ -521,7 +535,7 @@ describe("MCP request files: reaping the dead ones", () => {
     expect(fileAgeMs(real)).toBeGreaterThanOrEqual(0);
     expect(fileAgeMs(real)).toBeLessThan(60_000);
 
-    const age = fileAgeMs("/tmp/ask-user-no-such-file-4e91c2.json");
+    const age = fileAgeMs(`${IPC}/ask-user-no-such-file-4e91c2.json`);
     expect(Number.isNaN(age)).toBe(true);
     // The comparison the pollers actually make, in both directions.
     expect(age > TEMP_RETENTION_MS).toBe(false);
@@ -555,7 +569,7 @@ describe("MCP request files: reaping the dead ones", () => {
     const path = await put(prefix, "{", TEMP_RETENTION_MS + 60_000);
     const { ctx } = stubCtx();
 
-    expect(await poll(ctx, CHAT)).toBe(false);
+    expect(await poll(ctx, CHAT, IPC)).toBe(false);
     expect(existsSync(path)).toBe(false);
   });
 
@@ -568,7 +582,7 @@ describe("MCP request files: reaping the dead ones", () => {
     );
     const { ctx, replies } = stubCtx();
 
-    expect(await checkPendingSendFileRequests(ctx, CHAT)).toBe(false);
+    expect(await checkPendingSendFileRequests(ctx, CHAT, IPC)).toBe(false);
     expect(replies).toHaveLength(0);
     expect(existsSync(path)).toBe(false);
   });
