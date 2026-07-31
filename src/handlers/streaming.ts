@@ -42,6 +42,13 @@ const IPC_DIR = "/tmp";
  * when a busy bot has requests in flight. `NaN` loses every comparison in
  * `reapIfOlderThan`, so an unmeasurable file is left for the next poll.
  *
+ * mtime, not the `created_at` the servers write into the JSON: the retention reap runs
+ * before the parse on purpose, and a clock that has to be parsed cannot reap a truncated
+ * file. The cost is that flipping an ask-user request to `sent` rewrites it and restarts
+ * its retention. That rewrite happens at delivery, and a pending file is delivered only
+ * while a poll still samples its age under IPC_PENDING_TTL_MS, so the restart is minutes
+ * in, against a default 24 h. A send-file request is never rewritten.
+ *
  * Exported for the test that pins this, because `Bun.Glob` skips a dangling symlink and
  * there is no other way to drive a failing `stat` through the pollers.
  */
