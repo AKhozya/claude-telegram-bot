@@ -252,8 +252,9 @@ killed, each verified to apply **and compile** first.
 | # | Item | State |
 |---|---|---|
 | 24 | `autoRetry` retries an `HttpError` in an unbounded loop | **CONFIRMED, fixed in the commit below.** See the entry under it |
-| 25 | `TEMP_PATHS` lists `/var/folders/` with no `/private` spelling, while `/tmp` gets both. `canonicalize` resolves `/var/folders/…` to `/private/var/folders/…` on macOS, so the entry can never match and `isPathAllowed` rejects the platform's own `TMPDIR` | Open. Fail-closed over-block, not a hole. Belongs with item 14 |
+| 25 | `TEMP_PATHS` lists `/var/folders/` with no `/private` spelling, while `/tmp` gets both. `canonicalize` resolves `/var/folders/…` to `/private/var/folders/…` on macOS, so the entry can never match and `isPathAllowed` rejects the platform's own `TMPDIR` | **Fixed.** Confirmed by spike first: `isPathAllowed(TMPDIR)` was `false`. The dead entry is replaced by the canonical `tmpdir()` computed once at module eval — not by `/private/var/folders/`, which would have opened the sibling `…/C` cache directory as well. Two tests, one per direction |
 | 26 | Both MCP features were broken end to end: the bot read the request file on the **tool_use** block, but the SDK dispatches a tool only after the assistant message completes, so the file did not exist yet | **CONFIRMED live, fixed.** See the entry below |
+| 27 | `document.ts` is 54.17 % of functions but **16.63 % of lines** — 597 lines, the largest untested surface in the repo, and a wider gap than anything item 20 named | Open. Raised 2026-07-31 while closing item 20; deliberately not folded into that item's coverage task |
 
 ### 26. The bot read every MCP request file before it existed — CONFIRMED live, fixed
 
@@ -341,26 +342,33 @@ deleted before the real one replaced it.
 
 ## Tier 3 — remaining
 
-| # | Item | Why it was left |
+Every row below was verified against the code or the running system on 2026-07-31 before
+being dispositioned. Four differed from what the register had recorded.
+
+| # | Item | Disposition |
 |---|---|---|
-| 14 | The `send_file` MCP server validates no paths; `isPathAllowed` runs only in the bot | Noted in the plan as load-bearing, never questioned as a defense-in-depth gap |
-| 15 | Astral default-ignorables (U+E0100) still make blank buttons | A JSON Schema `pattern` carries no `u` flag; closing it breaks advertised-equals-enforced. A test pins the acceptance |
-| 16 | Archive feature kept on inconclusive evidence | The stated way to reopen — `grep -c ARCHIVE "$AUDIT_LOG_PATH"` against the running bot — was never run |
-| 17 | `/restart`'s 500 ms sleep | **Settled by the live pass — no loop.** See "Also settled" above |
-| 18 | `net.BlockList` for the SSRF classifier | Rejected; would need a differential fuzz test as the gate |
-| 19 | Denylist misses `tee`, `dd of=`, `cp`, `mv`, `find -delete` | Real gap when `BASH_SANDBOX_ENABLED=false`. Self-documented as an accepted ceiling at `security.ts:144-149` |
-| 20 | `photo.ts` and `video.ts` remain the only untested handlers — **wrong**, see item 8: coverage puts `run-prompt.ts` at 0.00 % of functions too, and `commands.ts` at 13 % of lines | — |
-| 21 | The audit log is written **unredacted** under `AUDIT_LOG_JSON`; document prompts carry whole file bodies, and the `0o600` fix fails **open** when chmod fails | Recorded as an open security question, never resolved |
-| 22 | Merge to `main` | Never discussed |
-| 23 | `mcp-config.example.ts` ships the repo's **own** `ask_user` and `send_file` entries commented out, beside third-party examples that need external setup. Copy the example and both features are silently absent | Surfaced 2026-07-31 while disproving tier-1 #1. Not changed: it is an outward-facing product default, the user's call, not a defect to fix unilaterally |
+| 14 | The `send_file` MCP server validates no paths; `isPathAllowed` runs only in the bot | **Closed — defense-in-depth only.** True as stated, but the bot enforces at `src/handlers/streaming.ts:276` before it sends anything, so no unvalidated path reaches Telegram. A second copy in the server is a second place to keep in sync |
+| 15 | Astral default-ignorables (U+E0100) still make blank buttons | **Comment corrected, pattern not shipped.** The code's "cannot be" claim was wrong: without the `u` flag a pattern matches UTF-16 code units, and a surrogate-pair + lookbehind form rejects a VS17-only label while still accepting emoji, U+1F100 and U+1F1E6 (spiked). Not shipped — lookbehind is ECMA-262 but not implemented by every JSON Schema validator, and this schema is published to MCP clients. Untested portability risk against a cost of one blank button. `ask_user_mcp/server.ts:42-52` now says which of those two it is |
+| 16 | Archive feature kept on inconclusive evidence | **Keep the feature — evidence now exists.** `grep -o 'ARCHIVE[A-Z_]*' "$AUDIT_LOG_PATH" \| sort \| uniq -c` on the live pod: 3 `ARCHIVE` events in 13,377 lines. Written by `src/handlers/document.ts:371` |
+| 17 | `/restart`'s 500 ms sleep | **Settled by the live pass — no loop.** See "Also settled" above. No code change |
+| 18 | `net.BlockList` for the SSRF classifier | **Stays rejected.** Unchanged on re-reading; the differential fuzz harness it would need is the reason, and nothing has made it cheaper |
+| 19 | Denylist misses `tee`, `dd of=`, `cp`, `mv`, `find -delete` | **Stays open as a standing ceiling — the wording above was wrong.** Not "a gap *when* the sandbox is off": that is the deployed configuration. Homelab `deployment.yaml:227` sets `BASH_SANDBOX_ENABLED=false` because bubblewrap needs user namespaces the pod's `seccompProfile: RuntimeDefault` blocks. For *this* deployment the compensating controls are real — `readOnlyRootFilesystem`, dropped caps, egress policy, and both writable surfaces already inside `ALLOWED_PATHS`/`TEMP_PATHS` — but that reasoning is container-specific and does not generalise. `SECURITY.md:116` already states the denylist is best-effort and trivially bypassable by construction; this item points there rather than restating the gap as conditional on a flag. Owner decision **D2** |
+| 20 | `photo.ts` and `video.ts` remain the only untested handlers — **wrong**, see item 8: coverage puts `run-prompt.ts` at 0.00 % of functions too, and `commands.ts` at 13 % of lines | **Partly closed.** `video.ts` was worse than "untested" — it produced no coverage row at all, so no threshold could ever have flagged it. `src/handlers/video.test.ts` now covers both guard clauses and the download-failure path: **100.00 % functions / 56.47 % lines**. Measured the same run: `photo.ts` 0.00/10.66, `run-prompt.ts` 0.00/13.89, `commands.ts` 58.33/13.23, `document.ts` 54.17/16.63, all files 84.23/77.93. `document.ts` is the largest untested surface left (597 lines) — raised as item 27 |
+| 21 | The audit log is written **unredacted** under `AUDIT_LOG_JSON`; document prompts carry whole file bodies, and the `0o600` fix fails **open** when chmod fails | **Done** — `ce60a64`, "Write an audit record only through a descriptor proved private" |
+| 22 | Merge to `main` | **Done 2026-07-31**, shipped as image 1.27.23. Not one SHA: `main` was fast-forwarded to the branch tip `214ab9a`, then merged with `origin/main` twice as Renovate landed lockfile PRs #52-#54 mid-push, so `git merge-base --is-ancestor 214ab9a` holds for both merge commits. Cite the branch tip and the pushed tip `3d11819` |
+| 23 | `mcp-config.example.ts` ships the repo's **own** `ask_user` and `send_file` entries commented out, beside third-party examples that need external setup. Copy the example and both features are silently absent | **Owner decision D1, still open.** Unchanged on re-reading: an outward-facing product default, not a defect to fix unilaterally. Recommendation on the table is to enable both — they need no external setup and the repo tests them |
+
+Items 24-26 sit in the "Found while working tier 3" table above, not here; 24 and 26 have
+their own write-ups, and 25 was fixed this session.
 
 ## Working rules for whoever picks this up
 
 - Verify each item against the code before acting. Push back with evidence rather than
   fixing on faith.
-- `bun run typecheck && bun test`, never below **410 / 1312** (345 / 1097 before tier 1,
+- `bun run typecheck && bun test`, never below **415 / 1321** (345 / 1097 before tier 1,
   351 / 1111 after it, 353 / 1117 after tier 2, 360 / 1135 after tier-3 #21, 390 / 1268
-  after #12 and #13, 402 / 1303 after #24).
+  after #12 and #13, 402 / 1303 after #24, 410 / 1312 at the 1.27.23 ship, 415 / 1321
+  across 25 files after items 25 and 20).
 - Mutation-test every fix against the exact scenario it claims to close. Two fixes last
   session passed review and killed nothing. Anchor the mutation on the code construct, not
   the first textual match — a comment table ate eight mutations once.

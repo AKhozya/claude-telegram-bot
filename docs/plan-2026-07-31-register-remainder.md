@@ -589,6 +589,18 @@ should be planned separately — mixing it in would make every task above wait o
 **Recommendation:** do the spike in step 1 before writing the plan. Its numbers determine
 almost every other decision, and it is an afternoon's work to get wrong by guessing.
 
+## Execution record — where reality differed from the plan
+
+Written after executing tasks 1-5 on 2026-07-31. Four steps did not survive contact.
+
+| Task | Plan said | What shipped, and why |
+|---|---|---|
+| 1 | Add `"/private/var/folders/"` beside the bare entry | **Rejected in review, correctly.** That prefix also opens `/private/var/folders/<hash>/C`, the user's cache directory, which is not temp. The per-user hash makes a narrow static prefix impossible, so `TEMP_PATHS` now carries the canonical `tmpdir()` computed once at module eval, and the dead `/var/folders/` entry is gone rather than completed. Two tests, one per direction: TMPDIR allowed, the `C` sibling denied |
+| 1 | — | The catch-branch comment was wrong twice before it was right. "Matches nothing" is false: `resolvePhysical` preserves a missing tail, so `TMPDIR=/nonexistent/foo` **does** match its own descendants. "Agree until it becomes a symlink" is also too narrow: a missing path under macOS's symlinked `/var` disagrees immediately. Both spiked, not reasoned |
+| 2 | The at-cap test proves the size guard was passed | **False, and proven false.** Deleting the guard outright by exact-string match leaves that test passing — it discriminates `>` from `>=`, nothing more. The oversized test is the one that covers deletion. Comments and test names now say which is which |
+| 4 | `codex login status 2>/dev/null \| head -1` | **Would have shipped a card that always read `NOT LOGGED IN`.** `codex login status` writes its answer to **stderr**; stdout is empty. Verified in-pod both ways before committing: `2>&1` yields `Logged in using ChatGPT`, `2>/dev/null` yields nothing. The plan's own warning about untested fallbacks applied to the plan |
+| 5 | Bump kubectl only — flux client 2.9.2 is *ahead* of cluster 2.9.0 | **Premise was stale.** Live `flux version --client=false` is **2.9.3**, so the pinned client was *behind*. Both pins bumped: `KUBECTL_VERSION=v1.36.2`, `FLUX_VERSION=2.9.3`. All four upstream artifacts (binary, sha256, tarball, checksums) confirmed reachable before committing |
+
 ## Execution order
 
 Tasks 1 and 2 are independent and can run in either order. Task 3 depends on both, since it
