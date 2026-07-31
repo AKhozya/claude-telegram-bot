@@ -27,14 +27,14 @@ RUN apk add --no-cache git openssh-client curl jq ca-certificates bash poppler-u
     bubblewrap socat github-cli nodejs npm chezmoi
 
 # kubectl (pinned — match cluster k3s version; bump deliberately). Checksum-verified.
-ARG KUBECTL_VERSION=v1.36.1
+ARG KUBECTL_VERSION=v1.36.2
 RUN curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
       -o /usr/local/bin/kubectl \
     && echo "$(curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256")  /usr/local/bin/kubectl" | sha256sum -c - \
     && chmod +x /usr/local/bin/kubectl
 
 # flux CLI (pinned — match cluster flux minor; bump deliberately). Checksum-verified.
-ARG FLUX_VERSION=2.9.2
+ARG FLUX_VERSION=2.9.3
 RUN set -o pipefail && cd /tmp \
     && curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_linux_amd64.tar.gz" \
     && curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_checksums.txt" \
