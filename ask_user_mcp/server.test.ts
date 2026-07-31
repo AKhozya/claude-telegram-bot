@@ -144,6 +144,71 @@ describe("ask_user advertised schema", () => {
       },
     });
   });
+
+});
+
+describe("ask_user against Unicode's own default-ignorable list", () => {
+  /**
+   * Every BMP Default_Ignorable code point, transcribed from Unicode 17.0.0's
+   * `DerivedCoreProperties.txt` — one row per line of that file, in its order, so a
+   * newer version diffs against this by eye. Regenerate with:
+   *
+   *   grep '; Default_Ignorable_Code_Point' DerivedCoreProperties.txt
+   *
+   * The class in `server.ts` names these ranges by hand, and the rejection table below
+   * reaches six of the 66. That leaves most of a range provable only by reading it:
+   * dropping the last half of the word-joiner range passes every other test here.
+   */
+  const BMP_DEFAULT_IGNORABLE: [number, number][] = [
+    [0x00ad, 0x00ad], [0x034f, 0x034f], [0x061c, 0x061c], [0x115f, 0x1160],
+    [0x17b4, 0x17b5], [0x180b, 0x180d], [0x180e, 0x180e], [0x180f, 0x180f],
+    [0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x2064], [0x2065, 0x2065],
+    [0x2066, 0x206f], [0x3164, 0x3164], [0xfe00, 0xfe0f], [0xfeff, 0xfeff],
+    [0xffa0, 0xffa0], [0xfff0, 0xfff8],
+  ];
+
+  // Against the published `pattern`, not a copy of the class. This is the advertised half
+  // only: `listTools` serializes the zod schema, while a call is validated against the zod
+  // object itself, so the two are separate code paths from one source. The test below
+  // drives the enforced half.
+  test("the published pattern rejects every BMP default-ignorable character", async () => {
+    const { tools } = await client.listTools();
+    const options = tools[0]!.inputSchema.properties!.options as {
+      items: { pattern: string };
+    };
+    const renders = new RegExp(options.items.pattern);
+
+    const missed: string[] = [];
+    let checked = 0;
+    for (const [lo, hi] of BMP_DEFAULT_IGNORABLE) {
+      for (let c = lo; c <= hi; c++) {
+        checked++;
+        if (renders.test(String.fromCharCode(c)))
+          missed.push("U+" + c.toString(16).toUpperCase().padStart(4, "0"));
+      }
+    }
+    expect(missed).toEqual([]);
+    // Guards the fixture rather than the class: a range dropped from the list above would
+    // otherwise shrink this test in silence.
+    expect(checked).toBe(66);
+  });
+
+  // The enforced half, over the wire. The second call is what stops this passing
+  // vacuously: a refusal for any other reason — a length cap, a shape mismatch, a server
+  // that has stopped accepting anything — would refuse the visible label too.
+  test("a label of nothing but those 66 is refused on the call path", async () => {
+    const blank = BMP_DEFAULT_IGNORABLE.flatMap(([lo, hi]) =>
+      Array.from({ length: hi - lo + 1 }, (_, i) => String.fromCharCode(lo + i))
+    ).join("");
+    expect(blank).toHaveLength(66);
+
+    const refused = await call({ question: "q", options: [blank, "Cancel"] });
+    expect(refused.isError).toBe(true);
+    expect(refused.content[0]!.text).toContain("-32602");
+
+    const accepted = await call({ question: "q", options: [`x${blank}`, "Cancel"] });
+    expect(accepted.isError).toBeFalsy();
+  });
 });
 
 describe("ask_user request file", () => {

@@ -25,9 +25,13 @@ import { z } from "zod";
  * this excludes whitespace, the control blocks, and the BMP half of Unicode's
  * Default_Ignorable_Code_Point set rather than an ad-hoc list, plus the two entries of
  * tdlib's own `strip_empty_characters` list that none of those groups already covers:
- * U+2800 and U+FFFC. Braille blank is an ordinary symbol by category and renders as
- * nothing anyway; only U+2800, since U+2801 upward carry dots and braille text has to
- * keep working.
+ * U+2800 and U+FFFC. Only U+2800 of the braille block — U+2801 upward carry dots, and
+ * braille text has to keep working.
+ *
+ * Unicode grants Default_Ignorable no stability guarantee, so a later version can add a
+ * BMP code point this class misses. `server.test.ts` enumerates the 17.0.0 set against
+ * the published pattern; regenerate that list from a newer DerivedCoreProperties.txt
+ * rather than trusting this transcription to have kept up.
  *
  * `strip_empty_characters` is not what rejects these — tdlib never applies it to button
  * text. `get_inline_keyboard_button` runs `clean_input_string`, which normalizes some
@@ -54,7 +58,7 @@ import { z } from "zod";
  *   \u200B-\u200F         zero-width space/non-joiner/joiner, LRM, RLM
  *   \u202A-\u202E         bidi embedding and override controls
  *   \u2060-\u206F         word joiner, invisible operators, bidi isolates, deprecated formats
- *   \u2800                braille pattern blank — not default-ignorable, but blank in every font
+ *   \u2800                braille pattern blank — not default-ignorable; tdlib counts it as blank
  *   \u3164                Hangul filler
  *   \uFE00-\uFE0F         variation selectors
  *   \uFFA0                halfwidth Hangul filler
