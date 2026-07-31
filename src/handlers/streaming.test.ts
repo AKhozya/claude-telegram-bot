@@ -1,5 +1,6 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -9,6 +10,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { GrammyError, HttpError } from "grammy";
 
 const { isPathAllowed } = await import("../security");
 const {
@@ -21,8 +24,12 @@ const {
   fileAgeMs,
   reapIfOlderThan,
 } = await import("./streaming");
-const { TEMP_RETENTION_MS, IPC_PENDING_TTL_MS, TELEGRAM_CAPTION_LIMIT } =
-  await import("../config");
+const {
+  TEMP_RETENTION_MS,
+  IPC_PENDING_TTL_MS,
+  TELEGRAM_CAPTION_LIMIT,
+  TELEGRAM_MESSAGE_LIMIT,
+} = await import("../config");
 const { convertMarkdownToHtml } = await import("../formatting");
 
 describe("send-file path gate (isPathAllowed)", () => {
@@ -671,6 +678,195 @@ describe("MCP request files: reaping the dead ones", () => {
     ["an array of strings", ["a", "b"]],
   ] as const)("%s is delivered as no caption, not a throw", async (_name, caption) => {
     expect(await deliverCaption(caption)).toBeUndefined();
+  });
+
+  /**
+   * Deliver one request whose send throws `error`. Returns the chat replies and whether
+   * the request file survived. `name` overrides the basename of the queued path.
+   */
+  async function failingSend(error: unknown, name = "failing.txt") {
+    const target = `${PAYLOADS}/${name}`;
+    // Only a name a filesystem accepts can be written, and an oversized one is the point
+    // of a case below — so the payload is created when it can be, skipped when it cannot.
+    // try/catch, not `.catch`: an over-NAME_MAX path throws before a promise exists.
+    try {
+      await Bun.write(target, "x");
+    } catch {
+      /* the request still names it, which is what the poller reads */
+    }
+
+    const replies: string[] = [];
+    const ctx = {
+      reply: async (text: string) => { replies.push(text); return { message_id: 1 }; },
+      replyWithChatAction: async () => {},
+      replyWithDocument: async () => { throw error; },
+    } as never;
+
+    const path = await put(
+      "send-file",
+      { request_id: "f", file_path: target, caption: "",
+        status: "pending", chat_id: String(CHAT) },
+      0
+    );
+    // False: nothing was delivered. The request is still consumed.
+    expect(await checkPendingSendFileRequests(ctx, CHAT, IPC)).toBe(false);
+    return { replies, survived: existsSync(path) };
+  }
+
+  /** The EACCES a mode-000 file really raises, not one written by hand. */
+  async function realEacces(): Promise<NodeJS.ErrnoException> {
+    const unreadable = `${PAYLOADS}/unreadable.txt`;
+    await Bun.write(unreadable, "content");
+    chmodSync(unreadable, 0o000);
+    try {
+      await Bun.file(unreadable).text();
+      throw new Error("read succeeded — running as root voids this test");
+    } catch (error) {
+      expect((error as NodeJS.ErrnoException).code).toBe("EACCES");
+      return error as NodeJS.ErrnoException;
+    } finally {
+      chmodSync(unreadable, 0o600);
+    }
+  }
+
+  // The MCP server only stats the file, so one it cannot read is queued at its real size
+  // and fails at the send. Probed: mode 000, `Bun.file().size` 7, `text()` and grammY's
+  // `InputFile` both EACCES.
+  //
+  // Wrapped in a real `HttpError`, which is the shape grammY produces: it converts any
+  // exception raised while performing the request (`core/client.js:58`), and with
+  // `sensitiveLogs` off — this bot never sets it — the wrapper's own text names no cause.
+  //
+  // This proves the handler, not the whole path. `autoRetry` currently retries an
+  // `HttpError` in an unbounded loop, so today this send never returns and never reaches
+  // the handler at all. That is a separate defect with its own fix; the reporting below
+  // is what it will surface once the retry is bounded.
+  test("a wrapped errno is reported and the request consumed", async () => {
+    const wrapped = new HttpError(
+      "Network request for 'sendDocument' failed!",
+      await realEacces()
+    );
+    // The premise: the wrapper alone does not say why.
+    expect(String(wrapped)).not.toContain("EACCES");
+
+    const { replies, survived } = await failingSend(wrapped);
+
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toContain("failing.txt");
+    expect(replies[0]).toContain("EACCES");
+    // Consumed, not left to fail again on the next poll.
+    expect(survived).toBe(false);
+  });
+
+  // grammY keeps the underlying message out of `HttpError` because it can carry the
+  // request URL, and the URL carries the bot token. Only the errno is lifted out.
+  test("the wrapped error's message is not pasted into the chat", async () => {
+    const secret = "SECRET-1234:AAH-token-in-a-url";
+    const inner: NodeJS.ErrnoException = new Error(
+      `request to https://api.telegram.org/bot${secret}/sendDocument failed`
+    );
+    inner.code = "ECONNRESET";
+
+    const { replies } = await failingSend(
+      new HttpError("Network request for 'sendDocument' failed!", inner)
+    );
+
+    expect(replies[0]).toContain("ECONNRESET");
+    expect(replies[0]).not.toContain(secret);
+  });
+
+  // A Telegram rejection needs no lifting: `GrammyError` puts the code and description
+  // into its own message. Pinned because it is the argument for not also digging a
+  // `description` out of a nested one — the common shape already carries it.
+  test("a Telegram rejection reports its own description", async () => {
+    const { replies } = await failingSend(
+      new GrammyError(
+        "Call to 'sendDocument' failed!",
+        { ok: false, error_code: 400, description: "Bad Request: file is too big" },
+        "sendDocument",
+        {}
+      )
+    );
+
+    expect(replies[0]).toContain("400");
+    expect(replies[0]).toContain("file is too big");
+  });
+
+  // The basename comes from a file in a world-writable directory; the reason comes from
+  // the thrown error, which grammY builds from a response body. Either can be oversized,
+  // and a reply over Telegram's limit is refused outright — costing the user the only
+  // report of the failure they get.
+  const withCode = (code: string) => {
+    const inner: NodeJS.ErrnoException = new Error("inner");
+    inner.code = code;
+    return new HttpError("Network request for 'sendDocument' failed!", inner);
+  };
+
+  test.each([
+    ["reason", new Error("x".repeat(10_000)), "failing.txt"],
+    ["nested errno", withCode("E".repeat(10_000)), "failing.txt"],
+    ["basename", new Error("short"), `${"n".repeat(10_000)}.txt`],
+    // The reason's cut splits an emoji: "Error: " is 7 units, so the 200-unit boundary
+    // falls inside one rather than between two. The errno's 32 divides evenly and does
+    // not — it is here to pin that an even cut is left alone.
+    ["astral reason", new Error("😀".repeat(1_000)), "failing.txt"],
+    ["astral errno", withCode("😀".repeat(1_000)), "failing.txt"],
+    ["astral basename", new Error("short"), `${"😀".repeat(4_000)}.txt`],
+    // Not oversized — malformed. `JSON.parse` turns "\ud800" into a lone surrogate, so a
+    // crafted request can hand one straight to the reply. Cutting well cannot remove a
+    // half the input already contained.
+    ["lone surrogate in the basename", new Error("short"), "a\uD800b.txt"],
+    ["lone surrogate in the reason", new Error("a\uDC00b"), "failing.txt"],
+  ] as const)("an oversized %s still leaves a sendable reply", async (_n, err, name) => {
+    const { replies, survived } = await failingSend(err, name);
+
+    expect(replies).toHaveLength(1);
+    expect(replies[0]!.length).toBeLessThan(TELEGRAM_MESSAGE_LIMIT);
+    expect(hasLoneSurrogate(replies[0]!)).toBe(false);
+    expect(survived).toBe(false);
+  });
+
+  // Building the reason must not throw: `String()` on a null-prototype object does, and
+  // any property it reads can be a getter that throws. The unlink sits in a `finally`, so
+  // the request is consumed even when reporting the failure fails outright.
+  test.each([
+    ["a null-prototype object", Object.create(null)],
+    ["a throwing toString", { toString() { throw new Error("no"); } }],
+    ["a throwing .error getter", { get error(): never { throw new Error("no"); } }],
+    ["a throwing .code getter", {
+      error: { get code(): never { throw new Error("no"); } },
+    }],
+    ["undefined", undefined],
+  ] as const)("%s is still reported, not thrown past the unlink", async (_n, err) => {
+    const { replies, survived } = await failingSend(err);
+
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toContain("failing.txt");
+    expect(survived).toBe(false);
+  });
+
+  // A failed send gets one report at most, but it must not get a second send. Without the
+  // `finally` a rejected reply skips the unlink, and the same doomed send runs again on
+  // every poll until the pending window reaps it.
+  test("a request whose failure cannot even be reported is still consumed", async () => {
+    const target = `${PAYLOADS}/unreportable.txt`;
+    await Bun.write(target, "x");
+
+    const ctx = {
+      reply: async () => { throw new Error("chat unreachable"); },
+      replyWithChatAction: async () => {},
+      replyWithDocument: async () => { throw new Error("send failed"); },
+    } as never;
+
+    const path = await put(
+      "send-file",
+      { request_id: "u", file_path: target, caption: "",
+        status: "pending", chat_id: String(CHAT) },
+      0
+    );
+
+    expect(await checkPendingSendFileRequests(ctx, CHAT, IPC)).toBe(false);
+    expect(existsSync(path)).toBe(false);
   });
 
   test("a stale send-file request is deleted rather than sent late", async () => {

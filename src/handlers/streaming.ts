@@ -108,6 +108,50 @@ export function reapIfOlderThan(
   return true;
 }
 
+/**
+ * A fragment fit to interpolate into a reply: cut to `max` UTF-16 units, with any
+ * unpaired surrogate replaced.
+ *
+ * The unit is not the one Telegram counts, and does not need to be — these bounds keep a
+ * reply sendable rather than meeting an API limit, unlike the caption above. What matters
+ * is that a cut here cannot emit half a character: the replacement covers both the half a
+ * cut through an astral character leaves and one the input already carried, which a file
+ * in a world-writable directory can supply through `JSON.parse` of a `\ud800` escape.
+ */
+function clip(text: string, max: number): string {
+  return text.slice(0, max).replace(/[\uD800-\uDFFF]/gu, "�");
+}
+
+/**
+ * A short reason for a failed send, fit to put in a chat message.
+ *
+ * grammY wraps an upload failure in `HttpError` and, unless `sensitiveLogs` is on, leaves
+ * the thrown error's own message out of the text — deliberately, because it can carry the
+ * request URL and the URL carries the bot token. This bot never sets that option, so the
+ * wrapper alone reads `Network request for 'sendDocument' failed!` and names no cause.
+ * The errno is lifted off `.error` by name; the nested message never is.
+ *
+ * A Telegram rejection needs none of that. `GrammyError` builds its own message as
+ * `... (error_code: description)`, so the reason is already in the text.
+ *
+ * Total, and every part bounded. The error is whatever the send threw, so a hostile shape
+ * has to degrade to a worse message rather than to a throw — `String()` throws on a
+ * null-prototype object, and any property read here can be a getter that throws. An
+ * exception escaping would cost the report; the request is consumed either way.
+ */
+function sendFailureReason(error: unknown): string {
+  try {
+    const text = clip(String(error), 200);
+    const code = (error as { error?: { code?: unknown } })?.error?.code;
+    // Skipped when the text already carries it, which is the unwrapped case.
+    return typeof code === "string" && !text.includes(code)
+      ? `${text} (${clip(code, 32)})`
+      : text;
+  } catch {
+    return "unreportable error";
+  }
+}
+
 export function createAskUserKeyboard(
   requestId: string,
   options: string[]
@@ -261,12 +305,28 @@ export async function checkPendingSendFileRequests(
         fileSent = true;
       } catch (sendError) {
         console.error(`Failed to send file ${filePath}:`, sendError);
+        // With the reason, because this message is the only place it can appear: the
+        // tool is fire-and-forget, so the model was told "queued" and never learns the
+        // send failed.
+        //
+        // The basename is bounded on the same argument as the reason: it comes out of a
+        // file in a world-writable directory, `isPathAllowed` does not require the path
+        // to exist, and a reply over the message limit is refused whole — which would
+        // cost the report this line exists to make. 255 because that is the usual
+        // NAME_MAX, in bytes, and a name never has more UTF-16 units than UTF-8 bytes —
+        // so on a filesystem with that limit only a crafted value is ever cut.
+        const name = clip(filePath.split("/").pop() || "unknown", 255);
         await ctx.reply(
-          `Failed to send file: ${filePath.split("/").pop() || "unknown"}`
+          `Failed to send file: ${name} (${sendFailureReason(sendError)})`
         );
+      } finally {
+        // In the finally, not after it: `ctx.reply` above can itself reject, and the
+        // request would then be left for the next poll to try again. Delivered, failed,
+        // or failed with the failure unreportable, one pass is all a request gets. The
+        // unlink itself can still fail, and a request whose file cannot be removed does
+        // come round again.
+        try { unlinkSync(filepath); } catch { /* ignore */ }
       }
-
-      try { unlinkSync(filepath); } catch { /* ignore */ }
     } catch (error) {
       console.warn(`Failed to process send-file request ${filepath}:`, error);
     }
