@@ -129,7 +129,7 @@ describe("ask_user advertised schema", () => {
         },
         options: {
           type: "array",
-          items: { type: "string" },
+          items: { type: "string", minLength: 1 },
           minItems: 2,
           maxItems: 10,
           description:
@@ -167,7 +167,9 @@ describe("ask_user request file", () => {
     expect(req.options).toEqual(["Deploy to prod", "Cancel"]);
     expect(req.status).toBe("pending");
     expect(req.chat_id).toBe(CHAT_ID);
-    expect(String(req.request_id)).toMatch(/^[0-9a-f]{8}$/);
+    // A whole UUID, not a prefix: `callback.ts` resolves a tap by this id alone, so a
+    // collision answers an old prompt with a newer one's option.
+    expect(String(req.request_id)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     // Bounded on both sides: a hardcoded 1970 passes a parse check, and a hardcoded 2099
     // passes an upper bound alone.
     const age = Date.now() - Date.parse(String(req.created_at));
@@ -227,6 +229,10 @@ describe("ask_user rejects what it cannot render", () => {
     ["missing options", { question: "q" }],
     ["a single option", { question: "q", options: ["a"] }],
     ["non-string options", { question: "q", options: [1, 2] }],
+    // An empty label reaches Telegram unvalidated — grammy passes it straight through —
+    // and `streaming.ts` swallows the resulting send failure, so the whole prompt would
+    // vanish with no message to the user, not just the one blank button.
+    ["an empty option label", { question: "q", options: ["", "Cancel"] }],
     ["more options than the schema allows", {
       question: "q",
       options: Array.from({ length: 11 }, (_, i) => `o${i}`),

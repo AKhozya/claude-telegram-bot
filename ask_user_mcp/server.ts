@@ -24,7 +24,7 @@ server.registerTool(
     inputSchema: {
       question: z.string().min(1).describe("The question to ask the user"),
       options: z
-        .array(z.string())
+        .array(z.string().min(1))
         .min(2)
         .max(10)
         .describe(
@@ -33,7 +33,11 @@ server.registerTool(
     },
   },
   async ({ question, options }) => {
-    const requestUuid = crypto.randomUUID().slice(0, 8);
+    // Whole UUID, not a prefix. `callback.ts` resolves a tap by this id alone — no message
+    // binding, no age check — so two requests sharing an id means a tap on the older
+    // prompt silently answers with the newer one's option. The budget allows it:
+    // `askuser:<uuid>:<index>` is 47 of the 64 bytes Telegram gives callback_data.
+    const requestUuid = crypto.randomUUID();
 
     // The bot polls /tmp for these; `callback.ts` reads the same shape back by
     // request_id when the user taps a button.

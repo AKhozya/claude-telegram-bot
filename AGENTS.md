@@ -84,7 +84,7 @@ All config via `.env` (copy from `.env.example`). Every configuration variable t
 | `THINKING_KEYWORDS`, `THINKING_DEEP_KEYWORDS` | Extended-thinking triggers |
 | `AUDIT_LOG_PATH`, `AUDIT_LOG_JSON` | Audit log location and format |
 | `SESSION_FILE_PATH`, `RESTART_FILE_PATH`, `TEMP_DIR` | Runtime file overrides |
-| `TEMP_REAP_INTERVAL_MS`, `TEMP_RETENTION_HOURS` | Temp-dir sweep cadence (default 1h) and file age (default 24h). Nothing else clears `TEMP_DIR` |
+| `TEMP_REAP_INTERVAL_MS`, `TEMP_RETENTION_HOURS` | Temp-dir sweep cadence (default 1h) and file age (default 24h). Nothing else clears `TEMP_DIR`. The retention also bounds how long an MCP request file in `/tmp` survives — those are swept by the pollers in `streaming.ts`, not by the temp reaper |
 | `TRIGGER_SECRET`, `TRIGGER_PORT`, `TRIGGER_HOST` | HTTP trigger; disabled without a secret |
 | `TELEGRAM_CHAT_ID` | Not user config — `session.ts` sets it so the MCP servers know the recipient |
 
@@ -99,8 +99,8 @@ MCP servers defined in `mcp-config.ts` (copy from `mcp-config.example.ts`; absen
 | `/tmp/claude-telegram-audit.log` | Audit log | `AUDIT_LOG_PATH` |
 | `/tmp/telegram-bot/` | Downloaded photos/documents | `TEMP_DIR` |
 | `/tmp/ctb-sandbox` | Bash sandbox scratch dir — the only writable path outside `ALLOWED_PATHS` | — |
-| `/tmp/ask-user-<uuid>.json` | IPC file for one `ask_user` round trip | — |
-| `/tmp/send-file-<uuid>.json` | IPC file for one `send_file` request; polled by `streaming.ts` | — |
+| `/tmp/ask-user-<uuid>.json` | IPC file for one `ask_user` round trip. Deleted when the button is tapped; otherwise swept by the poller — `pending` after 5 min, anything after `TEMP_RETENTION_HOURS` | — |
+| `/tmp/send-file-<uuid>.json` | IPC file for one `send_file` request; polled and deleted by `streaming.ts`, swept on the same schedule | — |
 
 ## Patterns
 

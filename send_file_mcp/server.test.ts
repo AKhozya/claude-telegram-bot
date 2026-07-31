@@ -177,7 +177,9 @@ describe("send_file request file", () => {
     expect(req.caption).toBe("a caption");
     expect(req.status).toBe("pending");
     expect(req.chat_id).toBe(CHAT_ID);
-    expect(String(req.request_id)).toMatch(/^[0-9a-f]{8}$/);
+    // A whole UUID, not a prefix: `callback.ts` resolves a tap by this id alone, so a
+    // collision answers an old prompt with a newer one's option.
+    expect(String(req.request_id)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     // Bounded on both sides: a hardcoded 1970 passes a parse check, and a hardcoded 2099
     // passes an upper bound alone.
     const age = Date.now() - Date.parse(String(req.created_at));

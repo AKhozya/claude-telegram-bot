@@ -1,9 +1,18 @@
-import { describe, expect, test } from "bun:test";
-import { symlinkSync, mkdirSync, rmSync } from "node:fs";
+import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdirSync, rmSync, symlinkSync, utimesSync } from "node:fs";
 
 const { isPathAllowed } = await import("../security");
-const { createStatusCallback, StreamingState, createAskUserKeyboard, splitMarkdownForTelegram } =
-  await import("./streaming");
+const {
+  createStatusCallback,
+  StreamingState,
+  createAskUserKeyboard,
+  splitMarkdownForTelegram,
+  checkPendingAskUserRequests,
+  checkPendingSendFileRequests,
+  fileAgeMs,
+  reapIfOlderThan,
+} = await import("./streaming");
+const { TEMP_RETENTION_MS, IPC_PENDING_TTL_MS } = await import("../config");
 const { convertMarkdownToHtml } = await import("../formatting");
 
 describe("send-file path gate (isPathAllowed)", () => {
@@ -377,5 +386,190 @@ describe("splitMarkdownForTelegram limit accounting inside fences", () => {
       .filter((l) => !l.startsWith("```"))
       .join("\n");
     expect(recovered).toBe(body);
+  });
+});
+
+// `bun test` runs test files sequentially in one process (spiked: file B finishes before
+// file A starts, same pid), so these can share /tmp with the MCP server tests without
+// racing them. The chat ids below still avoid any real chat.
+describe("MCP request files: the callback_data budget", () => {
+  test("a whole-UUID request id still fits Telegram's 64-byte callback_data limit", () => {
+    // This limit is why the id used to be truncated to 8 hex chars, which let two requests
+    // collide — and `callback.ts` resolves a tap by id alone, so the older prompt would be
+    // answered with the newer one's option. Ten options is the schema's maximum.
+    const keyboard = createAskUserKeyboard(
+      crypto.randomUUID(),
+      Array.from({ length: 10 }, (_, i) => `option ${i}`)
+    );
+    const datas = keyboard.inline_keyboard
+      .flat()
+      .map((b) => (b as { callback_data?: string }).callback_data ?? "");
+
+    expect(datas).toHaveLength(10);
+    for (const d of datas) {
+      expect(d.startsWith("askuser:")).toBe(true);
+      expect(Buffer.byteLength(d, "utf8")).toBeLessThanOrEqual(64);
+    }
+  });
+});
+
+describe("MCP request files: reaping the dead ones", () => {
+  const CHAT = 99000000003;
+  const OTHER_CHAT = 99000000004;
+  const written: string[] = [];
+
+  /** Write a request file and backdate it, since the reap goes by mtime. */
+  async function put(
+    prefix: "ask-user" | "send-file",
+    data: Record<string, unknown> | string,
+    ageMs: number
+  ): Promise<string> {
+    const path = `/tmp/${prefix}-${crypto.randomUUID()}.json`;
+    await Bun.write(path, typeof data === "string" ? data : JSON.stringify(data));
+    const when = new Date(Date.now() - ageMs);
+    utimesSync(path, when, when);
+    written.push(path);
+    return path;
+  }
+
+  function stubCtx() {
+    const replies: unknown[][] = [];
+    return {
+      replies,
+      ctx: {
+        reply: async (...args: unknown[]) => { replies.push(args); return { message_id: 1 }; },
+        replyWithChatAction: async () => {},
+        replyWithDocument: async () => {},
+      } as never,
+    };
+  }
+
+  afterEach(() => {
+    for (const p of written.splice(0)) rmSync(p, { force: true });
+  });
+
+  test("a pending request older than the poll window is deleted, not delivered", async () => {
+    const path = await put(
+      "ask-user",
+      { request_id: "x", question: "an old question", options: ["a", "b"],
+        status: "pending", chat_id: String(CHAT) },
+      IPC_PENDING_TTL_MS + 60_000
+    );
+    const { ctx, replies } = stubCtx();
+
+    expect(await checkPendingAskUserRequests(ctx, CHAT)).toBe(false);
+    expect(replies).toHaveLength(0);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  test("a fresh pending request is still delivered", async () => {
+    const path = await put(
+      "ask-user",
+      { request_id: "y", question: "a live question", options: ["a", "b"],
+        status: "pending", chat_id: String(CHAT) },
+      0
+    );
+    const { ctx, replies } = stubCtx();
+
+    expect(await checkPendingAskUserRequests(ctx, CHAT)).toBe(true);
+    expect(replies).toHaveLength(1);
+    expect(String(replies[0]![0])).toContain("a live question");
+    // Delivered, so it survives for the tap — with its status flipped.
+    expect(await Bun.file(path).json()).toMatchObject({ status: "sent" });
+  });
+
+  test("a sent request keeps its buttons alive until the retention window closes", async () => {
+    const live = await put(
+      "ask-user",
+      { request_id: "z", question: "answered", options: ["a"], status: "sent", chat_id: String(CHAT) },
+      TEMP_RETENTION_MS / 2
+    );
+    const expired = await put(
+      "ask-user",
+      { request_id: "w", question: "ancient", options: ["a"], status: "sent", chat_id: String(CHAT) },
+      TEMP_RETENTION_MS + 60_000
+    );
+    const { ctx } = stubCtx();
+
+    await checkPendingAskUserRequests(ctx, CHAT);
+
+    expect(existsSync(live)).toBe(true);
+    expect(existsSync(expired)).toBe(false);
+  });
+
+  test("a stale request for another chat is reaped too, not skipped forever", async () => {
+    // The chat filter `continue`s without deleting, so reaping has to come first or a
+    // request from a chat this poll is not serving accumulates for good.
+    const path = await put(
+      "ask-user",
+      { request_id: "v", question: "other chat", options: ["a", "b"],
+        status: "pending", chat_id: String(OTHER_CHAT) },
+      IPC_PENDING_TTL_MS + 60_000
+    );
+    const { ctx } = stubCtx();
+
+    await checkPendingAskUserRequests(ctx, CHAT);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  // An age the bot cannot measure must not read as "old enough to delete". A stat can fail
+  // for reasons unrelated to staleness — EIO, or EMFILE once the process is out of
+  // descriptors, which is precisely when requests are in flight. Infinity here would have
+  // deleted a live request before the parse, status, chat and path checks ever ran.
+  test("an unmeasurable age is NaN, which reaps nothing", async () => {
+    const real = await put("ask-user", { status: "sent" }, 0);
+    expect(fileAgeMs(real)).toBeGreaterThanOrEqual(0);
+    expect(fileAgeMs(real)).toBeLessThan(60_000);
+
+    const age = fileAgeMs("/tmp/ask-user-no-such-file-4e91c2.json");
+    expect(Number.isNaN(age)).toBe(true);
+    // The comparison the pollers actually make, in both directions.
+    expect(age > TEMP_RETENTION_MS).toBe(false);
+    expect(age > IPC_PENDING_TTL_MS).toBe(false);
+  });
+
+  // The guard the pollers depend on, driven directly: neither a failing stat nor a
+  // misconfigured retention can be produced through them. Deletion is the failure mode
+  // here, so both non-finite inputs must reap nothing — and `ageMs <= ttlMs` alone reads
+  // false for a NaN age, which would delete the file whose age could not be measured.
+  test.each([
+    ["an unmeasurable age", NaN, 0, false],
+    ["a non-finite threshold", 10, NaN, false],
+    ["an infinite age", Infinity, 0, false],
+    ["an age past the threshold", 10, 5, true],
+    ["an age inside the threshold", 5, 10, false],
+    ["an age exactly at the threshold", 10, 10, false],
+  ] as const)("reapIfOlderThan with %s deletes: %p", async (_name, age, ttl, reaped) => {
+    const path = await put("ask-user", { status: "sent" }, 0);
+    expect(reapIfOlderThan(path, age, ttl)).toBe(reaped);
+    expect(existsSync(path)).toBe(!reaped);
+  });
+
+  // A write cut short by a crash leaves something JSON.parse throws on. That file used to
+  // be re-read and re-logged on every poll for the life of the host, because the reap sat
+  // after the parse — which is why the retention check now runs before it, in both loops.
+  test.each([
+    ["ask-user", checkPendingAskUserRequests],
+    ["send-file", checkPendingSendFileRequests],
+  ] as const)("an unparseable %s file is reaped, not re-read forever", async (prefix, poll) => {
+    const path = await put(prefix, "{", TEMP_RETENTION_MS + 60_000);
+    const { ctx } = stubCtx();
+
+    expect(await poll(ctx, CHAT)).toBe(false);
+    expect(existsSync(path)).toBe(false);
+  });
+
+  test("a stale send-file request is deleted rather than sent late", async () => {
+    const path = await put(
+      "send-file",
+      { request_id: "u", file_path: "/tmp/telegram-bot/whatever.txt", caption: "",
+        status: "pending", chat_id: String(CHAT) },
+      IPC_PENDING_TTL_MS + 60_000
+    );
+    const { ctx, replies } = stubCtx();
+
+    expect(await checkPendingSendFileRequests(ctx, CHAT)).toBe(false);
+    expect(replies).toHaveLength(0);
+    expect(existsSync(path)).toBe(false);
   });
 });

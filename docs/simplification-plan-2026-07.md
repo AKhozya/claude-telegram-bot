@@ -623,11 +623,12 @@ Two of those mutations killed nothing on the first attempt and forced a rewrite 
 that was supposed to catch them. Both were assertions written to close a review finding:
 proof that a fix is a hypothesis until the mutation runs.
 
-#### Raised, not absorbed
+#### Raised, then researched and mostly fixed
 
 Four defects found while reviewing the rewrite. All four predate it — the old servers
-behaved identically — so fixing any of them would be a behaviour change the decision did not
-cover. Listed for a separate yes or no.
+behaved identically — so each needed its own yes. Researched 2026-07-31 against the Bot API
+spec and the live code; **three were taken, two were not, and the research turned up a
+fifth that was worse than any of them.**
 
 | Where | Input | What happens |
 |---|---|---|
@@ -636,8 +637,61 @@ cover. Listed for a separate yes or no.
 | `send_file`, `file_path` | a non-empty file with no read permission | `Bun.file(path).size` reads `stat`, so the size check passes (probed: size 7, `text()` throws `EACCES`). The file is queued and delivery fails later |
 | both, `request_id` | two overlapping calls | `crypto.randomUUID().slice(0, 8)` keeps 32 bits. A collision overwrites a pending request. Unchanged from the original, and the odds are small, but the failure is silent |
 
-The first is the one worth fixing: it is cheap (`z.string().min(1)` on the array item) and its
-blast radius is the whole prompt rather than one button.
+### The research, 2026-07-31
+
+Two of the four were milder than written above, one was free, and a fifth sat underneath
+them. The corrections:
+
+**`send_file` fails loudly; `ask_user` does not.** `streaming.ts` catches a send failure,
+replies `Failed to send file: <name>` to the user, and unlinks the request file on every
+branch — so the caption and unreadable-file rows fail once, visibly, and self-heal. The
+`ask_user` path has no equivalent: `ctx.reply` throws, the catch writes a `console.warn`,
+`askUserTriggered` stays false, and the turn returns ordinary text instead of
+`[Waiting for user selection]`. Claude was told to stop after the tool call, so **the user
+sees no buttons and no error**. That asymmetry, not the empty label, is the defect.
+
+Also corrected: there is no retry loop. `pollFor` is a 200 ms settle plus 3 attempts.
+
+**The `.slice(0, 8)` was never forced.** `callback_data` is limited to 1-64 bytes, and
+`askuser:<uuid>:<idx>` measures **47** (probed). Seventeen bytes spare.
+
+**Telegram does not document a constraint on button `text`.** Bot API 10.2 gives it as
+`String`, "Label text on the button", with no length or emptiness rule, and grammY passes
+`""` straight through unvalidated (probed). Whether the server 400s is unsettled —
+secondary reports say yes. The empty label is refused now regardless, since either outcome
+(vanished prompt or blank unusable button) is wrong.
+
+#### The fifth: nothing reaped `/tmp/ask-user-*.json`
+
+`reapTempDir` sweeps `TEMP_DIR` only. An `ask-user-*.json` was otherwise deleted **only**
+when its button was tapped, and every `continue` in both pollers skipped without deleting.
+So an untapped prompt leaked for good — and a `pending` file orphaned by a crash was
+**re-delivered on the next poll for that chat**, with no age filter and no ordering: an old
+question arriving with live buttons. Two leaked `pending` files were found on the dev host,
+proving the path.
+
+### Applied
+
+| # | Fix | Where |
+|---|---|---|
+| 4 | Whole UUID as the request id | both servers |
+| 1 | `z.string().min(1)` per option | `ask_user_mcp/server.ts` |
+| 5 | `pending` past `IPC_PENDING_TTL_MS` (5 min) is dead; anything past `TEMP_RETENTION_MS` is deleted; the reap runs before the chat filter, and the retention half runs **before the parse** so an unparseable file is not re-read forever | `streaming.ts`, both pollers |
+
+**Left alone:** the caption bound and the unreadable-file check. Both already fail visibly
+and clean up after themselves, and both fixes would reject input that works today.
+
+**Still open:** a whitespace-only label (`"   "`) renders as a blank button. `.min(1)`
+cannot catch it, and `.trim()` would rewrite the option text while a `.refine()` would make
+the advertised schema disagree with what is enforced — the exact defect the rewrite spent
+six review rounds removing.
+
+Gate: **326 pass / 1055 expect() / 22 files.** Twenty-one mutations, all killed. Codex
+found two: the retention reap sitting after the `JSON.parse` that an unparseable file
+throws on, and `fileAgeMs` returning `Infinity` for an unmeasurable age — which reads as
+"older than any threshold" and would delete a live request whenever `stat` failed on a busy
+host. Chasing the second turned up a third that Codex had not named: the NaN-safety was
+real but unguarded, so `reapIfOlderThan` now tests `Number.isFinite` on both operands.
 
 ---
 

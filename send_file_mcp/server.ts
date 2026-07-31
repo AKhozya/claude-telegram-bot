@@ -69,7 +69,7 @@ server.registerTool(
       return fail("TELEGRAM_CHAT_ID not set. Cannot determine recipient.");
     }
 
-    const requestUuid = crypto.randomUUID().slice(0, 8);
+    const requestUuid = crypto.randomUUID();
 
     // The bot polls /tmp for these; `streaming.ts` reads the same shape back.
     const requestFile = `/tmp/send-file-${requestUuid}.json`;

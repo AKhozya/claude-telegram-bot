@@ -4,7 +4,7 @@
  * Provides a reusable status callback for streaming Claude responses.
  */
 
-import { unlinkSync } from "fs";
+import { statSync, unlinkSync } from "fs";
 import type { Context } from "grammy";
 import type { Message } from "grammy/types";
 import { InlineKeyboard, InputFile } from "grammy";
@@ -17,7 +17,66 @@ import {
   TELEGRAM_RICH_LIMIT,
   STREAMING_THROTTLE_MS,
   BUTTON_LABEL_MAX_LENGTH,
+  TEMP_RETENTION_MS,
+  IPC_PENDING_TTL_MS,
 } from "../config";
+
+/**
+ * Age by mtime, or `NaN` when it cannot be measured.
+ *
+ * Not `Infinity`: that reads as "older than any threshold" and would delete a live
+ * request whenever `stat` failed for a reason that has nothing to do with the file being
+ * stale — `EIO`, or `EMFILE` once the process is out of descriptors, which is exactly
+ * when a busy bot has requests in flight. `NaN` loses every comparison in
+ * `reapIfOlderThan`, so an unmeasurable file is left for the next poll.
+ *
+ * Exported for the test that pins this, because `Bun.Glob` skips a dangling symlink and
+ * there is no other way to drive a failing `stat` through the pollers.
+ */
+export function fileAgeMs(filepath: string): number {
+  try {
+    return Date.now() - statSync(filepath).mtimeMs;
+  } catch {
+    return NaN;
+  }
+}
+
+function discard(filepath: string): void {
+  try { unlinkSync(filepath); } catch { /* ignore */ }
+}
+
+/**
+ * Delete this request file if it is older than `ttlMs`, reporting whether it went.
+ *
+ * Nothing else reaps these. `reapTempDir` sweeps TEMP_DIR, and an `ask-user-*.json` is
+ * otherwise removed only when its button is tapped — so an untapped prompt leaves a file
+ * behind for good, and a `pending` one left by a crash is re-delivered on the next poll
+ * for that chat, however old the question is. Every `continue` in the loops below skips
+ * without deleting, which is the other way these accumulate.
+ *
+ * Called twice per file, and the order is load-bearing. Retention runs BEFORE the parse,
+ * because an unparseable file is still a file: it throws, gets logged, and would otherwise
+ * be re-read and re-logged on every poll for the life of the host. The shorter pending
+ * window can only run after the parse, since it needs the status.
+ *
+ * Both operands are checked for finiteness outright rather than leaning on `NaN` losing
+ * its comparisons: the failure mode here is deletion, and `ageMs <= ttlMs` reads false for
+ * a `NaN` age, which would delete the very file whose age could not be measured. An
+ * unmeasurable age (see `fileAgeMs`) and a misconfigured threshold must both reap nothing.
+ *
+ * Exported alongside `fileAgeMs` for the test that pins that, since neither a failing
+ * `stat` nor a non-finite retention can be driven through the pollers.
+ */
+export function reapIfOlderThan(
+  filepath: string,
+  ageMs: number,
+  ttlMs: number
+): boolean {
+  if (!Number.isFinite(ageMs) || !Number.isFinite(ttlMs)) return false;
+  if (ageMs <= ttlMs) return false;
+  discard(filepath);
+  return true;
+}
 
 export function createAskUserKeyboard(
   requestId: string,
@@ -44,12 +103,20 @@ export async function checkPendingAskUserRequests(
 
   for await (const filename of glob.scan({ cwd: "/tmp", absolute: false })) {
     const filepath = `/tmp/${filename}`;
+    const ageMs = fileAgeMs(filepath);
+    // Before the parse — see reapIfOlderThan: a file too broken to read is exactly the
+    // one that would otherwise be re-read forever.
+    if (reapIfOlderThan(filepath, ageMs, TEMP_RETENTION_MS)) continue;
     try {
       const file = Bun.file(filepath);
       const text = await file.text();
       const data = JSON.parse(text);
 
-      if (data.status !== "pending") continue;
+      const isPending = data.status === "pending";
+      // Ahead of the chat filter, which skips without deleting — otherwise another
+      // session's orphan is passed over on every poll and never reaped.
+      if (isPending && reapIfOlderThan(filepath, ageMs, IPC_PENDING_TTL_MS)) continue;
+      if (!isPending) continue;
       if (String(data.chat_id) !== String(chatId)) continue;
 
       const question = data.question || "Please choose:";
@@ -86,12 +153,20 @@ export async function checkPendingSendFileRequests(
 
   for await (const filename of glob.scan({ cwd: "/tmp", absolute: false })) {
     const filepath = `/tmp/${filename}`;
+    const ageMs = fileAgeMs(filepath);
+    // Before the parse — see reapIfOlderThan: a file too broken to read is exactly the
+    // one that would otherwise be re-read forever.
+    if (reapIfOlderThan(filepath, ageMs, TEMP_RETENTION_MS)) continue;
     try {
       const file = Bun.file(filepath);
       const text = await file.text();
       const data = JSON.parse(text);
 
-      if (data.status !== "pending") continue;
+      const isPending = data.status === "pending";
+      // Ahead of the chat filter, which skips without deleting — otherwise another
+      // session's orphan is passed over on every poll and never reaped.
+      if (isPending && reapIfOlderThan(filepath, ageMs, IPC_PENDING_TTL_MS)) continue;
+      if (!isPending) continue;
       if (String(data.chat_id) !== String(chatId)) continue;
 
       const filePath: string = data.file_path || "";
