@@ -4,6 +4,7 @@
  * All environment variables, paths, constants, and safety settings.
  */
 
+import { existsSync } from "fs";
 import { homedir } from "os";
 import { resolve, dirname } from "path";
 import type { McpServerConfig } from "./types";
@@ -46,20 +47,43 @@ export const WORKING_DIR = process.env.CLAUDE_WORKING_DIR || HOME;
 
 // ============== MCP Configuration ==============
 
-let MCP_SERVERS: Record<string, McpServerConfig> = {};
-
-try {
-  const mcpConfigPath = resolve(dirname(import.meta.dir), "mcp-config.ts");
-  const mcpModule = await import(mcpConfigPath).catch(() => null);
-  if (mcpModule?.MCP_SERVERS) {
-    MCP_SERVERS = mcpModule.MCP_SERVERS;
-    console.log(
-      `Loaded ${Object.keys(MCP_SERVERS).length} MCP servers from mcp-config.ts`
-    );
+/**
+ * Load `mcp-config.ts`, or explain why there are no MCP servers.
+ *
+ * Absent, unparseable and exporting-the-wrong-thing are three distinct outcomes and each
+ * gets its own message. Only the first is a normal choice; the other two are mistakes. They
+ * used to be one silent path: the import was wrapped in `.catch(() => null)`, which
+ * swallowed a syntax error in the config exactly as if the file were missing and stopped
+ * any import rejection from reaching the `catch` below it — so a typo in the config started
+ * a bot with no MCP servers and printed nothing at all. The bot still runs without them;
+ * that is a valid degraded mode, not a reason to exit.
+ */
+export async function loadMcpServers(
+  path: string
+): Promise<Record<string, McpServerConfig>> {
+  if (!existsSync(path)) {
+    console.log("No mcp-config.ts found - running without MCPs");
+    return {};
   }
-} catch {
-  console.log("No mcp-config.ts found - running without MCPs");
+  try {
+    const mcpModule = await import(path);
+    if (!mcpModule.MCP_SERVERS) {
+      console.error(`${path} exports no MCP_SERVERS - running without MCPs`);
+      return {};
+    }
+    console.log(
+      `Loaded ${Object.keys(mcpModule.MCP_SERVERS).length} MCP servers from mcp-config.ts`
+    );
+    return mcpModule.MCP_SERVERS;
+  } catch (error) {
+    console.error(`${path} failed to load - running without MCPs:`, error);
+    return {};
+  }
 }
+
+const MCP_SERVERS = await loadMcpServers(
+  resolve(dirname(import.meta.dir), "mcp-config.ts")
+);
 
 export { MCP_SERVERS };
 
