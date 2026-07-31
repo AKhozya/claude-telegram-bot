@@ -134,7 +134,7 @@ describe("ask_user advertised schema", () => {
             minLength: 1,
             // The character class the server publishes, verbatim. Asserted here so a
             // narrowing or a widening of it has to be a deliberate edit in two places.
-            pattern: "[^\\s\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F-\\u1160\\u17B4-\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0F\\uFFA0\\uFFF0-\\uFFF8]"
+            pattern: "[^\\s\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F-\\u1160\\u17B4-\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0F\\uFFA0\\uFFF0-\\uFFF8\\uFFFC]"
           },
           minItems: 2,
           maxItems: 10,
@@ -205,6 +205,7 @@ describe("ask_user request file", () => {
     ["\u2192 Go", "a label opening with an arrow"],
     ["\u2192", "an arrow and nothing else — no letter to fall back on"],
     ["\u2800\u2801", "braille that carries dots, blank cell and all"],
+    ["\uFFFD", "the replacement character is visible, and sits beside the excluded block"],
     ["a\u200B", "a real character followed by a zero-width one"],
   ])("%j is accepted verbatim (%s)", async (label) => {
     await call({ question: "q", options: [label, "Cancel"] });
@@ -282,6 +283,7 @@ describe("ask_user rejects what it cannot render", () => {
     ["a Hangul filler as a label", { question: "q", options: ["\u3164", "Cancel"] }],
     ["a C1 control as a label", { question: "q", options: ["\u0085", "Cancel"] }],
     ["a braille blank as a label", { question: "q", options: ["\u2800", "Cancel"] }],
+    ["an object replacement character as a label", { question: "q", options: ["\uFFFC", "Cancel"] }],
     ["more options than the schema allows", {
       question: "q",
       options: Array.from({ length: 11 }, (_, i) => `o${i}`),

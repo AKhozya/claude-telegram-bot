@@ -23,9 +23,17 @@ import { z } from "zod";
  * `streaming.ts` swallows the failure, so the prompt is lost with no message to the user.
  * A label that is merely invisible is accepted and costs one blank button, which is why
  * this excludes whitespace, the control blocks, and the BMP half of Unicode's
- * Default_Ignorable_Code_Point set rather than an ad-hoc list. U+2800 is the one
- * addition to that set: braille blank is an ordinary symbol by category and renders as
- * nothing anyway. Only U+2800 — U+2801 upward carry dots, so braille text is unaffected.
+ * Default_Ignorable_Code_Point set rather than an ad-hoc list, plus the two entries of
+ * tdlib's own `strip_empty_characters` list that none of those groups already covers:
+ * U+2800 and U+FFFC. Braille blank is an ordinary symbol by category and renders as
+ * nothing anyway; only U+2800, since U+2801 upward carry dots and braille text has to
+ * keep working.
+ *
+ * `strip_empty_characters` is not what rejects these — tdlib never applies it to button
+ * text. `get_inline_keyboard_button` runs `clean_input_string`, which normalizes some
+ * controls to spaces without trimming, then rejects only a fully empty string. A label of
+ * nothing but blanks reaches the wire and renders as an unlabelled button, which is why
+ * this guard exists at all.
  *
  * Astral default-ignorables (U+E0100 and friends) are NOT covered and cannot be: a JSON
  * Schema `pattern` carries no flags, so no `u` flag, so a supplementary code point is only
@@ -51,9 +59,10 @@ import { z } from "zod";
  *   \uFE00-\uFE0F         variation selectors
  *   \uFFA0                halfwidth Hangul filler
  *   \uFFF0-\uFFF8         the unassigned default-ignorable block
+ *   \uFFFC                object replacement character — tdlib counts it as blank
  */
 const RENDERS_SOMETHING =
-  /[^\s\u0000-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFFA0\uFFF0-\uFFF8]/;
+  /[^\s\u0000-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFFA0\uFFF0-\uFFF8\uFFFC]/;
 
 const server = new McpServer({
   name: "ask-user",
