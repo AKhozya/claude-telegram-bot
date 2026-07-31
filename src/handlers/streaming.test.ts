@@ -21,7 +21,8 @@ const {
   fileAgeMs,
   reapIfOlderThan,
 } = await import("./streaming");
-const { TEMP_RETENTION_MS, IPC_PENDING_TTL_MS } = await import("../config");
+const { TEMP_RETENTION_MS, IPC_PENDING_TTL_MS, TELEGRAM_CAPTION_LIMIT } =
+  await import("../config");
 const { convertMarkdownToHtml } = await import("../formatting");
 
 describe("send-file path gate (isPathAllowed)", () => {
@@ -432,6 +433,13 @@ describe("MCP request files: reaping the dead ones", () => {
   const IPC = mkdtempSync(join(tmpdir(), "ctb-ipc-test-"));
   afterAll(() => rmSync(IPC, { recursive: true, force: true }));
 
+  // Files a send-file request points AT, which unlike the request files themselves go
+  // through `isPathAllowed`. Rooted in /tmp rather than beside IPC above: on macOS
+  // `tmpdir()` is /var/folders, `canonicalize` resolves that to /private/var/folders, and
+  // TEMP_PATHS lists /var/folders/ without the /private prefix it lists for /tmp.
+  const PAYLOADS = mkdtempSync("/tmp/ctb-payload-test-");
+  afterAll(() => rmSync(PAYLOADS, { recursive: true, force: true }));
+
   /** Write a request file and backdate it, since the reap goes by mtime. */
   async function put(
     prefix: "ask-user" | "send-file",
@@ -571,6 +579,98 @@ describe("MCP request files: reaping the dead ones", () => {
 
     expect(await poll(ctx, CHAT, IPC)).toBe(false);
     expect(existsSync(path)).toBe(false);
+  });
+
+  /**
+   * Deliver one send-file request carrying `caption`, and return what reached Telegram.
+   *
+   * `caption` is typed `unknown` because these files are JSON from a world-writable
+   * directory, not values the MCP server's schema has vouched for.
+   *
+   * The `isPathAllowed` assertion is a diagnostic, not a guard: a payload outside the
+   * allowlist makes the poller drop the request and return false, so the delivery
+   * assertion below would fail anyway — but it would point at the clipping rather than at
+   * the fixture path.
+   */
+  async function deliverCaption(caption: unknown): Promise<string | undefined> {
+    const target = `${PAYLOADS}/payload.txt`;
+    await Bun.write(target, "x");
+    expect(isPathAllowed(target)).toBe(true);
+
+    let sent: string | undefined;
+    let calls = 0;
+    const ctx = {
+      reply: async () => ({ message_id: 1 }),
+      replyWithChatAction: async () => {},
+      replyWithDocument: async (_file: unknown, opts: { caption?: string }) => {
+        calls++;
+        sent = opts.caption;
+      },
+    } as never;
+
+    await put(
+      "send-file",
+      { request_id: "c", file_path: target, caption,
+        status: "pending", chat_id: String(CHAT) },
+      0
+    );
+    expect(await checkPendingSendFileRequests(ctx, CHAT, IPC)).toBe(true);
+    expect(calls).toBe(1);
+    return sent;
+  }
+
+  /** Any code unit left without its pair — what slicing UTF-16 mid-character produces. */
+  const hasLoneSurrogate = (s: string) =>
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+
+  // Telegram rejects the whole send over the limit, so an unclipped caption costs the
+  // file, not just the caption. The at-the-limit rows are the control: clipping one
+  // character early would be a silent change no over-limit assertion could see.
+  //
+  // The astral rows are the unit test. tdlib counts code points (`utf8_length`), so 1024
+  // emoji are legal at 2048 JS `.length` — measuring in code units would clip them.
+  test.each([
+    ["ascii under the limit", "a", TELEGRAM_CAPTION_LIMIT - 1],
+    ["ascii exactly at the limit", "a", TELEGRAM_CAPTION_LIMIT],
+    ["astral exactly at the limit", "😀", TELEGRAM_CAPTION_LIMIT],
+  ] as const)("a caption %s is sent unchanged", async (_name, char, count) => {
+    const whole = char.repeat(count);
+    expect(await deliverCaption(whole)).toBe(whole);
+  });
+
+  test.each([
+    ["ascii", "a"],
+    ["astral", "😀"],
+  ] as const)(
+    "an %s caption over the limit is clipped to it, not dropped with the file",
+    async (_name, char) => {
+      const sent = await deliverCaption(char.repeat(TELEGRAM_CAPTION_LIMIT * 2));
+
+      expect(Array.from(sent!)).toHaveLength(TELEGRAM_CAPTION_LIMIT);
+      expect(sent?.endsWith("...")).toBe(true);
+      expect(sent?.slice(0, -3)).toBe(char.repeat(TELEGRAM_CAPTION_LIMIT - 3));
+      // A UTF-16 slice would cut the emoji at the boundary in half.
+      expect(hasLoneSurrogate(sent!)).toBe(false);
+    }
+  );
+
+  // `data.caption || undefined` predates the clipping and survives it. Pinned because the
+  // clipping rewrote the expression: the MCP server writes "" for an omitted caption, and
+  // turning that into `caption: ""` would be a silent change of what grammY is sent.
+  test("an empty caption reaches Telegram as no caption at all", async () => {
+    expect(await deliverCaption("")).toBeUndefined();
+  });
+
+  // These files are world-writable, so the schema that vouches for `caption` is not on
+  // this side of the channel. Reading `.length` off a truthy non-string and slicing it
+  // throws past the send handler, stranding the request to fail again on every poll
+  // until the pending window reaps it.
+  test.each([
+    ["an object wearing a length", { length: TELEGRAM_CAPTION_LIMIT * 2 }],
+    ["a number", 42],
+    ["an array of strings", ["a", "b"]],
+  ] as const)("%s is delivered as no caption, not a throw", async (_name, caption) => {
+    expect(await deliverCaption(caption)).toBeUndefined();
   });
 
   test("a stale send-file request is deleted rather than sent late", async () => {

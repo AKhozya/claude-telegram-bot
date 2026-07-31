@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const { positiveNumberEnv, loadMcpServers } = await import("./config");
+const { positiveNumberEnv, loadMcpServers, TELEGRAM_CAPTION_LIMIT } =
+  await import("./config");
 
 const KEY = "TEST_POSITIVE_NUMBER_ENV";
 
@@ -112,5 +113,43 @@ describe("loadMcpServers", () => {
     const { servers, said } = await capture(path);
     expect(servers).toEqual({});
     expect(said).toContain("exports no MCP_SERVERS");
+  });
+});
+
+/**
+ * The caption cap is a transcription of the Bot API, and the tests that exercise the
+ * clipping are written in terms of the constant — so they move with it and a wrong value
+ * passes them all. This reads the number back off the installed `@grammyjs/types`, which
+ * ships the Bot API's own wording, and fails when the two disagree.
+ *
+ * Scoped to the four methods `streaming.ts` actually calls. A file-wide scan would find
+ * `sendStory`'s 0-2048 and conclude the cap varies.
+ *
+ * A failure here means the Bot API moved, or the types were reworded — read the current
+ * documentation and correct the constant. It does not mean the gate should be deleted:
+ * without it the constant is checked only against itself.
+ */
+describe("TELEGRAM_CAPTION_LIMIT against the installed Bot API types", () => {
+  const METHODS = ["sendPhoto", "sendVideo", "sendAudio", "sendDocument"];
+
+  test.each(METHODS)("%s documents the same caption cap", async (method) => {
+    const lines = (
+      await Bun.file("node_modules/@grammyjs/types/methods.d.ts").text()
+    ).split("\n");
+
+    // Anchored on the signature and its closing brace rather than on a fixed indent, so
+    // a reformat upstream does not read as a missing method.
+    const start = lines.findIndex((l) => new RegExp(`^\\s*${method}\\(`).test(l));
+    expect(start).toBeGreaterThan(-1);
+    const end = lines.findIndex((l, i) => i > start && /^\s*\}\):/.test(l));
+    expect(end).toBeGreaterThan(start);
+
+    const documented = lines
+      .slice(start, end)
+      .join("\n")
+      .match(/caption[^\n]*?0-(\d+) characters after entities parsing/i);
+    // A rewording upstream must fail loudly here rather than skip the comparison.
+    expect(documented).not.toBeNull();
+    expect(Number(documented![1])).toBe(TELEGRAM_CAPTION_LIMIT);
   });
 });

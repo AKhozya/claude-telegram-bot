@@ -17,6 +17,7 @@ import {
   TELEGRAM_RICH_LIMIT,
   STREAMING_THROTTLE_MS,
   BUTTON_LABEL_MAX_LENGTH,
+  TELEGRAM_CAPTION_LIMIT,
   TEMP_RETENTION_MS,
   IPC_PENDING_TTL_MS,
 } from "../config";
@@ -201,7 +202,27 @@ export async function checkPendingSendFileRequests(
       if (String(data.chat_id) !== String(chatId)) continue;
 
       const filePath: string = data.file_path || "";
-      const caption: string | undefined = data.caption || undefined;
+      // Clipped, not dropped: Telegram rejects the whole send when the caption is over
+      // the limit, so the file goes with it. Nothing upstream bounds this — the MCP
+      // schema takes any string and the model is told no limit.
+      //
+      // Counted in CODE POINTS, which is the unit the limit is enforced in:
+      // `utf8_length` at tdlib `MessageContent.cpp:5241` counts UTF-8 lead bytes, and
+      // tdlib keeps a separate `utf8_utf16_length` for entity offsets. Using JS
+      // `.length` would score an astral character 2 and clip a caption Telegram accepts,
+      // and slicing by it can cut a surrogate pair into a replacement character.
+      //
+      // `typeof`, not a truthiness test: this JSON is parsed from a world-writable
+      // directory, and `.slice` on a non-string throws out to the outer catch, which
+      // leaves the request file in place to fail again on every poll until the pending
+      // window reaps it.
+      const rawCaption =
+        typeof data.caption === "string" ? data.caption : "";
+      const points = Array.from(rawCaption);
+      const caption =
+        points.length > TELEGRAM_CAPTION_LIMIT
+          ? points.slice(0, TELEGRAM_CAPTION_LIMIT - 3).join("") + "..."
+          : rawCaption || undefined;
 
       if (!filePath) {
         try { unlinkSync(filepath); } catch { /* ignore */ }

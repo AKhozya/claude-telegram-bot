@@ -180,6 +180,10 @@ export const TELEGRAM_SAFE_LIMIT = 4000; // Safe limit with buffer for formattin
 export const STREAMING_THROTTLE_MS = 500; // Throttle streaming updates
 export const BUTTON_LABEL_MAX_LENGTH = 30; // Max chars for inline button labels
 
+// Bot API caption cap, identical on sendPhoto/Video/Audio/Document. Over it the whole
+// send is rejected, so an unclipped caption loses the file it was attached to.
+export const TELEGRAM_CAPTION_LIMIT = 1024;
+
 // Rich messages allow up to 32768 UTF-8 chars (plain messages cap at 4096).
 export const TELEGRAM_RICH_LIMIT = 32768;
 
