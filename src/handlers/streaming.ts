@@ -63,8 +63,15 @@ function discard(filepath: string): void {
  * Nothing else reaps these. `reapTempDir` sweeps TEMP_DIR, and an `ask-user-*.json` is
  * otherwise removed only when its button is tapped — so an untapped prompt leaves a file
  * behind for good, and a `pending` one left by a crash is re-delivered on the next poll
- * for that chat, however old the question is. Every `continue` in the loops below skips
- * without deleting, which is the other way these accumulate.
+ * for that chat, which is what the five-minute window below bounds. Every `continue` in
+ * the loops below skips without deleting, which is the other way these accumulate.
+ *
+ * Both windows are traffic-driven, not timed. The loops below run only from the
+ * `mcp__ask-user` and `mcp__send-file` branches of `session.ts`, and each scans its own
+ * glob, so an idle bot reaps nothing and a stranded file waits for the next call of its
+ * own kind. TEMP_RETENTION_MS is the age at which one becomes eligible, not a bound on
+ * how long it survives. A timer is deliberately not here: it would sweep a shared `/tmp`
+ * while this bot is idle, taking a second bot's live requests with it.
  *
  * Called twice per file, and the order is load-bearing. Retention runs BEFORE the parse,
  * because an unparseable file is still a file: it throws, gets logged, and would otherwise
