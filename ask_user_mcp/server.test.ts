@@ -129,7 +129,13 @@ describe("ask_user advertised schema", () => {
         },
         options: {
           type: "array",
-          items: { type: "string", minLength: 1 },
+          items: {
+            type: "string",
+            minLength: 1,
+            // The character class the server publishes, verbatim. Asserted here so a
+            // narrowing or a widening of it has to be a deliberate edit in two places.
+            pattern: "[^\\s\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F-\\u1160\\u17B4-\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0F\\uFFA0\\uFFF0-\\uFFF8]"
+          },
           minItems: 2,
           maxItems: 10,
           description:
@@ -175,6 +181,34 @@ describe("ask_user request file", () => {
     const age = Date.now() - Date.parse(String(req.created_at));
     expect(age).toBeGreaterThanOrEqual(0);
     expect(age).toBeLessThan(60_000);
+  });
+
+  // The guard asks for one visible character, it does not trim: padding is the caller's
+  // business, and the option text is echoed back as the user's own message on tap. The
+  // emoji and CJK cases are here because a class this broad is one typo away from
+  // rejecting ordinary labels.
+  // The known hole, pinned so it stays a decision rather than a surprise. A JSON Schema
+  // `pattern` carries no flags, so no `u` flag, so an astral code point reaches the class
+  // only as its surrogate halves — both of which are ordinary characters. Closing it means
+  // giving up the guarantee that what is advertised is what is enforced.
+  test("an astral variation selector still slips through, and that is the trade", async () => {
+    const label = "\u{E0100}";
+    const result = await call({ question: "q", options: [label, "Cancel"] });
+    expect(result.isError).toBeFalsy();
+    expect((await writtenRequests())[0]!.options).toEqual([label, "Cancel"]);
+  });
+
+  test.each([
+    [" Deploy now ", "padding is preserved"],
+    ["\u2705", "an emoji-only label"],
+    ["\u65E5\u672C\u8A9E", "a CJK label"],
+    ["\u2192 Go", "a label opening with an arrow"],
+    ["\u2192", "an arrow and nothing else — no letter to fall back on"],
+    ["\u2800\u2801", "braille that carries dots, blank cell and all"],
+    ["a\u200B", "a real character followed by a zero-width one"],
+  ])("%j is accepted verbatim (%s)", async (label) => {
+    await call({ question: "q", options: [label, "Cancel"] });
+    expect((await writtenRequests())[0]!.options).toEqual([label, "Cancel"]);
   });
 
   test("each request gets its own id, in one server and across two", async () => {
@@ -229,10 +263,25 @@ describe("ask_user rejects what it cannot render", () => {
     ["missing options", { question: "q" }],
     ["a single option", { question: "q", options: ["a"] }],
     ["non-string options", { question: "q", options: [1, 2] }],
-    // An empty label reaches Telegram unvalidated — grammy passes it straight through —
-    // and `streaming.ts` swallows the resulting send failure, so the whole prompt would
-    // vanish with no message to the user, not just the one blank button.
+    // grammy passes a label straight through, and `streaming.ts` swallows the resulting
+    // send failure, so a rejected keyboard loses the whole prompt with no message to the
+    // user — not just the one bad button. tdlib refuses an empty label ("Inline keyboard
+    // button text must be non-empty"); the whitespace ones it ACCEPTS, and they arrive as
+    // a blank button, which is why the schema has to catch them here.
     ["an empty option label", { question: "q", options: ["", "Cancel"] }],
+    ["a whitespace-only option label", { question: "q", options: ["   ", "Cancel"] }],
+    ["a tab as an option label", { question: "q", options: ["\t", "Cancel"] }],
+    // Not whitespace by any definition, yet all of these arrive blank: clean_input_string
+    // maps NUL to a space, and the rest occupy no pixels. `\\S` alone let every one through.
+    ["a NUL as an option label", { question: "q", options: ["\u0000", "Cancel"] }],
+    ["a zero-width space as an option label", { question: "q", options: ["\u200B", "Cancel"] }],
+    ["a byte-order mark as an option label", { question: "q", options: ["\uFEFF", "Cancel"] }],
+    ["a variation selector as an option label", { question: "q", options: ["\uFE0F", "Cancel"] }],
+    ["a left-to-right mark as an option label", { question: "q", options: ["\u200E", "Cancel"] }],
+    ["a combining grapheme joiner as a label", { question: "q", options: ["\u034F", "Cancel"] }],
+    ["a Hangul filler as a label", { question: "q", options: ["\u3164", "Cancel"] }],
+    ["a C1 control as a label", { question: "q", options: ["\u0085", "Cancel"] }],
+    ["a braille blank as a label", { question: "q", options: ["\u2800", "Cancel"] }],
     ["more options than the schema allows", {
       question: "q",
       options: Array.from({ length: 11 }, (_, i) => `o${i}`),

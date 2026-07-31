@@ -655,11 +655,20 @@ Also corrected: there is no retry loop. `pollFor` is a 200 ms settle plus 3 atte
 **The `.slice(0, 8)` was never forced.** `callback_data` is limited to 1-64 bytes, and
 `askuser:<uuid>:<idx>` measures **47** (probed). Seventeen bytes spare.
 
-**Telegram does not document a constraint on button `text`.** Bot API 10.2 gives it as
+**Telegram does not document a constraint on button `text`** — Bot API 10.2 gives it as
 `String`, "Label text on the button", with no length or emptiness rule, and grammY passes
-`""` straight through unvalidated (probed). Whether the server 400s is unsettled —
-secondary reports say yes. The empty label is refused now regardless, since either outcome
-(vanished prompt or blank unusable button) is wrong.
+`""` straight through unvalidated (probed). Settled from the implementation instead, since
+no bot token was available on this host for a live call:
+
+| Source | Finding |
+|---|---|
+| tdlib `td/telegram/ReplyMarkup.cpp`, `get_inline_keyboard_button` | `if (button->text_.empty()) return Status::Error(400, "Inline keyboard button text must be non-empty");` — an **empty** label is rejected, and takes the whole keyboard with it |
+| tdlib `td/telegram/misc.cpp`, `clean_input_string` | Validates UTF-8, maps the C0 controls **including tab** to a space, drops CR, and **never trims**. `clean_name` in the same file ends `return trim(str)`; button text does not go through it |
+
+So the two cases differ in cost, which is what the guard is shaped around. An **empty** label
+loses the entire prompt with no message to the user. A merely **invisible** one — `"   "`,
+`"\t"`, a zero-width space — is accepted, and costs one blank button that still works when
+tapped.
 
 #### The fifth: nothing reaped `/tmp/ask-user-*.json`
 
@@ -675,18 +684,34 @@ proving the path.
 | # | Fix | Where |
 |---|---|---|
 | 4 | Whole UUID as the request id | both servers |
-| 1 | `z.string().min(1)` per option | `ask_user_mcp/server.ts` |
+| 1 | `z.string().min(1).regex(RENDERS_SOMETHING)` per option — empty and blank labels both refused | `ask_user_mcp/server.ts` |
 | 5 | `pending` past `IPC_PENDING_TTL_MS` (5 min) is dead; anything past `TEMP_RETENTION_MS` is deleted; the reap runs before the chat filter, and the retention half runs **before the parse** so an unparseable file is not re-read forever | `streaming.ts`, both pollers |
 
 **Left alone:** the caption bound and the unreadable-file check. Both already fail visibly
 and clean up after themselves, and both fixes would reject input that works today.
 
-**Still open:** a whitespace-only label (`"   "`) renders as a blank button. `.min(1)`
-cannot catch it, and `.trim()` would rewrite the option text while a `.refine()` would make
-the advertised schema disagree with what is enforced — the exact defect the rewrite spent
-six review rounds removing.
+**Blank labels — closed 2026-07-31.** Once the tdlib source showed no trimming, `.min(1)`
+was not enough. `.trim()` would rewrite the caller's option text, which is echoed back as
+the user's own message on tap, and `.refine()` does not serialize — the advertised schema
+would stop matching what is enforced, the exact defect the rewrite spent six rounds
+removing. A `regex` does serialize, as `pattern`, so the guard is a character class:
+`RENDERS_SOMETHING` in `ask_user_mcp/server.ts` requires one character that is not
+whitespace, not a C0/C1 control, and not in the BMP half of Unicode's
+**Default_Ignorable_Code_Point** set — a defined set, not a list assembled from review
+findings. U+2800 (braille blank) is its one addition, being an ordinary symbol by category
+that renders as nothing anyway; U+2801 upward carry dots, so braille text is unaffected.
 
-Gate: **326 pass / 1055 expect() / 22 files.** Twenty-one mutations, all killed. Codex
+Probed before applying: 31 blank inputs rejected, 68 ordinary labels accepted — ASCII
+punctuation, accented Latin, Cyrillic, Greek, Hebrew, Arabic, Devanagari, CJK, Hangul, box
+drawing, currency, arrows, astral emoji, emoji-plus-variation-selector.
+
+**The residual, deliberately.** An astral default-ignorable such as U+E0100 is still
+accepted. A JSON Schema `pattern` carries no flags, so no `u` flag, so a supplementary code
+point is only reachable as its surrogate halves — closing it means giving up the property
+that what is advertised is what is enforced. A test asserts the acceptance so it stays a
+decision rather than a surprise. The cost is one blank button that still works.
+
+Gate: **345 pass / 1097 expect() / 22 files.** Forty-five mutations, all killed. Codex
 found two: the retention reap sitting after the `JSON.parse` that an unparseable file
 throws on, and `fileAgeMs` returning `Infinity` for an unmeasurable age — which reads as
 "older than any threshold" and would delete a live request whenever `stat` failed on a busy

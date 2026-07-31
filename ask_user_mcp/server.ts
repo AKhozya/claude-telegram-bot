@@ -11,6 +11,50 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+/**
+ * One character Telegram will actually draw.
+ *
+ * A length check is not enough. tdlib refuses an empty label outright — "Inline keyboard
+ * button text must be non-empty" — but never trims: `clean_input_string` maps the C0
+ * controls, tab included, to a space and leaves them there, where `clean_name` in the same
+ * file finishes with `trim`. Button text does not go through `clean_name`.
+ *
+ * An empty label is the expensive one — Telegram rejects the whole keyboard and
+ * `streaming.ts` swallows the failure, so the prompt is lost with no message to the user.
+ * A label that is merely invisible is accepted and costs one blank button, which is why
+ * this excludes whitespace, the control blocks, and the BMP half of Unicode's
+ * Default_Ignorable_Code_Point set rather than an ad-hoc list. U+2800 is the one
+ * addition to that set: braille blank is an ordinary symbol by category and renders as
+ * nothing anyway. Only U+2800 — U+2801 upward carry dots, so braille text is unaffected.
+ *
+ * Astral default-ignorables (U+E0100 and friends) are NOT covered and cannot be: a JSON
+ * Schema `pattern` carries no flags, so no `u` flag, so a supplementary code point is only
+ * reachable as its surrogate halves. A pattern rather than a refinement precisely so the
+ * published schema and the enforced rule stay the same object.
+ *
+ * Spelled with escapes because the characters it excludes are, by definition, ones no
+ * reader can see in a diff:
+ *   \s                    JS whitespace: space, tab, newline, nbsp, U+2000-200A, U+2028/9, U+3000, BOM
+ *   \u0000-\u001F         C0 controls; clean_input_string maps these to a space
+ *   \u007F-\u009F         DEL and the C1 controls
+ *   \u00AD                soft hyphen
+ *   \u034F                combining grapheme joiner
+ *   \u061C                Arabic letter mark
+ *   \u115F-\u1160         Hangul choseong and jungseong fillers
+ *   \u17B4-\u17B5         Khmer inherent vowels
+ *   \u180B-\u180F         Mongolian free variation selectors and vowel separator
+ *   \u200B-\u200F         zero-width space/non-joiner/joiner, LRM, RLM
+ *   \u202A-\u202E         bidi embedding and override controls
+ *   \u2060-\u206F         word joiner, invisible operators, bidi isolates, deprecated formats
+ *   \u2800                braille pattern blank — not default-ignorable, but blank in every font
+ *   \u3164                Hangul filler
+ *   \uFE00-\uFE0F         variation selectors
+ *   \uFFA0                halfwidth Hangul filler
+ *   \uFFF0-\uFFF8         the unassigned default-ignorable block
+ */
+const RENDERS_SOMETHING =
+  /[^\s\u0000-\u001F\u007F-\u009F\u00AD\u034F\u061C\u115F-\u1160\u17B4-\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFFA0\uFFF0-\uFFF8]/;
+
 const server = new McpServer({
   name: "ask-user",
   version: "1.0.0",
@@ -24,7 +68,7 @@ server.registerTool(
     inputSchema: {
       question: z.string().min(1).describe("The question to ask the user"),
       options: z
-        .array(z.string().min(1))
+        .array(z.string().min(1).regex(RENDERS_SOMETHING))
         .min(2)
         .max(10)
         .describe(
