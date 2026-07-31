@@ -568,33 +568,116 @@ should be planned separately — mixing it in would make every task above wait o
   fetching a model at runtime **is** possible. I had assumed it was blocked; it is not. Both
   bake-into-image and download-to-PVC are viable. ✅ verified
 
-### Assumptions still to spike before building
+### Spike results — measured 2026-07-31
 
-| Confidence | Claim |
+Compile settled under QEMU on the Mac (`oven/bun:1.3-alpine`, alpine 3.22.4, amd64,
+whisper.cpp **v1.9.1** `f049fff`). Every **whisper** timing below comes from a throwaway pod
+on **worker-node-2** — the node the bot itself runs on — with `cpu.max` 200000/100000
+(2 CPU), a 2Gi limit and the app's own securityContext. The pod was deleted after the run.
+The one ffmpeg timing is the exception and is labelled where it appears: `apk` needs root,
+which the restricted namespace forbids, so it was taken in the emulated container instead.
+
+**Build.** Compiles clean with exactly `cmake` + `g++` + `make`, no patches. It also links
+**fully static** with `-DGGML_OPENMP=OFF -DCMAKE_EXE_LINKER_FLAGS=-static`: a 5.6 MB
+`whisper-cli` that `ldd` calls `Not a valid dynamic program`, so the runtime image needs no
+library at all. The dynamic build would have pulled `libgomp`, `libstdc++` and `libgcc_s`.
+
+**Threads must be pinned.** `nproc` inside the capped pod reports **16**, not 2, so the
+default `-t 4` oversubscribes: 2.94 s against 2.05 s for `-t 2` on the same 30 s clip — 44 %
+slower for asking for more.
+
+| Model | Audio | Wall (`-t 2`) | Peak RSS |
+|---|---|---|---|
+| `base.en` | 30 s | 2.0 s | 290 MB |
+| `base.en` | 5 min | 23.2 s | 408 MB |
+| `base.en` | 20 min | 97.1 s | 493 MB |
+| `small.en` | 30 s | 6.1 s | 766 MB |
+| `small.en` | 5 min | 68.7 s | 886 MB |
+
+`base.en` costs 4.0 s per audio-minute on the 30 s clip and climbs to **4.86 s** by 20 min,
+so budget ~4.9 s/min (about 12× realtime) for anything long. Memory goes the other way and
+flattens: +118 MB from 30 s to 5 min, only +85 MB from 5 min to 20 min. Nothing here
+threatens 2Gi; the bot idles at **53Mi** of its 2Gi today, so `base.en` needs no limit raise
+at all. Compared at equal durations, `small.en` costs **~3×** the wall-clock (3.05× at 30 s,
+2.96× at 5 min) for 2.2–2.6× the memory.
+
+**ffmpeg is mandatory, and its absence fails silently.** `whisper-cli` advertises ogg
+support but cannot read Telegram's opus, and **exits 0 while doing it**:
+
+```
+read_audio_data: failed to read audio data
+error: failed to read audio file '/work/sample30.ogg'
+rc=0
+```
+
+A wrapper that trusts the exit code will report success with an empty transcript. Treat
+empty stdout as failure. Conversion itself is cheap — 1.6 s for 5 min of opus, measured in
+the emulated container rather than the pod, so it is not directly comparable to the whisper
+figures. Against 23 s of transcription for the same clip it is noise either way.
+
+**ffmpeg is not one cheap `apk add`.** The CLI pulls **110 packages, ~121.5 MiB** (`du`
+delta measured two ways, 124,456 KB and 124,536 KB). The split `ffmpeg-libav*` packages are
+libraries, not a lighter CLI. Image arithmetic from today's 616 MB:
+
+| Add | Cost |
 |---|---|
-| ✅ | Everything in the two lists above. |
-| 🟡 | whisper.cpp compiles cleanly against musl with only `cmake`/`g++`/`make`. Widely reported, **not built here yet** — this is the first thing to spike, and it decides the whole approach. |
-| ⚠ | RAM per model (`base.en` ≈ 142 MB on disk, `small.en` ≈ 466 MB, `medium.en` ≈ 1.5 GB) and the inference overhead on top. Untested. `medium` will not fit 2Gi; `base` should. Numbers from recollection — **measure, do not trust these**. |
-| ⚠ | Transcription wall-clock at 2 CPU. Unknown. A long clip may outlast Telegram's patience and the bot's own status-message cadence, which would change the design from synchronous to job-plus-callback. |
+| ffmpeg closure | +122 MB |
+| static `whisper-cli` | +5.4 MB |
+| `base.en` baked in | +141 MB |
 
-### Shape of the work, once spiked
+All three lands at **~884 MB**; ffmpeg and the binary alone still land at ~743 MB. Both are
+at or above the 742 MB image that drew the 28-minute pull throttle, so the model is not what
+crosses that line — ffmpeg is, and it cannot be dropped. What has changed since is that the
+`claude-telegram` ServiceAccount now carries the `claude-telegram-ghcr` pull secret (it is
+on the SA, not in the pod spec), so pulls authenticate and the anonymous throttle no longer
+applies. The remaining cost of baking the model is 141 MB of pull on every node that has
+never run the image. The `home` PVC is `local-path` with **3.4 TB** free behind it and
+egress on 443 is already open, so fetching `base.en` on first use trades that for a one-off
+startup delay.
 
-1. **Spike first:** build whisper.cpp in an alpine container, transcribe a 30 s sample, record
-   peak RSS and wall-clock. That single probe decides model size, CPU limit and whether the
-   handler can stay synchronous.
-2. Dockerfile: `apk add ffmpeg`, plus a build stage for whisper.cpp; copy only the binary and
-   one model into the runtime image. Current image is 616 MB — note the GHCR anonymous-pull
-   throttle that caused a 28-minute outage at 742 MB, now mitigated by `imagePullSecrets` but
-   still a reason not to bake `medium`.
-3. `deployment.yaml`: raise the `claude-telegram` limits. Set them from the measured peak, not
-   from a guess.
-4. Bot: an audio/voice handler mirroring `video.ts`, registered in `src/index.ts`, replacing
-   the current "unsupported" reply.
-5. A skill that actually wraps `ffmpeg | whisper-cli` so the docstring in `video.ts:4` becomes
-   true — or correct that docstring if the design ends up calling the binary directly.
+**Two constraints the investigation missed.**
 
-**Recommendation:** do the spike in step 1 before writing the plan. Its numbers determine
-almost every other decision, and it is an afternoon's work to get wrong by guessing.
+- The `claude-telegram` namespace has a **ResourceQuota**. It leaves room to *raise* the
+  bot's own limits — the deployment is `Recreate`, so the old pod is gone before the new one
+  is admitted, and the ceiling is 3300m/3968Mi once the `sync` sidecar's 200m/128Mi is
+  subtracted. What it does not leave room for is a *second* pod: 2 CPU beside the running
+  bot exceeds `limits.cpu`, which is why the spike ran in `default`. The tighter axis is
+  **requests**, not limits — `requests.cpu` is capped at 200m with 110m used, so a raised
+  request has only 90m of slack.
+
+  | | hard | used |
+  |---|---|---|
+  | `limits.cpu` | 3500m | 2200m |
+  | `limits.memory` | 4Gi | 2176Mi |
+  | `requests.cpu` | 200m | 110m |
+  | `requests.memory` | 512Mi | 288Mi |
+- No `TELEGRAM_API_ROOT` is set in production, so the standard 20 MB Bot API download cap
+  applies. 20 MB of opus is roughly **two hours** of speech — about 10 minutes of
+  transcription. `video.ts` meanwhile caps at 50 MB, which that API can never deliver. A
+  duration cap belongs in the design; wall-clock alone will not bound it.
+
+### Shape of the work, now that the numbers exist
+
+1. Dockerfile: a build stage running `cmake`/`g++`/`make` over whisper.cpp v1.9.1 pinned by
+   tag, copying out only the static `whisper-cli`; `apk add ffmpeg` in the runtime stage.
+   Fetch `base.en` to the `home` PVC on first use rather than baking it — that is the
+   difference between ~743 MB and ~884 MB.
+2. `deployment.yaml`: **no limit raise**. 2 CPU / 2Gi already covers `base.en` at 493 MB
+   peak against a 53Mi idle baseline. The quota would allow a raise; the measurements give
+   no reason to spend it.
+3. Bot: an audio/voice handler mirroring `video.ts`, registered in `src/index.ts`, replacing
+   the current "unsupported" reply. It shells out to `ffmpeg -ar 16000 -ac 1` then
+   `whisper-cli -t 2`, and fails loudly on empty output.
+4. **Correct the `video.ts` docstring; do not build the skill it names.** A skill only runs
+   if Claude chooses to call it, and the handler already holds the file — a two-command
+   pipeline it runs itself cannot be skipped, and there is nothing about the pipeline that
+   needs a model in the loop. Transcription is an extra text block on the existing video
+   prompt, not a replacement for the visual analysis.
+5. Add a duration cap **beside** the existing size caps, not instead of them. Size does not
+   bound transcription time — 20 MB of opus is about two hours of speech, ten minutes of
+   work — but it still bounds the download, and a local Bot API server via
+   `TELEGRAM_API_ROOT` would raise the size ceiling to 2 GB while leaving a duration cap
+   doing the same job.
 
 ## Execution record — where reality differed from the plan
 
