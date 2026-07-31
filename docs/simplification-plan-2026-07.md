@@ -174,6 +174,20 @@ One figure drifted, as expected: `COPY . .` reads **934 kB** now against the 905
 at apply time — Batches 3-7 added test files to the build context. Nothing else moved, and
 `Dockerfile`/`.dockerignore` have not changed since `0cdb2f9`.
 
+**What the reconstruction supports, and what it does not (2026-07-31).** The two
+`.bun-build` files enter only through `COPY . .` — `Dockerfile:64` now, `7b600c1:57` on the
+before side, where the `chown -R` at `:63` then walks them into a second layer. Both steps
+touch their size and not their bytes: nothing opens them, so two files of that size at those
+paths give the same uncompressed layer sizes, which is the unit every figure here is in.
+Copying them into a worktree is sound for the 126 MB it was used to establish. It would not
+be sound for a claim about layer digests or compressed size.
+
+The architecture caveat stands and cannot be closed here: every figure is linux/arm64 on one
+machine, and the only builder on it is linux/arm64 (Rancher Desktop, no emulation). The
+mechanisms — a recursive chown duplicating a layer, a build context carrying files nothing
+reads — do not depend on the architecture. The megabytes do, since `node_modules` differs.
+Read **−870 MB** as this machine's number.
+
 ## Batch 3 — Bugs and one security fix
 
 **Behavior-changing by intent.** Each needs a yes.
@@ -391,6 +405,17 @@ on top of it:
 - **Case-multiset comparison**, tokenizer-based and table-aware, `HEAD` vs the working
   tree: 66 `checkCommandSafety` cases before and after, 62 `evaluateToolUse` cases before
   and after, zero differences in `(input => expectation)`.
+- **Runtime cross-check, 2026-07-31**, because the comparison above ran on a script the same
+  agent wrote, after three buggy iterations of it. This one reads no test source: it wraps
+  both functions in `security.ts`, runs `ac93943~1:src/security.test.ts` and the converted
+  file against that same source, and compares the multiset of `(arguments => return value)`
+  pairs each suite actually produces. **67** distinct `checkCommandSafety` pairs and **61**
+  `evaluateToolUse` pairs, identical before and after, multiplicities included, once
+  `mkdtemp` paths are normalised. The counts differ from the 66/62 above because they count
+  different things — cases in source there, distinct runtime pairs here, so a repeated input
+  collapses. What this establishes is that the conversion exercises the same inputs; it is
+  blind to an assertion weakened in porting, since the recorded return value is the real
+  one either way. The mutation check below is what covers that half.
 - **Per-row mutation**, both directions. `checkCommandSafety` stubbed to always-`[true]`
   then always-`[false]`: every one of the 58 table rows fails under one mutant or the
   other, none survives both. Same for `evaluateToolUse` stubbed to always-allow then
