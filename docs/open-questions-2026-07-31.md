@@ -7,52 +7,74 @@ Everything here is self-reported by the agent that did the work. Verify against 
 before acting: it was wrong about severity twice — it overstated `ask_user`'s blast radius
 and missed the `/tmp` leak underneath it entirely.
 
-## Tier 1 — could mean the work does not do what it claims
+Tier 1 was worked on 2026-07-31 and the entries below record what each turned out to be.
+That pass makes the point a third time: item 1's headline claim was wrong, and the defect
+worth fixing was one nobody had written down. Tiers 2 and 3 are still as first written.
 
-### 1. The rewritten MCP servers may not be wired into anything
+## Tier 1 — worked 2026-07-31
 
-`mcp-config.ts` does not exist on this host, so `config.ts:52` falls back to
-`No mcp-config.ts found - running without MCPs`. In `mcp-config.example.ts` the `ask_user`
-and `send_file` entries are **commented out** (lines 23, 30).
+Gate after this pass: **351 pass / 1111 expect() / 22 files**, typecheck 0.
 
-The `registerTool` rewrite and its ~45 mutations were all validated against servers the
-tests spawn themselves as `bun <path>/server.ts`.
+### 1. The rewritten MCP servers may not be wired into anything — WRONG, but it hid a real defect
 
-**Spike:** find the real `mcp-config.ts` — deployment manifests, the ClaudeBot macOS app
-bundle, whichever host runs the bot. Confirm both servers are registered, the exact spawn
-command and env, and whether the standalone `bun build --compile` path launches them
-differently. If production spawns them another way, the protocol tests prove less than
-claimed.
+Not a defect. `mcp-config.ts` is **gitignored** (`.gitignore:26`) and user-supplied, so its
+absence here is by design, and the example ships every entry commented out because each one
+is opt-in. Written by hand and loaded, the chain works end to end: `Loaded 2 MCP servers
+from mcp-config.ts`, both reaching `session.ts:262 mcpServers: MCP_SERVERS`. Started with a
+throwaway token, the bot registers everything and gets as far as `getMe` (401 on the fake
+token) — so nothing before the network call is broken.
 
-### 2. The bot was never started
+The spike did find a defect underneath, **pre-existing** (`528cb8d` only stripped comments
+from it). The loader wrapped its import in `.catch(() => null)`, so a syntax error in
+`mcp-config.ts` was indistinguishable from the file being absent, and the `catch` beneath it
+could never be reached by an import rejection. Probed: with no config the process printed
+**nothing at all** — the documented `No mcp-config.ts found` line had never once run — and
+with a broken config it also printed nothing and started with zero MCP servers. Fixed in
+`145db94`: absence, load failure and a missing export each say so. Five mutations, all
+killed.
 
-No `bun run start` at any point, no `.env`, no token, no LaunchAgent on this host. Every
-claim rests on typecheck plus in-process tests. `AGENTS.md` says to restart the bot after
-code changes; that never happened.
+Residual, not fixed: a config exporting a *truthy but malformed* `MCP_SERVERS` still prints
+`Loaded N` and fails later inside the SDK. Validating it would be new surface for a mistake
+that is not silent.
 
-**Spike:** run it with a real token and execute the live-bot pass at the end of
-[simplification-plan-2026-07.md](simplification-plan-2026-07.md). That checklist is the
-deliverable for the branch and has never been run.
+### 2. The bot was never started — still open, blocked
 
-### 3. `bun test` on a host running the bot can delete that bot's request files
+Now partly answered. `bun run start` with a throwaway token loads both MCP servers, prints
+its banner, registers handlers, and fails only at `getMe` with 401. Everything up to the
+Telegram network call is exercised.
 
-The poller tests call `checkPendingAskUserRequests(ctx, CHAT)` directly, and the reap inside
-it globs **every** `/tmp/ask-user-*.json`, not only the test's own. A real `sent` file older
-than `TEMP_RETENTION_HOURS`, whose buttons are still live in the user's chat, is deleted by
-a test run. The tests isolate by `chat_id` for their assertions; the reap does not.
+**Still blocked:** no real token exists on this host — no `.env`, no LaunchAgent, no
+1Password entry. The live-bot pass at the end of
+[simplification-plan-2026-07.md](simplification-plan-2026-07.md) cannot be run without one.
+This is the only tier-1 item still outstanding.
 
-Introduced by this branch. Either scope the reap to a directory the tests can override, or
-accept it and say so in `AGENTS.md`.
+### 3. `bun test` can delete a live bot's request files — CONFIRMED, fixed in `ab8101c`
 
-### 4. The "tdlib never trims" proof rests on an unread tail
+Confirmed exactly as written, and proven rather than argued: a decoy
+`/tmp/ask-user-<uuid>.json` in `pending`, backdated ten minutes, was **deleted** by a
+pre-fix `bun test` and **survived** the post-fix run. The reap ran at `streaming.ts:109` and
+`:118`, both ahead of the chat filter at `:120`, against a hardcoded `/tmp`.
 
-The empty-versus-blank conclusion, and the whole `RENDERS_SOMETHING` class, come from
-reading `clean_input_string` in tdlib `td/telegram/misc.cpp` — but the fetched output was
-**truncated mid-function** at `// remove \`. The remainder was never read. If it trims
-trailing whitespace, the blank-label guard solves a non-problem.
+Fixed by giving both pollers a `dir` parameter defaulting to the module constant `IPC_DIR`;
+tests pass a `mkdtemp` scratch directory. Production behaviour is unchanged. An env var was
+rejected: the MCP SDK inherits only `DEFAULT_INHERITED_ENV_VARS` to child servers, so an env
+var might reach the reader and not the writers and split the channel. Six mutations, all
+killed. The MCP protocol tests still write to `/tmp`, but they delete only their own named
+fixtures — no glob, no foreign deletion.
 
-**Spike:** read the whole function. Also check whether `telegram-bot-api`'s `Client.cpp`
-pre-validates button text before tdlib sees it.
+### 4. The "tdlib never trims" proof rests on an unread tail — read; conclusion stands
+
+The full `clean_input_string` normalizes some controls to spaces, drops CR, strips
+U+2028–U+202E and some combining marks, then returns — **no trim**, confirming the guard
+solves a real problem. `ReplyMarkup.cpp:566` runs it on button text and rejects only a
+fully empty result; `strip_empty_characters` is never applied there.
+
+The same file gave something better than the previous reasoning: `strip_empty_characters`
+carries tdlib's own list of blank characters. Checked against the class — every entry was
+already excluded except **U+FFFC**, added in `ccbc9d3`, with the comment now citing tdlib
+instead of recall. Coverage of all 19 entries verified by probe, not by memory. Mutations
+killed both dropping and widening the new range, the latter via a new acceptance row for
+U+FFFD, which is visible and sits inside the widened range.
 
 ## Tier 2 — invented values and unverified reasoning
 
