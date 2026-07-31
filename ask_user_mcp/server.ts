@@ -39,10 +39,17 @@ import { z } from "zod";
  * nothing but blanks reaches the wire and renders as an unlabelled button, which is why
  * this guard exists at all.
  *
- * Astral default-ignorables (U+E0100 and friends) are NOT covered and cannot be: a JSON
- * Schema `pattern` carries no flags, so no `u` flag, so a supplementary code point is only
- * reachable as its surrogate halves. A pattern rather than a refinement precisely so the
- * published schema and the enforced rule stay the same object.
+ * Astral default-ignorables (U+E0100 and friends) are NOT covered — not because a pattern
+ * cannot reach them. A JSON Schema `pattern` carries no flags, so no `u` flag, so it matches
+ * UTF-16 code units and a supplementary code point is reachable as its surrogate halves:
+ * `(?:[^<blanks>\uDB40\uDD00-\uDDEF]|\uDB40(?![\uDD00-\uDDEF])|(?<!\uDB40)[\uDD00-\uDDEF])`
+ * rejects a VS17-only label and still accepts emoji and U+1F100, whose low surrogate sits
+ * in that excluded range. It needs lookbehind — specified by ECMA-262, but not implemented
+ * by every JSON Schema validator, and this schema is published to MCP clients. Untested
+ * portability risk, not a measured failure; no third-party client was tried. Still the wrong
+ * trade: a client that cannot compile the pattern loses the whole tool, while the cost of
+ * leaving this uncovered is one blank button. A pattern rather than a refinement precisely
+ * so the published schema and the enforced rule stay the same object.
  *
  * Spelled with escapes because the characters it excludes are, by definition, ones no
  * reader can see in a diff:
