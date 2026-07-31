@@ -16,19 +16,21 @@ const HOME = homedir();
 const REPO_ROOT = dirname(import.meta.path);
 
 export const MCP_SERVERS: Record<string, McpServerConfig> = {
+  // This repo's own two servers, on by default: they ship here, the suite tests them, and
+  // they need no external setup. The third-party examples below stay commented because each
+  // needs an account, a key, or a checkout.
+
   // Ask User - present options as Telegram inline keyboard buttons
-  // Uncomment to enable interactive button prompts
-  // "ask-user": {
-  //   command: "bun",
-  //   args: ["run", `${REPO_ROOT}/ask_user_mcp/server.ts`]
-  // },
+  "ask-user": {
+    command: "bun",
+    args: ["run", `${REPO_ROOT}/ask_user_mcp/server.ts`]
+  },
 
   // Send File - send files (images, videos, audio, documents) back to the user
-  // Uncomment to enable file delivery via Telegram
-  // "send-file": {
-  //   command: "bun",
-  //   args: ["run", `${REPO_ROOT}/send_file_mcp/server.ts`]
-  // },
+  "send-file": {
+    command: "bun",
+    args: ["run", `${REPO_ROOT}/send_file_mcp/server.ts`]
+  },
 
   // Example: Typefully - draft and schedule social posts
   // Docs: https://support.typefully.com/en/articles/13128440-typefully-mcp-server

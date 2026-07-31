@@ -124,9 +124,11 @@ cp mcp-config.example.ts mcp-config.ts
 # Edit mcp-config.ts with your MCP servers
 ```
 
-The bot includes two built-in MCP servers:
+The bot includes two built-in MCP servers, both enabled by the copy above:
 - **`ask_user`** — Lets Claude present options as tappable inline keyboard buttons
 - **`send_file`** — Lets Claude send files (images, videos, audio, documents) back to the chat
+
+Without a `mcp-config.ts` the bot runs with no MCP servers at all, so neither feature exists.
 
 Add your own MCP servers (Things, Notion, Typefully, etc.) to give Claude access to your tools.
 

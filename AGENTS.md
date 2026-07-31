@@ -90,6 +90,8 @@ All config via `.env` (copy from `.env.example`). Every configuration variable t
 | `TELEGRAM_CHAT_ID` | Not user config — `session.ts` sets it so the MCP servers know the recipient |
 
 MCP servers defined in `mcp-config.ts` (copy from `mcp-config.example.ts`; absent means no MCPs).
+The example enables this repo's own `ask-user` and `send-file` and leaves the third-party
+entries commented — those need an account, a key, or a checkout.
 
 ### Runtime Files
 
