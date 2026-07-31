@@ -156,7 +156,8 @@ Claude receives a safety prompt that instructs it to:
 
 ### Layer 8: Audit Logging
 
-All interactions are logged for security review.
+Logging of every interaction is attempted; see the limits below for when a record is dropped
+instead.
 
 ```
 Log location: /tmp/claude-telegram-audit.log (configurable)
@@ -170,6 +171,25 @@ Logged events:
 - `rate_limit` - Rate limit events
 
 Enable JSON format for easier parsing: `AUDIT_LOG_JSON=true`
+
+**Under `AUDIT_LOG_JSON` the record is unredacted** — the whole Telegram message and Claude's
+whole reply, where the text format truncates both at 500 characters. So the log is opened
+with `O_NOFOLLOW | O_NONBLOCK`, and each record is written only after the open descriptor is
+confirmed to be a regular file, owned by this process's uid, with no group or other
+permission bits. A file that fails is chmod'd once; if it still fails, **the record is
+dropped** and the reason printed to stderr. That is deliberate: on a shared host the default
+path sits in `/tmp`, where anyone can leave a symlink, a FIFO, or a pre-created
+world-readable file, and a log written into one is both a leak and not the record its
+operator thinks they have.
+
+Three limits worth knowing:
+
+- **Audit availability is deniable.** A local user who pre-creates the path in a way that
+  fails the check suppresses every record — dropping beats leaking, but "all interactions are
+  logged" then stops being true. Set `AUDIT_LOG_PATH` somewhere only this user can write.
+- A chmod repairs the mode but not a descriptor somebody already holds on that inode. Rotate
+  a log that was ever world-readable rather than trusting the repair.
+- Mode bits say nothing about extended ACLs.
 
 ## What This Doesn't Protect Against
 
