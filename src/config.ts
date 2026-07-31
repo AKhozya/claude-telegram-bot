@@ -4,8 +4,8 @@
  * All environment variables, paths, constants, and safety settings.
  */
 
-import { existsSync } from "fs";
-import { homedir } from "os";
+import { existsSync, realpathSync } from "fs";
+import { homedir, tmpdir } from "os";
 import { resolve, dirname } from "path";
 import type { McpServerConfig } from "./types";
 
@@ -224,7 +224,20 @@ export const RESTART_FILE =
   process.env.RESTART_FILE_PATH || "/tmp/claude-telegram-restart.json";
 export const TEMP_DIR = process.env.TEMP_DIR || "/tmp/telegram-bot";
 
-export const TEMP_PATHS = ["/tmp/", "/private/tmp/", "/var/folders/"];
+// canonicalize() resolves before isPathAllowed matches, so a bare spelling never matches on
+// macOS: /tmp is really /private/tmp, and $TMPDIR sits under /private/var/folders/<hash>/T.
+// The canonical TMPDIR is listed rather than all of /var/folders because the sibling C
+// directory there is the user's cache, not temp.
+let canonicalTmpdir = tmpdir();
+try {
+  canonicalTmpdir = realpathSync(canonicalTmpdir);
+} catch {
+  // $TMPDIR is missing, unreadable, or loops. The raw spelling still matches a plainly
+  // missing path, since canonicalize() leaves a missing tail alone — but not one under a
+  // symlinked prefix, where /var/… becomes /private/var/… and this entry stops matching.
+}
+
+export const TEMP_PATHS = ["/tmp/", "/private/tmp/", `${canonicalTmpdir}/`];
 
 /**
  * `Number`, not `parseInt`: parseInt("12abc") is 12, so a typo'd interval or retention

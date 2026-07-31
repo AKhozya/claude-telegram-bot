@@ -1,5 +1,5 @@
 import { describe, expect, test, mock, afterEach } from "bun:test";
-import { symlinkSync, mkdirSync, rmSync } from "fs";
+import { symlinkSync, mkdirSync, rmSync, realpathSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -12,7 +12,7 @@ const publicLookup = async (): Promise<Addr[]> => [{ address: "93.184.216.34", f
 let mockLookup: () => Promise<Addr[]> = publicLookup;
 mock.module("dns/promises", () => ({ lookup: async () => mockLookup() }));
 
-const { evaluateToolUse, checkCommandSafety, isProtectedControlFile, isCredentialPath } =
+const { evaluateToolUse, checkCommandSafety, isProtectedControlFile, isCredentialPath, isPathAllowed } =
   await import("./security");
 
 describe("credential-store protection (#12)", () => {
@@ -441,5 +441,21 @@ describe("SDK tool-surface tripwire", () => {
     ]);
     const unreviewed = [...found].filter((t) => !REVIEWED.has(t));
     expect(unreviewed).toEqual([]);
+  });
+});
+
+describe("temp paths are matched after canonicalization (#25)", () => {
+  test("isPathAllowed accepts the real TMPDIR this process was given", () => {
+    // canonicalize() resolves first, so on macOS this arrives as
+    // /private/var/folders/<hash>/T/... and only the canonical entry can match it.
+    // Vacuous on Linux, where tmpdir() is /tmp and the "/tmp/" entry already covers it.
+    expect(isPathAllowed(`${realpathSync(tmpdir())}/telegram-bot-probe`)).toBe(true);
+  });
+
+  test("allowing TMPDIR does not open the rest of the macOS /var/folders tree", () => {
+    // The sibling C directory holds the user's caches. It shares the /var/folders
+    // prefix but is not TMPDIR, which is why the entry is the canonical TMPDIR
+    // rather than /private/var/folders/.
+    expect(isPathAllowed("/private/var/folders/ab/cd/C/somecache")).toBe(false);
   });
 });
