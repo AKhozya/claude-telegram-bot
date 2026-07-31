@@ -89,6 +89,9 @@ function discard(filepath: string): void {
  * its comparisons: the failure mode here is deletion, and `ageMs <= ttlMs` reads false for
  * a `NaN` age, which would delete the very file whose age could not be measured. An
  * unmeasurable age (see `fileAgeMs`) and a misconfigured threshold must both reap nothing.
+ * The threshold half is reachable rather than defensive: `positiveNumberEnv` vets
+ * TEMP_RETENTION_HOURS and not what is derived from it, so 1e302 hours passes and then
+ * overflows to Infinity in milliseconds.
  *
  * Exported alongside `fileAgeMs` for the test that pins that, since neither a failing
  * `stat` nor a non-finite retention can be driven through the pollers.
