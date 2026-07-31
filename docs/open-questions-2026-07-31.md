@@ -200,7 +200,7 @@ megabytes do. **−870 MB** is this machine's number.
 
 ## Tier 3 — worked from 2026-07-31
 
-Gate after items 12 and 13: **390 pass / 1268 expect() / 22 files**, typecheck 0.
+Gate after items 12, 13 and 24: **402 pass / 1303 expect() / 23 files**, typecheck 0.
 
 ### 12. `send_file` caption over 1024 chars is unbounded — CONFIRMED, fixed in `d7c0d71`
 
@@ -247,8 +247,47 @@ killed, each verified to apply **and compile** first.
 
 | # | Item | State |
 |---|---|---|
-| 24 | `autoRetry` retries an `HttpError` in an unbounded loop. `call()` in `@grammyjs/auto-retry/out/mod.js` loops `while (res === undefined)` with no counter; `remainingAttempts--` guards only the outer `do/while` over unsuccessful **results**. `rethrowHttpErrors` defaults false and `index.ts:38` does not set it, so `maxRetryAttempts: 3` does not govern this path. grammY converts any exception raised during a request into an `HttpError` (`core/client.js:58`) — including a filesystem error while streaming an upload. So an unreadable file retries forever with backoff capped at one hour, and item 13's report cannot be reached | Open. Affects every API call, not just `send_file`, so it gets its own commit. Codex reversed itself on this at round 5, claiming `maxRetryAttempts: 3` bounds it — it does not; `call()` never reads that variable |
+| 24 | `autoRetry` retries an `HttpError` in an unbounded loop | **CONFIRMED, fixed in the commit below.** See the entry under it |
 | 25 | `TEMP_PATHS` lists `/var/folders/` with no `/private` spelling, while `/tmp` gets both. `canonicalize` resolves `/var/folders/…` to `/private/var/folders/…` on macOS, so the entry can never match and `isPathAllowed` rejects the platform's own `TMPDIR` | Open. Fail-closed over-block, not a hole. Belongs with item 14 |
+
+### 24. `autoRetry` retries an `HttpError` forever — CONFIRMED, fixed
+
+Every claim re-read at the source and every one held. `call()`
+(`@grammyjs/auto-retry/out/mod.js:49-68`) loops `while (res === undefined)` and never reads
+`remainingAttempts`; that counter guards only the outer `do/while` over unsuccessful
+**results** (`:88`). `rethrowHttpErrors` defaults false (`:39`). grammY wraps the whole
+fetch race in one `catch` that produces an `HttpError` (`grammy/out/core/client.js:58`),
+and a filesystem error while streaming an upload rejects into that race through
+`createFormDataPayload`'s error callback (`:44`), which is how item 13's unreadable file got
+there. Codex's round-5 reversal was wrong.
+
+One claim in the original entry was **too generous to the config**: `maxDelaySeconds: 30`
+does not cap the backoff either. It is only ever compared against
+`result.parameters.retry_after` (`:74`); the `HttpError` backoff doubles to `ONE_HOUR`
+(`:47`).
+
+Found while verifying, and worse than the item as written: `@grammyjs/runner` has its own
+`getUpdates` retry — exponential backoff, a 15 h ceiling, `throwIfUnrecoverable` for 401/409,
+and a `console.error` per failure (`out/runner.js:92-115`, `:179`). Because `autoRetry`
+never returns, **none of it has ever run**, including the log. So a network failure while
+polling was silent as well as endless.
+
+Fixed in `src/retry.ts`: a bounded `HttpError` retry transformer, installed by
+`installRetry` together with `autoRetry({..., rethrowHttpErrors: true})`. The two are
+installed in one function because each is inert alone, and in that order because it is
+load-bearing — `remainingAttempts` is per invocation (`mod.js:42`), so a transport retry
+placed outside `autoRetry` would refresh its 5xx budget every time the connection flapped.
+An earlier draft claimed the order was unobservable; Codex disproved it, and a test now
+drives a mixed sequence the two orders answer differently.
+
+Sixteen mutations, each verified to apply **and** compile. Fifteen killed; two of those hung
+the suite past 180 s, which is the production symptom. The survivor is `clearTimeout` in the
+backoff's abort path: the timer firing later rejects an already-settled promise, a no-op, so
+nothing in-process can observe it — it only releases an event-loop timer early. Kept.
+
+Two clauses came out rather than being documented. `signal?.aborted` in the retry guard went
+redundant the moment the backoff itself became abort-aware, and the ordering rationale was
+deleted before the real one replaced it.
 
 ## Tier 3 — remaining
 
@@ -269,8 +308,9 @@ killed, each verified to apply **and compile** first.
 
 - Verify each item against the code before acting. Push back with evidence rather than
   fixing on faith.
-- `bun run typecheck && bun test`, never below **390 / 1268** (345 / 1097 before tier 1,
-  351 / 1111 after it, 353 / 1117 after tier 2, 360 / 1135 after tier-3 #21).
+- `bun run typecheck && bun test`, never below **402 / 1303** (345 / 1097 before tier 1,
+  351 / 1111 after it, 353 / 1117 after tier 2, 360 / 1135 after tier-3 #21, 390 / 1268
+  after #12 and #13).
 - Mutation-test every fix against the exact scenario it claims to close. Two fixes last
   session passed review and killed nothing. Anchor the mutation on the code construct, not
   the first textual match — a comment table ate eight mutations once.

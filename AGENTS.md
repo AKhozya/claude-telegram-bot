@@ -29,6 +29,7 @@ Telegram message → Handler → Auth check → Rate limit → Claude session �
 - **`src/session.ts`** - `ClaudeSession` class wrapping the Agent SDK with streaming, session persistence (`/tmp/claude-telegram-session.json`), and the `PreToolUse` hook that enforces the safety checks
 - **`src/security.ts`** - `RateLimiter` (token bucket), path validation, command safety, `evaluateToolUse` tool gate
 - **`src/sandbox.ts`** - OS-level Bash sandbox (Seatbelt / bubblewrap), env sanitizing, credential read-denies
+- **`src/retry.ts`** - API retry policy. Bounds the `HttpError` retry `autoRetry` runs unbounded, and installs both halves together
 - **`src/formatting.ts`** - Markdown→HTML conversion for Telegram, tool status emoji formatting
 - **`src/utils.ts`** - Audit logging, typing indicators
 - **`src/types.ts`** - Shared TypeScript types
