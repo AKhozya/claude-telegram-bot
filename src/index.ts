@@ -82,6 +82,17 @@ bot.on(["message:voice", "message:audio"], handleAudio);
 
 bot.on("message:photo", handlePhoto);
 
+// Media attached as a file reaches the transcription handlers rather than the document one,
+// which would refuse it as an unsupported type. Telegram decides `video`/`audio` vs
+// `document` from how the sender attached it, not from what the file is — desktop
+// drag-and-drop gives a document for the same clip the gallery picker sends as a video.
+bot.on("message:document", async (ctx, next) => {
+  const mime = ctx.message.document.mime_type ?? "";
+  if (mime.startsWith("video/")) return await handleVideo(ctx);
+  if (mime.startsWith("audio/")) return await handleAudio(ctx);
+  await next();
+});
+
 bot.on("message:document", handleDocument);
 
 bot.on("message:video", handleVideo);

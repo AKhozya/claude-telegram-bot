@@ -15,30 +15,72 @@ import { handleProcessingError } from "./media-group";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markDone, markFailed } from "./reactions";
 import { rateLimitOrReply } from "./rate-limit";
-import { transcribeMedia, NoAudioTrackError } from "../transcribe";
+import { transcribeMedia, probeDuration, NoAudioTrackError } from "../transcribe";
 
 // Local cap, not Telegram's. Checked against `file_size` before download so an
 // oversized clip is rejected without spending the transfer.
 const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 
+/** What this handler needs from a message, whichever shape the video arrived in. */
+interface VideoSource {
+  file_id: string;
+  file_size?: number;
+  /** Absent on documents — Telegram reports it only for video and video_note. */
+  duration?: number;
+  file_name?: string;
+}
+
+/**
+ * The video in this message, including one attached as a file.
+ *
+ * Telegram picks `video` or `document` at send time: the gallery picker gives the first,
+ * "attach file" the second, and desktop drag-and-drop routinely gives the second for the
+ * same clip. Rejecting that shape reads as the bot being broken.
+ */
+export function videoSource(ctx: BotContext): VideoSource | undefined {
+  const doc = ctx.message?.document;
+  return (
+    ctx.message?.video ||
+    ctx.message?.video_note ||
+    (doc?.mime_type?.startsWith("video/") ? doc : undefined)
+  );
+}
+
 async function downloadVideo(ctx: BotContext): Promise<string> {
-  const video = ctx.message?.video || ctx.message?.video_note;
+  const video = videoSource(ctx);
   if (!video) {
     throw new Error("No video in message");
   }
 
-  // Telegram delivers both regular videos and video notes as mp4. The random suffix in
-  // uniqueTempDir is load-bearing now that a .wav is derived from this path.
-  const videoPath = `${uniqueTempDir("video")}.mp4`;
+  // Telegram delivers both regular videos and video notes as mp4; a file keeps its own
+  // extension, which ffmpeg ignores anyway since it identifies inputs by content. The random
+  // suffix in uniqueTempDir is load-bearing now that a .wav is derived from this path.
+  const extension = extensionOf(video.file_name) || ".mp4";
+  const videoPath = `${uniqueTempDir("video")}${extension}`;
 
   return await downloadTelegramFile(ctx, videoPath);
+}
+
+/**
+ * Lower-cased extension including the dot, or "" when the name has no usable one.
+ *
+ * `file_name` is sender-controlled: a 255-byte name ending in a long run of dot-free text
+ * would push the generated path past the filesystem's limit, and one containing a separator
+ * would aim it at a directory that does not exist. Both fail the download, so only a short
+ * alphanumeric suffix is accepted and anything else falls back to the default.
+ */
+function extensionOf(fileName?: string): string {
+  const dot = fileName?.lastIndexOf(".") ?? -1;
+  if (dot <= 0) return "";
+  const extension = fileName!.slice(dot).toLowerCase();
+  return /^\.[a-z0-9]{1,8}$/.test(extension) ? extension : "";
 }
 
 export async function handleVideo(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
   const chatId = ctx.chat?.id;
-  const video = ctx.message?.video || ctx.message?.video_note;
+  const video = videoSource(ctx);
   const caption = ctx.message?.caption;
 
   if (!userId || !chatId || !video) {
@@ -56,8 +98,9 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
   }
 
   // Size does not bound transcription time, so duration is guarded separately. Size is
-  // checked first because it is the one that costs a transfer.
-  if (video.duration > TRANSCRIBE_MAX_DURATION_S) {
+  // checked first because it is the one that costs a transfer. A file-attached video has no
+  // duration here at all; that case is measured after the download instead.
+  if (video.duration !== undefined && video.duration > TRANSCRIBE_MAX_DURATION_S) {
     await markFailed(ctx);
     // Seconds, not minutes, matching the audio handler: the cap is configurable, and
     // flooring it reports "1 minutes" for a 90-second setting that allows 90 seconds.
@@ -85,6 +128,25 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
       "❌ Failed to download video."
     );
     return;
+  }
+
+  // The cap the pre-download check could not apply, for a video that arrived as a file. The
+  // transfer is already spent by here — measuring first would mean downloading anyway.
+  if (video.duration === undefined) {
+    const seconds = await probeDuration(videoPath);
+    // Unmeasurable is refused, not waved through: this is the only duration cap this shape
+    // gets, and a file ffprobe cannot read at all is one ffmpeg is unlikely to transcode.
+    if (seconds === null || seconds > TRANSCRIBE_MAX_DURATION_S) {
+      await markFailed(ctx);
+      await ctx.api.editMessageText(
+        chatId,
+        statusMsg.message_id,
+        seconds === null
+          ? "❌ Couldn't read how long that video is."
+          : `❌ Too long to transcribe. Maximum is ${TRANSCRIBE_MAX_DURATION_S} seconds.`
+      );
+      return;
+    }
   }
 
   const stopProcessing = session.startProcessing();

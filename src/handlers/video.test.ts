@@ -3,7 +3,7 @@ import { expect, test } from "bun:test";
 const { rateLimiter } = await import("../security");
 const { session } = await import("../session");
 const { runner } = await import("../transcribe");
-const { handleVideo } = await import("./video");
+const { handleVideo, videoSource } = await import("./video");
 
 interface Recorded {
   replies: string[];
@@ -129,10 +129,20 @@ const makeDownloadableCtx = (video: unknown, r: Recorded): any => ({
 
 const realSpawn = runner.spawn;
 
-/** Pins the rate limiter, the two subprocesses, and the session in one place. */
+interface Run {
+  code: number;
+  stdout: string;
+  stderr: string;
+}
+
+/**
+ * Pins the rate limiter, the subprocesses, and the session in one place.
+ *
+ * `runs` is consumed in call order. That is ffmpeg then whisper for a video Telegram already
+ * measured, and ffprobe first for one attached as a file, which carries no duration.
+ */
 async function withVideoPipeline(
-  ffmpeg: { code: number; stdout: string; stderr: string },
-  whisper: { code: number; stdout: string; stderr: string },
+  runs: Run[],
   body: (sent: string[]) => Promise<void>
 ): Promise<void> {
   const sent: string[] = [];
@@ -144,10 +154,9 @@ async function withVideoPipeline(
     lastMessage: s.lastMessage,
   };
   limiter.check = () => [true];
-  // Shifted in call order: ffmpeg extracts the wav first, then whisper reads it.
-  const runs = [ffmpeg, whisper];
+  const queue = [...runs];
   (runner as any).spawn = () => {
-    const next = runs.shift() ?? { code: 0, stdout: "", stderr: "" };
+    const next = queue.shift() ?? { code: 0, stdout: "", stderr: "" };
     return { stdout: next.stdout, stderr: next.stderr, exited: Promise.resolve(next.code) };
   };
   s.sendMessageStreaming = async (prompt: string) => {
@@ -169,8 +178,7 @@ const OK = { code: 0, stdout: "", stderr: "" };
 test("the video prompt carries the transcript and the file path", async () => {
   const r = rec();
   await withVideoPipeline(
-    OK,
-    { code: 0, stdout: "the meeting is at noon", stderr: "" },
+    [OK, { code: 0, stdout: "the meeting is at noon", stderr: "" }],
     async (sent) => {
       await handleVideo(
         makeDownloadableCtx({ file_id: "v5", file_size: 1024, duration: 30 }, r)
@@ -193,8 +201,7 @@ test("the video prompt carries the transcript and the file path", async () => {
 test("a captioned video carries both the caption and the transcript", async () => {
   const r = rec();
   await withVideoPipeline(
-    OK,
-    { code: 0, stdout: "the meeting is at noon", stderr: "" },
+    [OK, { code: 0, stdout: "the meeting is at noon", stderr: "" }],
     async (sent) => {
       const ctx = makeDownloadableCtx(
         { file_id: "v6", file_size: 1024, duration: 30 },
@@ -213,12 +220,14 @@ test("a captioned video carries both the caption and the transcript", async () =
 test("a video with no audio track still reaches Claude, marked as silent", async () => {
   const r = rec();
   await withVideoPipeline(
-    {
-      code: 234,
-      stdout: "",
-      stderr: "[out#0/wav] Output file does not contain any stream\n",
-    },
-    OK,
+    [
+      {
+        code: 234,
+        stdout: "",
+        stderr: "[out#0/wav] Output file does not contain any stream\n",
+      },
+      OK,
+    ],
     async (sent) => {
       await handleVideo(
         makeDownloadableCtx({ file_id: "v7", file_size: 1024, duration: 30 }, r)
@@ -229,14 +238,212 @@ test("a video with no audio track still reaches Claude, marked as silent", async
   );
 });
 
+// Telegram decides `video` vs `document` from how the sender attached the file, not from what
+// it contains — desktop drag-and-drop sends a document for the same clip the gallery picker
+// sends as a video. Before this, that shape reached the document handler and was refused as an
+// unsupported type.
+test("videoSource accepts a video attached as a file", () => {
+  const doc = (mime?: string) => ({ message: { document: { file_id: "d", mime_type: mime } } }) as any;
+  expect(videoSource(doc("video/mp4"))?.file_id).toBe("d");
+  expect(videoSource(doc("video/quicktime"))?.file_id).toBe("d");
+  // Not media: still the document handler's business.
+  expect(videoSource(doc("application/pdf"))).toBeUndefined();
+  expect(videoSource(doc(undefined))).toBeUndefined();
+  // An audio document belongs to the audio handler, not this one.
+  expect(videoSource(doc("audio/mpeg"))).toBeUndefined();
+  // A real video still wins, and is preferred over any document on the same message.
+  expect(videoSource({ message: { video: { file_id: "v" } } } as any)?.file_id).toBe("v");
+  expect(videoSource({ message: { video_note: { file_id: "n" } } } as any)?.file_id).toBe("n");
+  expect(videoSource({ message: {} } as any)).toBeUndefined();
+});
+
+/** A ctx whose video arrived as a file attachment rather than through the gallery picker. */
+const makeDocumentCtx = (document: unknown, r: Recorded): any => ({
+  ...makeCtx(undefined, r),
+  message: { document },
+  getFile: async () => ({ download: async (p: string) => p }),
+});
+
+// A document carries no duration, so the pre-download guard cannot fire and ffprobe measures
+// it after the transfer. That inserts a third subprocess ahead of the usual two.
+test("a video attached as a file is transcribed like any other video", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    [
+      { code: 0, stdout: "12.5\n", stderr: "" }, // ffprobe: header
+      OK, // ffprobe: streams, nothing to add
+      OK, // ffmpeg
+      { code: 0, stdout: "spoken words here", stderr: "" }, // whisper
+    ],
+    async (sent) => {
+      await handleVideo(
+        makeDocumentCtx(
+          { file_id: "d1", file_size: 1024, mime_type: "video/mp4", file_name: "clip.mkv" },
+          r
+        )
+      );
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toContain("spoken words here");
+      // The file's own extension is kept: ffmpeg reads by content, but a .mkv named .mp4
+      // misleads anyone reading the path in the prompt.
+      expect(sent[0]).toMatch(/video_\d+_[a-z0-9]+\.mkv/);
+    }
+  );
+});
+
+// The cap still applies, just later — the transfer is already spent, so the refusal has to
+// come after it. Deleting the post-download probe leaves an unbounded clip reaching whisper.
+test("a file-attached video over the cap is refused after the download", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    [{ code: 0, stdout: "605.0\n", stderr: "" }, OK, OK], // ffprobe over the 600s cap
+    async (sent) => {
+      await handleVideo(
+        makeDocumentCtx(
+          { file_id: "d2", file_size: 1024, mime_type: "video/mp4" },
+          r
+        )
+      );
+      // Never reached Claude.
+      expect(sent).toEqual([]);
+      expect(r.edits).toContain(
+        "❌ Too long to transcribe. Maximum is 600 seconds."
+      );
+      expect(r.reactions).toEqual(["👀", "👎"]);
+    }
+  );
+});
+
+// `file_name` is sender-controlled. A long dot-free tail would push the generated path past
+// the filesystem's name limit and a separator would aim it at a directory that does not exist
+// — both fail the download, so only a short alphanumeric suffix is taken.
+test("a hostile file name does not reach the download path", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    [{ code: 0, stdout: "5.0\n", stderr: "" }, OK, OK, { code: 0, stdout: "hi", stderr: "" }],
+    async (sent) => {
+      await handleVideo(
+        makeDocumentCtx(
+          {
+            file_id: "d3",
+            file_size: 1024,
+            mime_type: "video/mp4",
+            file_name: `clip.${"z".repeat(250)}`,
+          },
+          r
+        )
+      );
+      expect(sent).toHaveLength(1);
+      // Fell back to the default rather than carrying the 250-character suffix.
+      expect(sent[0]).toMatch(/video_\d+_[a-z0-9]+\.mp4/);
+      expect(sent[0]).not.toContain("zzz");
+    }
+  );
+});
+
+// Same guard, the separator case: an extension carrying a slash would name a directory that
+// was never created.
+test("a file name with a separator in its extension falls back", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    [{ code: 0, stdout: "5.0\n", stderr: "" }, OK, OK, { code: 0, stdout: "hi", stderr: "" }],
+    async (sent) => {
+      await handleVideo(
+        makeDocumentCtx(
+          { file_id: "d4", file_size: 1024, mime_type: "video/mp4", file_name: "a.b/c" },
+          r
+        )
+      );
+      expect(sent[0]).toMatch(/video_\d+_[a-z0-9]+\.mp4/);
+      expect(sent[0]).not.toContain("b/c");
+    }
+  );
+});
+
+// A silent screen recording sent as a file has no audio stream to measure. Probing only the
+// audio stream would return nothing and refuse it, while the identical clip sent from the
+// gallery is accepted as [no audio track] — the same file, two answers, decided by how it was
+// attached. What the cap bounds is the length of the file, not of its audio.
+test("a silent video attached as a file is measured by its video stream", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    [
+      { code: 0, stdout: "N/A\n", stderr: "" }, // no duration in the header
+      { code: 0, stdout: "\n12.4\n", stderr: "" }, // video stream only, blank audio line
+      {
+        code: 234,
+        stdout: "",
+        stderr: "[out#0/wav] Output file does not contain any stream\n",
+      },
+      OK,
+    ],
+    async (sent) => {
+      await handleVideo(
+        makeDocumentCtx(
+          { file_id: "d6", file_size: 1024, mime_type: "video/mp4" },
+          r
+        )
+      );
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toContain("[no audio track]");
+    }
+  );
+});
+
+// The longest stream decides. A container whose audio runs shorter than its video must still
+// be measured by the video, or a clip over the cap slips through on its audio length.
+test("the longest stream decides the measured duration", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    [
+      { code: 0, stdout: "N/A\n", stderr: "" },
+      { code: 0, stdout: "30.0\n605.0\n", stderr: "" }, // short audio, long video
+      OK,
+    ],
+    async (sent) => {
+      await handleVideo(
+        makeDocumentCtx(
+          { file_id: "d7", file_size: 1024, mime_type: "video/mp4" },
+          r
+        )
+      );
+      expect(sent).toEqual([]);
+      expect(r.edits).toContain(
+        "❌ Too long to transcribe. Maximum is 600 seconds."
+      );
+    }
+  );
+});
+
+// Unmeasurable fails closed — see the audio handler for the reasoning.
+test("a file-attached video whose duration cannot be read is refused", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    [
+      { code: 1, stdout: "", stderr: "Invalid data found" },
+      { code: 0, stdout: "N/A\n", stderr: "" },
+      OK,
+    ],
+    async (sent) => {
+      await handleVideo(
+        makeDocumentCtx(
+          { file_id: "d5", file_size: 1024, mime_type: "video/mp4" },
+          r
+        )
+      );
+      expect(sent).toEqual([]);
+      expect(r.edits).toContain("❌ Couldn't read how long that video is.");
+    }
+  );
+});
+
 // Unlike the audio handler, a transcription failure here does not abort: the path alone is
 // still worth sending, since Claude can read the file. Without this test the whole catch
 // could be deleted and the throw would propagate into the query.
 test("a transcription failure still reaches Claude, marked as such", async () => {
   const r = rec();
   await withVideoPipeline(
-    { code: 1, stdout: "", stderr: "Invalid data found when processing input\n" },
-    OK,
+    [{ code: 1, stdout: "", stderr: "Invalid data found when processing input\n" }, OK],
     async (sent) => {
       await handleVideo(
         makeDownloadableCtx({ file_id: "v8", file_size: 1024, duration: 30 }, r)

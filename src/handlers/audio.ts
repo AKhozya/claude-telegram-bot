@@ -16,6 +16,7 @@ import { markReceived, markDone, markFailed } from "./reactions";
 import { rateLimitOrReply } from "./rate-limit";
 import {
   transcribeMedia,
+  probeDuration,
   NoAudioTrackError,
   TranscriptionUnavailableError,
 } from "../transcribe";
@@ -26,6 +27,35 @@ import {
 const TRANSCRIPT_PREVIEW_CHARS = 4000;
 const TELEGRAM_MESSAGE_LIMIT = 4096;
 const TRANSCRIPT_PREFIX = "🎤 ";
+
+// Checked against `file_size` before the download. The public Bot API caps a download at 20 MB
+// anyway, but TELEGRAM_API_ROOT points this bot at a self-hosted server where the ceiling is
+// 2 GB — without this, a file-attached clip could fill TEMP_DIR before anything measures it.
+// 50 MB matches the video handler and is far above ten minutes of audio at any sane bitrate.
+const MAX_AUDIO_SIZE = 50 * 1024 * 1024;
+
+/** What this handler needs from a message, whichever shape the audio arrived in. */
+interface AudioSource {
+  file_id: string;
+  file_size?: number;
+  /** Absent on documents — Telegram reports it only for voice and audio. */
+  duration?: number;
+}
+
+/**
+ * The audio in this message, including a file attached as a document.
+ *
+ * Telegram picks `audio` or `document` at send time depending on how it was attached, so the
+ * same recording arrives either way. Rejecting the second shape reads as the bot being broken.
+ */
+export function audioSource(ctx: BotContext): AudioSource | undefined {
+  const doc = ctx.message?.document;
+  return (
+    ctx.message?.voice ||
+    ctx.message?.audio ||
+    (doc?.mime_type?.startsWith("audio/") ? doc : undefined)
+  );
+}
 
 /**
  * The longest prefix of `transcript` that still fits one Telegram message.
@@ -60,7 +90,7 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
   const chatId = ctx.chat?.id;
-  const media = ctx.message?.voice || ctx.message?.audio;
+  const media = audioSource(ctx);
 
   if (!userId || !chatId || !media) {
     return;
@@ -68,9 +98,18 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
 
   await markReceived(ctx);
 
+  if (media.file_size && media.file_size > MAX_AUDIO_SIZE) {
+    await markFailed(ctx);
+    await ctx.reply(
+      `❌ Audio too large. Maximum size is ${MAX_AUDIO_SIZE / 1024 / 1024}MB.`
+    );
+    return;
+  }
+
   // Checked before the download: transcription costs ~4.9s per audio-minute, and file size
-  // does not bound that — 20 MB of opus is about two hours of speech.
-  if (media.duration > TRANSCRIBE_MAX_DURATION_S) {
+  // does not bound that — 20 MB of opus is about two hours of speech. An audio file attached
+  // as a document carries no duration, so that case is measured after the download instead.
+  if (media.duration !== undefined && media.duration > TRANSCRIBE_MAX_DURATION_S) {
     await markFailed(ctx);
     // Seconds, not minutes: the cap is configurable, and flooring it to whole minutes
     // reports "1 minutes" for a 90-second setting that in fact allows 90 seconds.
@@ -117,6 +156,23 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
         "❌ Failed to download audio."
       );
       return;
+    }
+
+    // The cap the pre-download check could not apply, for audio that arrived as a file.
+    if (media.duration === undefined) {
+      const seconds = await probeDuration(mediaPath);
+      // Unmeasurable is refused, not waved through — see the video handler for why.
+      if (seconds === null || seconds > TRANSCRIBE_MAX_DURATION_S) {
+        await markFailed(ctx);
+        await ctx.api.editMessageText(
+          chatId,
+          statusMsg.message_id,
+          seconds === null
+            ? "❌ Couldn't read how long that audio is."
+            : `❌ Too long to transcribe. Maximum is ${TRANSCRIBE_MAX_DURATION_S} seconds.`
+        );
+        return;
+      }
     }
 
     let transcript: string;

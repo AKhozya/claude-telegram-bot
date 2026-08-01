@@ -5,7 +5,7 @@ const { AUDIT_LOG_PATH } = await import("../config");
 const { rateLimiter } = await import("../security");
 const { session } = await import("../session");
 const { runner } = await import("../transcribe");
-const { handleAudio, transcriptPreview } = await import("./audio");
+const { handleAudio, transcriptPreview, audioSource } = await import("./audio");
 
 interface Recorded {
   replies: string[];
@@ -126,7 +126,8 @@ const realSpawn = runner.spawn;
 /** Pins the rate limiter, the two subprocesses, and the session in one place. */
 async function withPipeline(
   whisperStdout: string,
-  body: (sent: string[]) => Promise<void>
+  body: (sent: string[]) => Promise<void>,
+  lead: { code: number; stdout: string; stderr: string }[] = []
 ): Promise<void> {
   const sent: string[] = [];
   const limiter = rateLimiter as any;
@@ -137,8 +138,10 @@ async function withPipeline(
     lastMessage: s.lastMessage,
   };
   limiter.check = () => [true];
-  // First spawn is ffmpeg, second is whisper-cli.
+  // First spawn is ffmpeg, second is whisper-cli. `lead` goes ahead of both, for the ffprobe
+  // an audio file attached as a document needs — Telegram reports no duration for those.
   const runs = [
+    ...lead,
     { code: 0, stdout: "", stderr: "" },
     { code: 0, stdout: whisperStdout, stderr: "" },
   ];
@@ -231,6 +234,132 @@ test("an all-astral transcript still fits Telegram's message limit", async () =>
   });
   expect(r.edits[0]!.length).toBeLessThanOrEqual(4096);
   expect(r.edits[0]).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+});
+
+// Telegram picks `audio` vs `document` from how the file was attached, not from what it is.
+// Before this, an mp3 attached as a file was refused as an unsupported type.
+test("audioSource accepts audio attached as a file", () => {
+  const doc = (mime?: string) => ({ message: { document: { file_id: "d", mime_type: mime } } }) as any;
+  expect(audioSource(doc("audio/mpeg"))?.file_id).toBe("d");
+  expect(audioSource(doc("audio/ogg"))?.file_id).toBe("d");
+  expect(audioSource(doc("application/pdf"))).toBeUndefined();
+  expect(audioSource(doc(undefined))).toBeUndefined();
+  // A video document belongs to the video handler.
+  expect(audioSource(doc("video/mp4"))).toBeUndefined();
+  expect(audioSource({ message: { voice: { file_id: "v" } } } as any)?.file_id).toBe("v");
+  expect(audioSource({ message: {} } as any)).toBeUndefined();
+});
+
+// No duration on a document, so ffprobe measures it after the transfer and the transcript is
+// handed on exactly as it would be for a voice note.
+test("audio attached as a file is transcribed like a voice note", async () => {
+  const r = rec();
+  await withPipeline(
+    "book me a flight to Rome",
+    async (sent) => {
+      await handleAudio(
+        makeDownloadableCtx(
+          { document: { file_id: "a1", mime_type: "audio/mpeg" } },
+          r
+        )
+      );
+      expect(sent).toEqual(["book me a flight to Rome"]);
+    },
+    [
+      { code: 0, stdout: "42.0\n", stderr: "" }, // ffprobe: header
+      { code: 0, stdout: "", stderr: "" }, // ffprobe: streams
+    ]
+  );
+});
+
+// Routing media documents here skipped handleDocument's own 20MB guard, leaving this handler
+// with no size check at all. The public Bot API caps downloads at 20MB, but TELEGRAM_API_ROOT
+// points this bot at a self-hosted server whose ceiling is 2GB.
+test("an oversized audio file is refused before it is downloaded", async () => {
+  const r = rec();
+  await handleAudio(
+    makeDownloadableCtx(
+      {
+        document: {
+          file_id: "a3",
+          mime_type: "audio/mpeg",
+          file_size: 51 * 1024 * 1024,
+        },
+      },
+      r
+    )
+  );
+  expect(r.replies).toContain("❌ Audio too large. Maximum size is 50MB.");
+  expect(r.reactions).toEqual(["👀", "👎"]);
+});
+
+// Unmeasurable must fail closed. Waved through, a clip of any length would spend a probe, a
+// full ffmpeg pass and a whisper run, and the duration cap would not apply to it at all.
+test("a file-attached audio whose duration cannot be read is refused", async () => {
+  const r = rec();
+  await withPipeline(
+    "should never be reached",
+    async (sent) => {
+      await handleAudio(
+        makeDownloadableCtx(
+          { document: { file_id: "a4", mime_type: "audio/mpeg" } },
+          r
+        )
+      );
+      expect(sent).toEqual([]);
+      expect(r.edits).toContain("❌ Couldn't read how long that audio is.");
+    },
+    // Both probe forms fail: ffprobe exits non-zero, then reports N/A.
+    [
+      { code: 1, stdout: "", stderr: "Invalid data found" },
+      { code: 0, stdout: "N/A\n", stderr: "" },
+    ]
+  );
+});
+
+// Some containers carry no duration in the header and report `N/A` there while the stream
+// still knows. Without the second probe form those files would be refused outright, so this
+// is the test that fails if the fallback is dropped — the refusal tests above cannot see it,
+// since they fail both forms.
+test("a duration read from the stream rather than the header is accepted", async () => {
+  const r = rec();
+  await withPipeline(
+    "recorded in a container with no header duration",
+    async (sent) => {
+      await handleAudio(
+        makeDownloadableCtx(
+          { document: { file_id: "a5", mime_type: "audio/ogg" } },
+          r
+        )
+      );
+      expect(sent).toEqual(["recorded in a container with no header duration"]);
+    },
+    [
+      { code: 0, stdout: "N/A\n", stderr: "" }, // format=duration
+      { code: 0, stdout: "37.5\n", stderr: "" }, // stream=duration
+    ]
+  );
+});
+
+// The cap still applies to this shape, just after the download rather than before it.
+test("a file-attached audio over the cap is refused after the download", async () => {
+  const r = rec();
+  await withPipeline(
+    "should never be reached",
+    async (sent) => {
+      await handleAudio(
+        makeDownloadableCtx(
+          { document: { file_id: "a2", mime_type: "audio/mpeg" } },
+          r
+        )
+      );
+      expect(sent).toEqual([]);
+      expect(r.edits).toContain(
+        "❌ Too long to transcribe. Maximum is 600 seconds."
+      );
+    },
+    [{ code: 0, stdout: "601.0\n", stderr: "" }] // ffprobe: one second over
+  );
 });
 
 // Driving the whole handler to reach one boundary is expensive, so the boundaries themselves

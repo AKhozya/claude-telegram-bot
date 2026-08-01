@@ -3,8 +3,13 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-const { runner, transcribeMedia, NoAudioTrackError, TranscriptionUnavailableError } =
-  await import("./transcribe");
+const {
+  runner,
+  transcribeMedia,
+  probeDuration,
+  NoAudioTrackError,
+  TranscriptionUnavailableError,
+} = await import("./transcribe");
 
 // Real files, because the unlink under test is real. Its own directory, not TEMP_DIR: the
 // bot may be running against that one.
@@ -43,6 +48,121 @@ function fakeSpawns(...runs: FakeRun[]) {
 function restore() {
   runner.spawn = realSpawn;
 }
+
+// The handler tests stub the subprocess and so pin only the parsing. This is the one that
+// reads the command line, which is where the stream-selection bug lives: restricting the
+// probe to `a:0` measures nothing on a silent video, and that clip is then refused when
+// attached as a file while the same clip from the gallery is accepted as [no audio track].
+test("probeDuration measures every stream, not just the audio", async () => {
+  const calls = fakeSpawns({ code: 0, stdout: "12.5\n" });
+  try {
+    expect(await probeDuration("/tmp/telegram-bot/video_1.mp4")).toBe(12.5);
+    expect(calls[0]![0]).toBe("ffprobe");
+    expect(calls[0]).not.toContain("-select_streams");
+    expect(calls[0]).toContain("format=duration");
+    // The path is the last argument, so a name that looks like a flag cannot become one.
+    expect(calls[0]!.at(-1)).toBe("/tmp/telegram-bot/video_1.mp4");
+  } finally {
+    restore();
+  }
+});
+
+// Some containers carry no duration in the header. The stream query is the fallback, and the
+// longest stream wins — a clip whose audio is shorter than its video must still be measured
+// by the video, or an over-long file slips through on its audio length.
+test("probeDuration falls back to the streams and takes the longest", async () => {
+  const calls = fakeSpawns(
+    { code: 0, stdout: "N/A\n" },
+    { code: 0, stdout: "\n30.0\n605.0\n" }
+  );
+  try {
+    expect(await probeDuration("/tmp/telegram-bot/video_2.mkv")).toBe(605);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain("stream=duration");
+  } finally {
+    restore();
+  }
+});
+
+// Trusting the header the moment it parses would take 12 over 601. Both forms are asked and
+// the largest wins, so a header that disagrees with the packets cannot undercut the cap.
+test("probeDuration prefers the streams when the header undercounts", async () => {
+  const calls = fakeSpawns(
+    { code: 0, stdout: "12.0\n" },
+    { code: 0, stdout: "601.0\n" }
+  );
+  try {
+    expect(await probeDuration("/tmp/telegram-bot/mismatched.mp4")).toBe(601);
+    expect(calls).toHaveLength(2);
+  } finally {
+    restore();
+  }
+});
+
+// Some muxers write a zero duration into the header of a file whose packets span minutes.
+// Accepting that zero would return it as the answer, stop the fallback, and let a clip of any
+// length past the cap — the one case where a wrong number is worse than no number.
+test("probeDuration ignores a zeroed header duration", async () => {
+  fakeSpawns({ code: 0, stdout: "0\n" }, { code: 0, stdout: "601.0\n" });
+  try {
+    expect(await probeDuration("/tmp/telegram-bot/zeroed.mp4")).toBe(601);
+  } finally {
+    restore();
+  }
+});
+
+// `parseFloat` reads "12abc" as 12, so a garbled line would be taken as a measurement.
+test("probeDuration does not read a number out of garbled output", async () => {
+  fakeSpawns({ code: 0, stdout: "12abc\n" }, { code: 0, stdout: "garbage\n" });
+  try {
+    expect(await probeDuration("/tmp/telegram-bot/garbled.mp4")).toBeNull();
+  } finally {
+    restore();
+  }
+});
+
+// Null is the refuse signal, so the cases that produce it are worth pinning: a non-zero exit
+// on both forms, and output that parses to nothing.
+test("probeDuration returns null when nothing can be measured", async () => {
+  fakeSpawns({ code: 1, stderr: "Invalid data found" }, { code: 0, stdout: "N/A\n" });
+  try {
+    expect(await probeDuration("/tmp/telegram-bot/broken.bin")).toBeNull();
+  } finally {
+    restore();
+  }
+});
+
+// A host without ffprobe throws ENOENT out of spawn. That must read as "cannot measure"
+// rather than propagating, or a missing binary would surface as a crash mid-handler.
+test("probeDuration returns null when ffprobe is not installed", async () => {
+  (runner as any).spawn = () => {
+    const error = new Error("spawn ffprobe ENOENT") as Error & { code?: string };
+    error.code = "ENOENT";
+    throw error;
+  };
+  try {
+    expect(await probeDuration("/tmp/telegram-bot/voice_1.ogg")).toBeNull();
+  } finally {
+    restore();
+  }
+});
+
+// A throw is one failed measurement, not a verdict. In practice both forms throw together —
+// the only realistic cause is a missing binary — but returning early on the first would make
+// the loop's failure modes disagree, and this pins which one is intended.
+test("probeDuration still measures when only the first probe throws", async () => {
+  let call = 0;
+  (runner as any).spawn = () => {
+    call += 1;
+    if (call === 1) throw new Error("transient");
+    return { stdout: "601.0\n", stderr: "", exited: Promise.resolve(0) };
+  };
+  try {
+    expect(await probeDuration("/tmp/telegram-bot/video_3.mp4")).toBe(601);
+  } finally {
+    restore();
+  }
+});
 
 test("a successful run returns the trimmed transcript", async () => {
   fakeSpawns({ code: 0 }, { code: 0, stdout: "\n hello there \n" });
