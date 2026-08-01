@@ -30,6 +30,7 @@ Telegram message → Handler → Auth check → Rate limit → Claude session �
 - **`src/security.ts`** - `RateLimiter` (token bucket), path validation, command safety, `evaluateToolUse` tool gate
 - **`src/sandbox.ts`** - OS-level Bash sandbox (Seatbelt / bubblewrap), env sanitizing, credential read-denies
 - **`src/retry.ts`** - API retry policy. Bounds the `HttpError` retry `autoRetry` runs unbounded, and installs both halves together
+- **`src/transcribe.ts`** - ffmpeg → whisper.cpp pipeline. ffmpeg is mandatory: whisper.cpp cannot read Telegram's opus and exits 0 while failing, so empty output is the failure signal, not the exit code
 - **`src/formatting.ts`** - Markdown→HTML conversion for Telegram, tool status emoji formatting
 - **`src/utils.ts`** - Audit logging, typing indicators
 - **`src/types.ts`** - Shared TypeScript types
@@ -41,7 +42,8 @@ Message-type handlers:
 - **`text.ts`** - Text messages; a `!` prefix interrupts the running query, `!stop` is a `/stop` alias
 - **`photo.ts`** - Image analysis with media group buffering (1s timeout for albums)
 - **`document.ts`** - PDF extraction (pdftotext CLI), text files, archives
-- **`video.ts`** - Video messages and video notes
+- **`video.ts`** - Video messages and video notes; the audio track is transcribed, frames are not analysed
+- **`audio.ts`** - Voice notes and audio files. Transcribes with whisper.cpp and sends the transcript on as if it had been typed, so thinking keywords work spoken
 - **`callback.ts`** - Inline keyboard button handling for ask_user MCP
 - **`streaming.ts`** - Shared `StreamingState` and status callback factory
 
@@ -51,8 +53,6 @@ Supporting modules in the same directory:
 - **`download.ts`** - Shared file download via the files plugin (honours `TELEGRAM_API_ROOT`)
 - **`reactions.ts`** - Best-effort 👀/👌/👎 message reactions
 - **`trigger.ts`** - HTTP endpoint that injects a prompt as if the first allowed user sent it. Binds `TRIGGER_HOST` (default `127.0.0.1`); disabled unless `TRIGGER_SECRET` is set
-
-Voice and audio have no dedicated handler — `src/index.ts` replies inline that speech-to-text isn't supported, so users get a reply instead of silence.
 
 ### Security Layers
 
@@ -83,6 +83,9 @@ All config via `.env` (copy from `.env.example`). Every configuration variable t
 | `BASH_SANDBOX_ENABLED` | OS Bash sandbox; on unless explicitly `false`/`0`/`off`/`no` |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW` | Token bucket |
 | `THINKING_KEYWORDS`, `THINKING_DEEP_KEYWORDS` | Extended-thinking triggers |
+| `WHISPER_MODEL` | Path to the ggml model; baked into the image at `/usr/local/share/whisper/ggml-base.bin` |
+| `WHISPER_THREADS` | Threads for whisper.cpp, default 2. Must track the CPU limit — `nproc` reports the node's count inside a capped pod |
+| `TRANSCRIBE_MAX_DURATION_SECONDS` | Longest clip accepted, default 600. Size does not bound transcription time |
 | `AUDIT_LOG_PATH`, `AUDIT_LOG_JSON` | Audit log location and format |
 | `SESSION_FILE_PATH`, `RESTART_FILE_PATH`, `TEMP_DIR` | Runtime file overrides |
 | `TEMP_REAP_INTERVAL_MS`, `TEMP_RETENTION_HOURS` | Temp-dir sweep cadence (default 1h) and file age (default 24h). Nothing else clears `TEMP_DIR`. The retention is also the age at which the pollers in `streaming.ts` drop an MCP request file in `/tmp`. It is not a bound on one: the pollers run only while Claude is calling `ask_user` or `send_file`, so an idle bot sweeps nothing |
@@ -100,7 +103,7 @@ entries commented — those need an account, a key, or a checkout.
 | `/tmp/claude-telegram-session.json` | Session persistence for `/resume` | `SESSION_FILE_PATH` |
 | `/tmp/claude-telegram-restart.json` | Chat/message ids so `/restart` can edit its own status message | `RESTART_FILE_PATH` |
 | `/tmp/claude-telegram-audit.log` | Audit log | `AUDIT_LOG_PATH` |
-| `/tmp/telegram-bot/` | Downloaded photos/documents | `TEMP_DIR` |
+| `/tmp/telegram-bot/` | Downloaded photos, documents, audio and video, plus the `.wav` transcription derives from a media file | `TEMP_DIR` |
 | `/tmp/ctb-sandbox` | Bash sandbox scratch dir — the only writable path outside `ALLOWED_PATHS` | — |
 | `/tmp/ask-user-<uuid>.json` | IPC file for one `ask_user` round trip. Deleted when the button is tapped; otherwise swept by the poller on the next `ask_user` call — `pending` after 5 min, anything after `TEMP_RETENTION_HOURS` | — |
 | `/tmp/send-file-<uuid>.json` | IPC file for one `send_file` request; polled and deleted by `streaming.ts`, swept on the same terms — on the next `send_file` call, not on a timer | — |
@@ -132,6 +135,15 @@ PDF extraction uses `pdftotext` CLI instead of an npm package (to avoid bundling
 ```bash
 brew install poppler  # Provides pdftotext
 ```
+
+Transcription needs two more:
+
+```bash
+brew install ffmpeg whisper-cpp  # transcription; whisper-cpp provides whisper-cli
+```
+
+brew does not install a model. Point `WHISPER_MODEL` at one downloaded by hand — the container
+image bakes one in, a host run does not.
 
 ### PATH Requirements
 

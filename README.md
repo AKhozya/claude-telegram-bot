@@ -24,7 +24,8 @@ To achieve this, I set up a folder with a CLAUDE.md that teaches Claude about me
 - 💬 **Text**: Ask questions, give instructions, have conversations
 - 📸 **Photos**: Send screenshots, documents, or anything visual for analysis
 - 📄 **Documents**: PDFs, text files, and archives (ZIP, TAR) are extracted and analyzed
-- 🎬 **Video**: Video messages and video notes are processed by Claude
+- 🎬 **Video**: Video messages and video notes — the audio track is transcribed and passed to Claude
+- 🎤 **Voice & audio**: Voice notes and audio files are transcribed locally with whisper.cpp and answered like a typed message
 - 🔄 **Session persistence**: Conversations continue across messages
 - 📨 **Message queuing**: Send multiple messages while Claude works - they queue up automatically. Prefix with `!` or use `/stop` to interrupt and send immediately
 - 🧠 **Extended thinking**: Say "think" for a 10k-token reasoning budget or "ultrathink" for 50k - you'll see its thought process as it works (configurable via `THINKING_KEYWORDS` and `THINKING_DEEP_KEYWORDS`)
@@ -49,6 +50,7 @@ bun run src/index.ts
 - **Bun 1.0+** - [Install Bun](https://bun.sh/)
 - **Claude Agent SDK** - `@anthropic-ai/claude-agent-sdk` (installed via bun install)
 - **Telegram Bot Token** from [@BotFather](https://t.me/BotFather)
+- **ffmpeg and whisper-cli** (optional, for transcription) - `brew install ffmpeg whisper-cpp`. Set `WHISPER_MODEL` to a downloaded ggml model. Without them, voice and audio messages get a reply saying transcription isn't available, videos still reach Claude with their audio marked untranscribed, and everything else is unaffected
 
 ### Claude Authentication
 
