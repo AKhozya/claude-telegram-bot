@@ -22,7 +22,39 @@ import {
 
 // How much of the transcript the status message shows back. The whole thing still goes to
 // Claude; this is only so the user can see what was heard.
-const TRANSCRIPT_PREVIEW_CHARS = 500;
+// How much of the transcript the status message echoes back, in code points.
+const TRANSCRIPT_PREVIEW_CHARS = 4000;
+const TELEGRAM_MESSAGE_LIMIT = 4096;
+const TRANSCRIPT_PREFIX = "🎤 ";
+
+/**
+ * The longest prefix of `transcript` that still fits one Telegram message.
+ *
+ * Two limits, and they are not the same unit. The readability cap above counts code points;
+ * Telegram counts UTF-16 units, so a transcript of astral characters is cut at roughly half
+ * the code-point cap. Cutting on a code-point boundary keeps surrogate pairs whole — a lone
+ * surrogate is not text Telegram reliably accepts, and a rejected edit throws past the
+ * hand-off to Claude, costing the query for a cosmetic preview.
+ *
+ * Exported so the boundaries can be pinned directly — reaching them through the handler costs
+ * a full ctx and a stubbed pipeline per case.
+ */
+export function transcriptPreview(transcript: string): string {
+  const points = Array.from(transcript);
+  // -1 for the ellipsis that truncation appends.
+  const budget = TELEGRAM_MESSAGE_LIMIT - TRANSCRIPT_PREFIX.length - 1;
+  let units = 0;
+  let taken = 0;
+  while (taken < points.length && taken < TRANSCRIPT_PREVIEW_CHARS) {
+    const next = units + points[taken]!.length;
+    if (next > budget) break;
+    units = next;
+    taken += 1;
+  }
+  return taken === points.length
+    ? transcript
+    : `${points.slice(0, taken).join("")}…`;
+}
 
 export async function handleAudio(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
@@ -103,15 +135,11 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
       return;
     }
 
-    // By code point, not by UTF-16 unit: `slice` can cut an astral character in half and
-    // leave a lone surrogate, which is not text Telegram can be relied on to accept — and a
-    // rejected edit throws past the hand-off below, costing the query for a cosmetic preview.
-    const points = Array.from(transcript);
-    const preview =
-      points.length > TRANSCRIPT_PREVIEW_CHARS
-        ? `${points.slice(0, TRANSCRIPT_PREVIEW_CHARS).join("")}…`
-        : transcript;
-    await ctx.api.editMessageText(chatId, statusMsg.message_id, `🎤 ${preview}`);
+    await ctx.api.editMessageText(
+      chatId,
+      statusMsg.message_id,
+      `${TRANSCRIPT_PREFIX}${transcriptPreview(transcript)}`
+    );
 
     session.lastMessage = transcript; // consumed by /retry
     session.setTitleIfNew(transcript);

@@ -5,7 +5,7 @@ const { AUDIT_LOG_PATH } = await import("../config");
 const { rateLimiter } = await import("../security");
 const { session } = await import("../session");
 const { runner } = await import("../transcribe");
-const { handleAudio } = await import("./audio");
+const { handleAudio, transcriptPreview } = await import("./audio");
 
 interface Recorded {
   replies: string[];
@@ -199,10 +199,10 @@ test("the transcript is what gets sent to Claude, and is echoed back to the user
 
 // Whisper transcribes 99 languages, so a preview cut can land mid-character. `slice` counts
 // UTF-16 units and would halve an astral one, leaving a lone surrogate in the text sent to
-// Telegram. 500 is TRANSCRIPT_PREVIEW_CHARS, so the emoji here sits exactly on the boundary.
+// Telegram. 4000 is TRANSCRIPT_PREVIEW_CHARS, so the emoji here sits exactly on the boundary.
 test("a preview cut on an astral character keeps it whole", async () => {
   const r = rec();
-  const spoken = `${"a".repeat(499)}😀 and then some more`;
+  const spoken = `${"a".repeat(3999)}😀 and then some more`;
   await withPipeline(spoken, async (sent) => {
     await handleAudio(
       makeDownloadableCtx({ voice: { file_id: "v14", duration: 8 } }, r)
@@ -210,9 +210,86 @@ test("a preview cut on an astral character keeps it whole", async () => {
     // Claude gets all of it regardless; only the preview is truncated.
     expect(sent).toEqual([spoken]);
   });
-  expect(r.edits).toEqual([`🎤 ${"a".repeat(499)}😀…`]);
+  expect(r.edits).toEqual([`🎤 ${"a".repeat(3999)}😀…`]);
   // A halved surrogate pair leaves an unpaired code unit behind.
   expect(r.edits[0]).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+});
+
+// The worst case for the cap, and the reason it is not a plain code-point slice: every code
+// point here costs two UTF-16 units, which is the unit Telegram actually counts. An all-ASCII
+// fixture cannot catch this — 4000 ASCII code points fit, so it passes against an
+// implementation that ignores the distinction entirely and would be rejected on the wire.
+test("an all-astral transcript still fits Telegram's message limit", async () => {
+  const r = rec();
+  const spoken = "😀".repeat(10_000);
+  await withPipeline(spoken, async (sent) => {
+    await handleAudio(
+      makeDownloadableCtx({ voice: { file_id: "v15", duration: 8 } }, r)
+    );
+    // Truncation is cosmetic — Claude still receives every character.
+    expect(sent).toEqual([spoken]);
+  });
+  expect(r.edits[0]!.length).toBeLessThanOrEqual(4096);
+  expect(r.edits[0]).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+});
+
+// Driving the whole handler to reach one boundary is expensive, so the boundaries themselves
+// are pinned on the helper. The handler tests above still prove it is the function actually
+// wired into the status edit.
+//
+// The mixed case is the one a plain code-point check cannot reach: 3991 code points is under
+// the 4000 cap, so a `return transcript` shortcut looks safe — but at 4094 UTF-16 units the
+// finished edit is 4097 and Telegram rejects it, taking the query with it.
+test("transcriptPreview holds the Telegram limit at every boundary", () => {
+  const fits = (s: string) => `🎤 ${transcriptPreview(s)}`.length;
+
+  expect(transcriptPreview("")).toBe("");
+  expect(transcriptPreview("hello")).toBe("hello");
+  expect(transcriptPreview("😀")).toBe("😀");
+
+  // Exactly at the code-point cap: returned whole, no ellipsis.
+  expect(transcriptPreview("d".repeat(4000))).toBe("d".repeat(4000));
+  // One past it: truncated to the cap.
+  expect(transcriptPreview("d".repeat(4001))).toBe(`${"d".repeat(4000)}…`);
+
+  // Under the code-point cap, over the UTF-16 budget.
+  expect(fits("😀".repeat(103) + "b".repeat(3888))).toBe(4096);
+  // All-astral: the budget binds at half the code-point cap.
+  expect(fits("😀".repeat(10_000))).toBe(4096);
+  // Plain text: the code-point cap binds first, well under the limit.
+  expect(fits("c".repeat(10_000))).toBe(4004);
+});
+
+// One BMP character ahead of the astral run makes every running total odd, which is the only
+// shape that catches an off-by-one in the budget. An all-astral fixture cannot: its totals are
+// always even, so a budget one too large rounds down to the same character count and the bug
+// stays invisible. The cost of missing it is a 4097-unit message — rejected by Telegram, and
+// the throw takes the query with it.
+test("an odd-length mixed transcript still fits Telegram's message limit", async () => {
+  const r = rec();
+  const spoken = `b${"😀".repeat(10_000)}`;
+  await withPipeline(spoken, async (sent) => {
+    await handleAudio(
+      makeDownloadableCtx({ voice: { file_id: "v17", duration: 8 } }, r)
+    );
+    expect(sent).toEqual([spoken]);
+  });
+  expect(r.edits[0]!.length).toBeLessThanOrEqual(4096);
+});
+
+// A plain transcript must actually use the raised cap, not stop early: the UTF-16 clamp is a
+// backstop for astral text, and a bug that applied it to everything would silently halve the
+// preview while every limit assertion above still passed.
+test("a plain transcript uses the full code-point cap", async () => {
+  const r = rec();
+  const spoken = "c".repeat(10_000);
+  await withPipeline(spoken, async (sent) => {
+    await handleAudio(
+      makeDownloadableCtx({ voice: { file_id: "v16", duration: 8 } }, r)
+    );
+    expect(sent).toEqual([spoken]);
+  });
+  expect(r.edits).toEqual([`🎤 ${"c".repeat(4000)}…`]);
 });
 
 // Telegram rejects an edit whose text matches what the message already says. The status
