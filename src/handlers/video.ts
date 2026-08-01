@@ -1,9 +1,10 @@
 /**
  * Video handler for Claude Telegram Bot.
  *
- * Downloads the video, transcribes its audio track with whisper.cpp, and passes the
- * transcript plus the file path to Claude. Frames are not analysed — there is no video tool,
- * and the path is passed so Claude can reach the file itself if it needs to.
+ * Downloads the video, transcribes its audio track with whisper.cpp, extracts stills at the
+ * scene changes, and passes the transcript plus both sets of paths to Claude. There is no
+ * video tool, so the frames are how the picture reaches it at all — Claude reads them as
+ * images, the same way photo.ts hands over a photo.
  */
 
 import type { BotContext } from "../types";
@@ -15,7 +16,12 @@ import { handleProcessingError } from "./media-group";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markDone, markFailed } from "./reactions";
 import { rateLimitOrReply } from "./rate-limit";
-import { transcribeMedia, probeDuration, NoAudioTrackError } from "../transcribe";
+import {
+  transcribeMedia,
+  probeDuration,
+  extractSceneFrames,
+  NoAudioTrackError,
+} from "../transcribe";
 
 // Local cap, not Telegram's. Checked against `file_size` before download so an
 // oversized clip is rejected without spending the transfer.
@@ -130,10 +136,15 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     return;
   }
 
+  // Kept for the frame extraction below, which falls back to evenly spaced stills when a clip
+  // has no detectable cut and needs a length to space them across.
+  let durationSeconds: number | null = video.duration ?? null;
+
   // The cap the pre-download check could not apply, for a video that arrived as a file. The
   // transfer is already spent by here — measuring first would mean downloading anyway.
   if (video.duration === undefined) {
     const seconds = await probeDuration(videoPath);
+    durationSeconds = seconds;
     // Unmeasurable is refused, not waved through: this is the only duration cap this shape
     // gets, and a file ffprobe cannot read at all is one ffmpeg is unlikely to transcode.
     if (seconds === null || seconds > TRANSCRIBE_MAX_DURATION_S) {
@@ -177,9 +188,26 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
       console.error("Video transcription failed:", error);
     }
 
+    // Stills from the cuts, listed by path like photo.ts does — Claude reads images itself,
+    // so nothing is embedded here. Failure is not fatal: the transcript and the path are
+    // still worth sending, and a video whose frames cannot be read is usually one Claude
+    // could not have used anyway.
+    let frames: string[] = [];
+    try {
+      frames = await extractSceneFrames(videoPath, durationSeconds);
+    } catch (error) {
+      console.error("Frame extraction failed:", error);
+    }
+    const frameList =
+      frames.length > 0
+        ? `\n\nFrames from the video, in order:\n${frames
+            .map((path, i) => `${i + 1}. ${path}`)
+            .join("\n")}`
+        : "";
+
     const prompt = caption
-      ? `Here's a video file at path: ${videoPath}\n\nTranscript of its audio:\n${transcript}\n\nUser says: ${caption}`
-      : `I've received a video file at path: ${videoPath}\n\nTranscript of its audio:\n${transcript}`;
+      ? `Here's a video file at path: ${videoPath}\n\nTranscript of its audio:\n${transcript}${frameList}\n\nUser says: ${caption}`
+      : `I've received a video file at path: ${videoPath}\n\nTranscript of its audio:\n${transcript}${frameList}`;
 
     session.setTitleIfNew(caption || "[Video]");
 

@@ -7,7 +7,7 @@
  * disk and deleted afterwards.
  */
 
-import { unlink } from "fs/promises";
+import { stat, unlink } from "fs/promises";
 import { WHISPER_MODEL, WHISPER_THREADS } from "./config";
 
 const FFMPEG_BIN = "ffmpeg";
@@ -138,6 +138,120 @@ export async function probeDuration(inputPath: string): Promise<number | null> {
   }
 
   return measured.length > 0 ? Math.max(...measured) : null;
+}
+
+/** Most frames handed to Claude for one video, however many scene changes it contains. */
+const MAX_FRAMES = 8;
+/** How different a frame must be from the last to count as a cut. ffmpeg's scale is 0-1. */
+const SCENE_THRESHOLD = 0.3;
+/** Frames for a clip with no detectable cut — a static screen recording is the usual case. */
+const STATIC_FRAMES = 3;
+/**
+ * Frames per second the detector looks at. Bounds both its runtime and the showinfo output it
+ * buffers: without it a high-frame-rate clip emits one line per frame, and at the 600s
+ * duration cap that is six figures of lines held in memory for nothing. Cuts closer together
+ * than this are missed, which does not matter for "what is in this video".
+ */
+const DETECT_FPS = 4;
+/** Detection decodes every frame, so it runs on a thumbnail-sized copy. */
+const DETECT_TIMEOUT_MS = 120_000;
+const EXTRACT_TIMEOUT_MS = 20_000;
+
+/** Evenly spaced picks from `values`, at most `count` of them, endpoints included. */
+function spread<T>(values: T[], count: number): T[] {
+  if (values.length <= count) return values;
+  const step = (values.length - 1) / (count - 1);
+  return Array.from({ length: count }, (_, i) => values[Math.round(i * step)]!);
+}
+
+/**
+ * JPEG stills from the points where the picture changes, for Claude to read as images.
+ *
+ * Two passes, because one cannot do it. `select='gt(scene,N)'` alone has no way to cap its
+ * output: a clip that cuts every few seconds yields hundreds of frames, and `-frames:v` would
+ * cap by taking the first N — covering the opening minute of a ten-minute video and nothing
+ * after. So the cuts are timed first, spread evenly, and only the chosen ones extracted.
+ *
+ * Detection decodes every frame, which is why it runs against a 320px-wide copy with no audio.
+ * At full size a ten-minute clip does not finish inside the timeout.
+ *
+ * A clip with no detectable cut — a static screen recording, a talking head — returns nothing
+ * from detection, so evenly spaced stills stand in. Returning an empty list there would mean
+ * the silent screen recordings this feature is most useful for got no frames at all.
+ */
+export async function extractSceneFrames(
+  inputPath: string,
+  durationSeconds: number | null
+): Promise<string[]> {
+  let times: number[] = [];
+  try {
+    const detect = await run(
+      [
+        FFMPEG_BIN, "-hide_banner", "-nostdin",
+        "-i", inputPath,
+        "-an",
+        "-vf",
+        `scale=320:-2,fps=${DETECT_FPS},select='gt(scene,${SCENE_THRESHOLD})',showinfo`,
+        "-f", "null", "-",
+      ],
+      DETECT_TIMEOUT_MS
+    );
+    // showinfo writes one line per selected frame to stderr; the timestamp is what matters.
+    times = [...detect.stderr.matchAll(/pts_time:([0-9.]+)/g)]
+      .map((match) => Number(match[1]))
+      .filter((value) => Number.isFinite(value) && value >= 0);
+  } catch {
+    // No ffmpeg, or it died. The fallback below still covers it when the duration is known.
+    times = [];
+  }
+
+  // A cut marks what changed, never what was on screen before it. A clip holding one view for
+  // fifty seconds and then cutting once detects a single timestamp, so without this Claude
+  // sees only the second view and none of the majority of the video. Half-way into the
+  // opening scene, not its start, which is often black or a title card.
+  if (times.length > 0) {
+    const opening = times[0]! / 2;
+    if (opening >= 1) times.unshift(opening);
+  }
+
+  if (times.length === 0 && durationSeconds !== null && durationSeconds > 0) {
+    // Interior points only: the first frame of a video is often black or a title card.
+    times = Array.from(
+      { length: STATIC_FRAMES },
+      (_, i) => (durationSeconds * (i + 1)) / (STATIC_FRAMES + 1)
+    );
+  }
+
+  const chosen = spread(times, MAX_FRAMES);
+  const paths: string[] = [];
+  for (const [index, time] of chosen.entries()) {
+    const framePath = `${inputPath}.frame-${index + 1}.jpg`;
+    try {
+      // -ss before -i seeks by index instead of decoding up to the point, which is what keeps
+      // this cheap enough to run once per frame rather than in one pass over the whole file.
+      const shot = await run(
+        [
+          FFMPEG_BIN, "-hide_banner", "-loglevel", "error", "-nostdin",
+          "-ss", String(time),
+          "-i", inputPath,
+          "-frames:v", "1",
+          "-vf", "scale='min(768,iw)':-2",
+          "-q:v", "4",
+          "-y", framePath,
+        ],
+        EXTRACT_TIMEOUT_MS
+      );
+      // Exit 0 does not mean a file was written: a seek past the end leaves ffmpeg reporting
+      // success with no output, and listing that path would hand Claude something to fail on.
+      if (shot.code === 0) {
+        const written = await stat(framePath).catch(() => null);
+        if (written?.isFile() && written.size > 0) paths.push(framePath);
+      }
+    } catch {
+      // One unreadable frame is not worth losing the rest of the set over.
+    }
+  }
+  return paths;
 }
 
 export async function transcribeMedia(inputPath: string): Promise<string> {

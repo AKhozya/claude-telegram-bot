@@ -7,6 +7,7 @@ const {
   runner,
   transcribeMedia,
   probeDuration,
+  extractSceneFrames,
   NoAudioTrackError,
   TranscriptionUnavailableError,
 } = await import("./transcribe");
@@ -33,6 +34,12 @@ function fakeSpawns(...runs: FakeRun[]) {
   (runner as any).spawn = (cmd: string[]) => {
     calls.push(cmd);
     const r = runs.shift() ?? { code: 0, stdout: "" };
+    // Real ffmpeg writes the file named after -y. The frame paths are stat-checked now, so a
+    // fake that skipped this would make every frame test pass for the wrong reason.
+    const out = cmd[cmd.indexOf("-y") + 1];
+    if (r.code === 0 && cmd.includes("-y") && out?.endsWith(".jpg")) {
+      writeFileSync(out, "jpeg-bytes");
+    }
     return {
       stdout: r.stdout ?? "",
       stderr: r.stderr ?? "",
@@ -159,6 +166,143 @@ test("probeDuration still measures when only the first probe throws", async () =
   };
   try {
     expect(await probeDuration("/tmp/telegram-bot/video_3.mp4")).toBe(601);
+  } finally {
+    restore();
+  }
+});
+
+/** stderr as ffmpeg's showinfo writes it, one line per selected frame. */
+const showinfo = (...times: number[]) =>
+  times
+    .map((t) => `[Parsed_showinfo_2 @ 0x0] n:0 pts:0 pts_time:${t} pos:0 fmt:yuv420p`)
+    .join("\n");
+
+// The detection pass must not decode at full size: a ten-minute clip does not finish inside
+// the timeout that way. It also must not pull audio it has no use for.
+test("scene detection runs on a downscaled copy with no audio", async () => {
+  const calls = fakeSpawns({ code: 0, stderr: showinfo(1.5) });
+  try {
+    await extractSceneFrames(join(scratch, "video_1.mp4"), 60);
+    expect(calls[0]![0]).toBe("ffmpeg");
+    expect(calls[0]).toContain("-an");
+    const filter = calls[0]![calls[0]!.indexOf("-vf") + 1]!;
+    expect(filter).toContain("scale=320:-2");
+    expect(filter).toContain("select='gt(scene,0.3)'");
+    expect(filter).toContain("showinfo");
+  } finally {
+    restore();
+  }
+});
+
+// One extraction per chosen cut, seeking to the detected timestamp.
+test("a frame is extracted at each detected scene change", async () => {
+  const calls = fakeSpawns({ code: 0, stderr: showinfo(2, 9, 21) });
+  try {
+    const frames = await extractSceneFrames(join(scratch, "video_2.mp4"), 60);
+    // Four, not three: the opening scene is sampled ahead of the first cut at 2s.
+    expect(frames).toEqual([
+      join(scratch, "video_2.mp4.frame-1.jpg"),
+      join(scratch, "video_2.mp4.frame-2.jpg"),
+      join(scratch, "video_2.mp4.frame-3.jpg"),
+      join(scratch, "video_2.mp4.frame-4.jpg"),
+    ]);
+    // Detection, then one run per frame.
+    expect(calls).toHaveLength(5);
+    // -ss ahead of -i seeks by index instead of decoding up to the point.
+    expect(calls[1]!.indexOf("-ss")).toBeLessThan(calls[1]!.indexOf("-i"));
+    const seeks = calls.slice(1).map((c) => Number(c[c.indexOf("-ss") + 1]));
+    expect(seeks).toEqual([1, 2, 9, 21]);
+  } finally {
+    restore();
+  }
+});
+
+// Detection reports where the picture changed, never what preceded the first change. A clip
+// holding one view for most of its length and cutting once late would otherwise hand Claude
+// a single frame of the tail and nothing of the majority of the video.
+test("the scene before the first cut is sampled too", async () => {
+  const calls = fakeSpawns({ code: 0, stderr: showinfo(50) });
+  try {
+    const frames = await extractSceneFrames(join(scratch, "video_7.mp4"), 60);
+    expect(frames).toHaveLength(2);
+    const seeks = calls.slice(1).map((c) => Number(c[c.indexOf("-ss") + 1]));
+    expect(seeks).toEqual([25, 50]);
+  } finally {
+    restore();
+  }
+});
+
+// Not when the first cut is already at the very start — half of it is a black frame or a
+// title card, and a near-duplicate of the cut that follows it.
+test("an immediate first cut gets no extra opening frame", async () => {
+  const calls = fakeSpawns({ code: 0, stderr: showinfo(0.4, 12) });
+  try {
+    await extractSceneFrames(join(scratch, "video_8.mp4"), 60);
+    const seeks = calls.slice(1).map((c) => Number(c[c.indexOf("-ss") + 1]));
+    expect(seeks).toEqual([0.4, 12]);
+  } finally {
+    restore();
+  }
+});
+
+// A cut-heavy clip must not send hundreds of images. Capping by taking the first N would
+// cover the opening of a long video and nothing after, so the picks are spread across the
+// whole set — first and last included.
+test("a cut-heavy clip is capped and spread across the whole video", async () => {
+  const times = Array.from({ length: 50 }, (_, i) => i + 1);
+  const calls = fakeSpawns({ code: 0, stderr: showinfo(...times) });
+  try {
+    const frames = await extractSceneFrames(join(scratch, "video_3.mp4"), 60);
+    expect(frames).toHaveLength(8);
+    const seeks = calls.slice(1).map((c) => Number(c[c.indexOf("-ss") + 1]));
+    expect(seeks[0]).toBe(1);
+    expect(seeks.at(-1)).toBe(50);
+    // Genuinely spread, not clustered at the start.
+    expect(seeks.every((v, i) => i === 0 || v > seeks[i - 1]!)).toBe(true);
+  } finally {
+    restore();
+  }
+});
+
+// The case this feature is most useful for: a static screen recording has no cut at all, so
+// detection returns nothing. Returning no frames there would leave exactly those videos blind.
+test("a clip with no detectable cut falls back to evenly spaced stills", async () => {
+  const calls = fakeSpawns({ code: 0, stderr: "" });
+  try {
+    const frames = await extractSceneFrames(join(scratch, "video_4.mp4"), 40);
+    expect(frames).toHaveLength(3);
+    const seeks = calls.slice(1).map((c) => Number(c[c.indexOf("-ss") + 1]));
+    // Interior points — the first frame of a video is often black or a title card.
+    expect(seeks).toEqual([10, 20, 30]);
+  } finally {
+    restore();
+  }
+});
+
+// Nothing detected and no duration to space stills across leaves nothing to do.
+test("no cuts and no known duration yields no frames", async () => {
+  const calls = fakeSpawns({ code: 0, stderr: "" });
+  try {
+    expect(await extractSceneFrames(join(scratch, "video_5.mp4"), null)).toEqual([]);
+    expect(calls).toHaveLength(1);
+  } finally {
+    restore();
+  }
+});
+
+// A frame ffmpeg could not write is dropped rather than reported as a path that is not there.
+test("a frame that fails to extract is left out of the set", async () => {
+  // First cut at 0.5s, so no opening frame is added and the set stays at two — this test is
+  // about dropping a failed extraction, not about the opening sample.
+  fakeSpawns(
+    { code: 0, stderr: showinfo(0.5, 9) },
+    { code: 0 },
+    { code: 1, stderr: "Output file is empty" }
+  );
+  try {
+    expect(await extractSceneFrames(join(scratch, "video_6.mp4"), 60)).toEqual([
+      join(scratch, "video_6.mp4.frame-1.jpg"),
+    ]);
   } finally {
     restore();
   }

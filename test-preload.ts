@@ -12,3 +12,8 @@ process.env.TELEGRAM_ALLOWED_USERS = "1";
 // /tmp/claude-telegram-audit.log — the running bot's own audit trail on a dev machine.
 // utils.test.ts still sets it per-subprocess; this covers the in-process callers.
 process.env.AUDIT_LOG_PATH = `${process.env.TMPDIR || "/tmp"}/claude-telegram-audit-test.log`;
+
+// Same reasoning, same failure. Handler tests generate media paths under TEMP_DIR, and the
+// frame fakes write real files to them — left unset that is /tmp/telegram-bot, the running
+// bot's own download directory on a dev machine, which its reaper then sweeps by age.
+process.env.TEMP_DIR = `${process.env.TMPDIR || "/tmp"}/claude-telegram-temp-test`;

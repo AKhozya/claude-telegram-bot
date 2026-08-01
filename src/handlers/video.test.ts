@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { writeFileSync } from "fs";
 
 const { rateLimiter } = await import("../security");
 const { session } = await import("../session");
@@ -155,8 +156,13 @@ async function withVideoPipeline(
   };
   limiter.check = () => [true];
   const queue = [...runs];
-  (runner as any).spawn = () => {
+  (runner as any).spawn = (cmd: string[]) => {
     const next = queue.shift() ?? { code: 0, stdout: "", stderr: "" };
+    // Frame paths are stat-checked, so the fake has to write what real ffmpeg would.
+    const out = cmd[cmd.indexOf("-y") + 1];
+    if (next.code === 0 && cmd.includes("-y") && out?.endsWith(".jpg")) {
+      writeFileSync(out, "jpeg-bytes");
+    }
     return { stdout: next.stdout, stderr: next.stderr, exited: Promise.resolve(next.code) };
   };
   s.sendMessageStreaming = async (prompt: string) => {
@@ -234,6 +240,56 @@ test("a video with no audio track still reaches Claude, marked as silent", async
       );
       expect(sent).toHaveLength(1);
       expect(sent[0]).toContain("[no audio track]");
+    }
+  );
+});
+
+// There is no video tool, so the frames are the only way the picture reaches Claude at all.
+// Listed by path, like photo.ts hands over a photo — nothing is embedded in the prompt.
+test("scene frames are listed in the prompt alongside the transcript", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    [
+      OK, // ffmpeg: wav extraction
+      { code: 0, stdout: "what the speaker said", stderr: "" }, // whisper
+      { code: 0, stdout: "", stderr: "pts_time:3.0\npts_time:11.0" }, // scene detection
+      OK, // frame 1
+      OK, // frame 2
+    ],
+    async (sent) => {
+      await handleVideo(
+        makeDownloadableCtx({ file_id: "v20", file_size: 1024, duration: 20 }, r)
+      );
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toContain("what the speaker said");
+      expect(sent[0]).toContain("Frames from the video, in order:");
+      expect(sent[0]).toMatch(/1\. .*\.frame-1\.jpg/);
+      expect(sent[0]).toMatch(/2\. .*\.frame-2\.jpg/);
+    }
+  );
+});
+
+// Frames are a bonus, not a precondition. A clip whose stills cannot be written must still
+// reach Claude with its transcript, and the prompt must not carry an empty frame heading.
+test("a video whose frames cannot be extracted still reaches Claude", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    [
+      OK,
+      { code: 0, stdout: "still worth hearing", stderr: "" },
+      { code: 1, stdout: "", stderr: "" }, // detection fails
+      { code: 1, stdout: "", stderr: "" }, // and so does every fallback still
+      { code: 1, stdout: "", stderr: "" },
+      { code: 1, stdout: "", stderr: "" },
+    ],
+    async (sent) => {
+      await handleVideo(
+        makeDownloadableCtx({ file_id: "v21", file_size: 1024, duration: 20 }, r)
+      );
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toContain("still worth hearing");
+      expect(sent[0]).not.toContain("Frames from the video");
+      expect(r.reactions).toEqual(["👀", "👌"]);
     }
   );
 });
