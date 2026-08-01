@@ -45,6 +45,29 @@ RUN mkdir -p /out/whisper \
     && echo "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe  /out/whisper/ggml-base.bin" \
        | sha256sum -c -
 
+# kubectl and flux, fetched here for the same reason as the model above: the runtime stage
+# declares BUILD_TS, so every RUN after it refetches on each scheduled rebuild. Both are
+# pinned and checksum-verified against the vendor's own published sums.
+FROM oven/bun:1.3-alpine AS tools
+RUN apk add --no-cache curl
+
+# kubectl (pinned — match cluster k3s version; bump deliberately). Checksum-verified.
+ARG KUBECTL_VERSION=v1.36.2
+RUN mkdir -p /out \
+    && curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
+         -o /out/kubectl \
+    && echo "$(curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256")  /out/kubectl" | sha256sum -c - \
+    && chmod +x /out/kubectl
+
+# flux CLI (pinned — match cluster flux minor; bump deliberately). Checksum-verified.
+ARG FLUX_VERSION=2.9.3
+RUN set -o pipefail && cd /tmp \
+    && curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_linux_amd64.tar.gz" \
+    && curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_checksums.txt" \
+    && grep " flux_${FLUX_VERSION}_linux_amd64.tar.gz\$" "flux_${FLUX_VERSION}_checksums.txt" | sha256sum -c - \
+    && tar -xzf "flux_${FLUX_VERSION}_linux_amd64.tar.gz" -C /out flux \
+    && rm -f "flux_${FLUX_VERSION}_linux_amd64.tar.gz" "flux_${FLUX_VERSION}_checksums.txt"
+
 FROM oven/bun:1.3-alpine
 
 ARG BUILD_TS=local
@@ -66,22 +89,8 @@ ARG BUILD_TS=local
 RUN apk add --no-cache git openssh-client curl jq ca-certificates bash poppler-utils unzip \
     bubblewrap socat github-cli nodejs npm chezmoi ffmpeg
 
-# kubectl (pinned — match cluster k3s version; bump deliberately). Checksum-verified.
-ARG KUBECTL_VERSION=v1.36.2
-RUN curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
-      -o /usr/local/bin/kubectl \
-    && echo "$(curl -fsSL "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl.sha256")  /usr/local/bin/kubectl" | sha256sum -c - \
-    && chmod +x /usr/local/bin/kubectl
-
-# flux CLI (pinned — match cluster flux minor; bump deliberately). Checksum-verified.
-ARG FLUX_VERSION=2.9.3
-RUN set -o pipefail && cd /tmp \
-    && curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_linux_amd64.tar.gz" \
-    && curl -fsSLO "https://github.com/fluxcd/flux2/releases/download/v${FLUX_VERSION}/flux_${FLUX_VERSION}_checksums.txt" \
-    && grep " flux_${FLUX_VERSION}_linux_amd64.tar.gz\$" "flux_${FLUX_VERSION}_checksums.txt" | sha256sum -c - \
-    && tar -xzf "flux_${FLUX_VERSION}_linux_amd64.tar.gz" -C /usr/local/bin flux \
-    && rm -f "flux_${FLUX_VERSION}_linux_amd64.tar.gz" "flux_${FLUX_VERSION}_checksums.txt"
-
+COPY --from=tools /out/kubectl /usr/local/bin/kubectl
+COPY --from=tools /out/flux /usr/local/bin/flux
 COPY --from=whisper /tmp/whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli
 COPY --from=whisper /out/whisper/ggml-base.bin /usr/local/share/whisper/ggml-base.bin
 
