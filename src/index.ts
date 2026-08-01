@@ -25,6 +25,7 @@ import { handleText } from "./handlers/text";
 import { handlePhoto } from "./handlers/photo";
 import { handleDocument } from "./handlers/document";
 import { handleVideo } from "./handlers/video";
+import { handleAudio } from "./handlers/audio";
 import { handleCallback } from "./handlers/callback";
 import { startTriggerServer } from "./handlers/trigger";
 
@@ -77,11 +78,7 @@ bot.command("retry", handleRetry);
 
 bot.on("message:text", handleText);
 
-// No speech-to-text in this build. Without this, voice/audio match no filter at
-// all — `message:text` needs a `text` field — and the user gets silence.
-bot.on(["message:voice", "message:audio"], (ctx) =>
-  ctx.reply("🎤 Voice and audio aren't supported — please send text.")
-);
+bot.on(["message:voice", "message:audio"], handleAudio);
 
 bot.on("message:photo", handlePhoto);
 

@@ -6,3 +6,9 @@
 // of them agree. Setting them here removes the ordering dependency entirely.
 process.env.TELEGRAM_BOT_TOKEN = "TESTTOKEN:abc123";
 process.env.TELEGRAM_ALLOWED_USERS = "1";
+
+// Bound at config module-eval like the two above, and for the same reason it belongs here:
+// left unset, any test that drives a handler to completion appends to the default
+// /tmp/claude-telegram-audit.log — the running bot's own audit trail on a dev machine.
+// utils.test.ts still sets it per-subprocess; this covers the in-process callers.
+process.env.AUDIT_LOG_PATH = `${process.env.TMPDIR || "/tmp"}/claude-telegram-audit-test.log`;

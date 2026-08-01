@@ -81,8 +81,9 @@ describe("ask_user button", () => {
     s.sessionId = "live-session";
 
     // Throws rather than returns: the success path audits, and auditLog would append to
-    // whatever AUDIT_LOG_PATH config bound at module-eval — in a shared registry that is
-    // the real /tmp/claude-telegram-audit.log.
+    // whatever AUDIT_LOG_PATH config bound at module-eval. test-preload.ts now points that
+    // at a test file rather than the running bot's log, but this test still has no reason
+    // to reach the audit path at all.
     const runningDuringQuery: boolean[] = [];
     s.sendMessageStreaming = async () => {
       runningDuringQuery.push(session.isRunning);

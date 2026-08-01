@@ -19,7 +19,6 @@ import {
 } from "fs";
 
 const AUDIT_PATH = `/tmp/audit-mode-test-${process.pid}.log`;
-process.env.AUDIT_LOG_PATH = AUDIT_PATH;
 
 const { reapTempDir } = await import("./utils");
 
@@ -34,9 +33,9 @@ const age = (path: string, hoursAgo: number) => {
 // The JSON branch writes the message and response unredacted, so a world-readable log
 // hands any local user whatever was pasted into Telegram.
 //
-// Each case runs in a subprocess: AUDIT_LOG_PATH is read once at config module-eval and
-// bun test shares one module registry across files, so an in-process call here would
-// write to the real /tmp/claude-telegram-audit.log.
+// Each case runs in a subprocess: AUDIT_LOG_PATH and AUDIT_LOG_JSON are read once at config
+// module-eval and bun test shares one module registry across files, so an in-process call
+// could not vary them per case — every case would land on whichever path bound first.
 // `prelude` runs before the import, which is the only way to reach the checks that would
 // otherwise need a file belonging to another user: the subprocess can lie about its own uid.
 const writeTwoAuditLines = async (
