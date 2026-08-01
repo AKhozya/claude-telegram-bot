@@ -277,6 +277,29 @@ export const TEMP_RETENTION_MS =
 // only if a later call of the same kind polled before this expired. That poll is gone.
 export const IPC_PENDING_TTL_MS = 5 * 60 * 1000;
 
+// ============== Transcription ==============
+
+// Baked into the image at this path; on macOS the binary comes from `brew install
+// whisper-cpp` and the model has to be fetched by hand, so the path is configurable.
+export const WHISPER_MODEL =
+  process.env.WHISPER_MODEL || "/usr/local/share/whisper/ggml-base.bin";
+
+// Must match the container's CPU limit, not `nproc` — inside a 2-CPU pod nproc still
+// reports the node's 16, and asking for 4 threads measured 44% slower than asking for 2.
+// Floored to an integer: positiveNumberEnv admits fractions, which is right for the hour
+// and millisecond settings above but would hand whisper-cli `-t 0.5`, which it reads as 0.
+export const WHISPER_THREADS = Math.max(
+  1,
+  Math.floor(positiveNumberEnv("WHISPER_THREADS", 2))
+);
+
+// Transcription costs ~4.9s per minute of audio at 2 CPU, so this cap is what bounds how
+// long the bot can be busy with one clip.
+export const TRANSCRIBE_MAX_DURATION_S = positiveNumberEnv(
+  "TRANSCRIBE_MAX_DURATION_SECONDS",
+  600
+);
+
 // Bun.write creates missing parent dirs, so this is how TEMP_DIR gets made.
 await Bun.write(`${TEMP_DIR}/.keep`, "");
 

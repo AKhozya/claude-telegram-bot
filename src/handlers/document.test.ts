@@ -19,8 +19,8 @@ const {
   listArchiveMembers,
   isArchive,
   getArchiveExtension,
-  uniqueTempDir,
 } = await import("./document");
+const { uniqueTempDir } = await import("../utils");
 
 const lexists = (p: string): boolean => {
   try {

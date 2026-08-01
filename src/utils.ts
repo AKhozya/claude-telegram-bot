@@ -194,6 +194,17 @@ export function startTypingIndicator(ctx: Context): { stop: () => void } {
   };
 }
 
+// ============== Temp Files ==============
+
+/**
+ * A temp dir nobody else will pick. The random suffix is load-bearing: Date.now() alone
+ * collides on concurrent same-ms uploads, and the loser's cleanup deletes the winner's
+ * files. Exported for the collision test.
+ */
+export function uniqueTempDir(prefix: string): string {
+  return `${TEMP_DIR}/${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 // ============== Temp Reaper ==============
 
 /**
