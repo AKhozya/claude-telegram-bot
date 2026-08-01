@@ -1,18 +1,21 @@
 /**
  * Video handler for Claude Telegram Bot.
  *
- * Downloads video files and passes them to video-processing skill for transcription.
+ * Downloads the video, transcribes its audio track with whisper.cpp, and passes the
+ * transcript plus the file path to Claude. Frames are not analysed — there is no video tool,
+ * and the path is passed so Claude can reach the file itself if it needs to.
  */
 
 import type { BotContext } from "../types";
 import { session } from "../session";
-import { TEMP_DIR } from "../config";
-import { auditLog, startTypingIndicator } from "../utils";
+import { TRANSCRIBE_MAX_DURATION_S } from "../config";
+import { auditLog, startTypingIndicator, uniqueTempDir } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { handleProcessingError } from "./media-group";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markDone, markFailed } from "./reactions";
 import { rateLimitOrReply } from "./rate-limit";
+import { transcribeMedia, NoAudioTrackError } from "../transcribe";
 
 // Local cap, not Telegram's. Checked against `file_size` before download so an
 // oversized clip is rejected without spending the transfer.
@@ -24,10 +27,9 @@ async function downloadVideo(ctx: BotContext): Promise<string> {
     throw new Error("No video in message");
   }
 
-  const timestamp = Date.now();
-
-  // Telegram delivers both regular videos and video notes as mp4.
-  const videoPath = `${TEMP_DIR}/video_${timestamp}.mp4`;
+  // Telegram delivers both regular videos and video notes as mp4. The random suffix in
+  // uniqueTempDir is load-bearing now that a .wav is derived from this path.
+  const videoPath = `${uniqueTempDir("video")}.mp4`;
 
   return await downloadTelegramFile(ctx, videoPath);
 }
@@ -49,6 +51,18 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     await markFailed(ctx);
     await ctx.reply(
       `❌ Video too large. Maximum size is ${MAX_VIDEO_SIZE / 1024 / 1024}MB.`
+    );
+    return;
+  }
+
+  // Size does not bound transcription time, so duration is guarded separately. Size is
+  // checked first because it is the one that costs a transfer.
+  if (video.duration > TRANSCRIBE_MAX_DURATION_S) {
+    await markFailed(ctx);
+    // Seconds, not minutes, matching the audio handler: the cap is configurable, and
+    // flooring it reports "1 minutes" for a 90-second setting that allows 90 seconds.
+    await ctx.reply(
+      `❌ Too long to transcribe. Maximum is ${TRANSCRIBE_MAX_DURATION_S} seconds.`
     );
     return;
   }
@@ -87,9 +101,23 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
       "📹 Processing video..."
     );
 
+    // A video with no audio track is normal, not an error — a screen recording, say. Any
+    // other failure is reported in the prompt rather than aborting, because the file path
+    // is still useful to Claude.
+    let transcript = "";
+    try {
+      transcript = await transcribeMedia(videoPath);
+    } catch (error) {
+      transcript =
+        error instanceof NoAudioTrackError
+          ? "[no audio track]"
+          : "[audio could not be transcribed]";
+      console.error("Video transcription failed:", error);
+    }
+
     const prompt = caption
-      ? `Here's a video file at path: ${videoPath}\n\nUser says: ${caption}`
-      : `I've received a video file at path: ${videoPath}\n\nPlease transcribe it for me.`;
+      ? `Here's a video file at path: ${videoPath}\n\nTranscript of its audio:\n${transcript}\n\nUser says: ${caption}`
+      : `I've received a video file at path: ${videoPath}\n\nTranscript of its audio:\n${transcript}`;
 
     session.setTitleIfNew(caption || "[Video]");
 
@@ -126,7 +154,9 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     stopProcessing();
     typing.stop();
 
-    // Deliberately not removed — the video-processing skill reads it from disk during
-    // the query above. The temp reaper collects it once it ages past TEMP_RETENTION_HOURS.
+    // Deliberately not removed — the path went into the prompt, so Claude may still read
+    // the file during the query above. The temp reaper collects it once it ages past
+    // TEMP_RETENTION_HOURS — which also backs up the derived .wav, since transcribeMedia
+    // unlinks that on a best-effort basis and swallows the failure.
   }
 }

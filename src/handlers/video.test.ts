@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 
 const { rateLimiter } = await import("../security");
+const { session } = await import("../session");
+const { runner } = await import("../transcribe");
 const { handleVideo } = await import("./video");
 
 interface Recorded {
@@ -78,4 +80,171 @@ test("a video exactly at the cap is not treated as oversized", async () => {
   }
   expect(r.replies).toEqual(["📹 Downloading video..."]);
   expect(r.edits).toEqual(["❌ Failed to download video."]);
+});
+
+// Videos are capped by duration as well as size now: file size does not bound how long
+// whisper runs, and a small, heavily compressed clip can still be an hour of speech.
+test("an over-long video is refused before it is downloaded", async () => {
+  const r = rec();
+  await handleVideo(makeCtx({ file_id: "v3", file_size: 1024, duration: 601 }, r));
+  expect(r.replies).toEqual(["❌ Too long to transcribe. Maximum is 600 seconds."]);
+  expect(r.reactions).toEqual(["👀", "👎"]);
+  expect(r.edits).toEqual([]);
+});
+
+// The cap is `>`, so exactly at it is allowed through. Pins the boundary only — it reads
+// the same with the guard deleted, which the over-long test above is what covers.
+test("a video exactly at the duration cap is not treated as too long", async () => {
+  const r = rec();
+  const limiter = rateLimiter as any;
+  limiter.check = () => [true];
+  try {
+    await handleVideo(makeCtx({ file_id: "v3b", file_size: 1024, duration: 600 }, r));
+  } finally {
+    delete limiter.check;
+  }
+  expect(r.replies).toEqual(["📹 Downloading video..."]);
+  expect(r.edits).toEqual(["❌ Failed to download video."]);
+});
+
+// Which guard runs first is a real choice, not an accident: the size check is the one that
+// saves a transfer, so a clip violating both must be refused on size. Reordering them
+// silently passes every other test in this file.
+test("a video breaking both caps is refused on size, the cheaper guard", async () => {
+  const r = rec();
+  await handleVideo(
+    makeCtx({ file_id: "v4", file_size: 51 * 1024 * 1024, duration: 601 }, r)
+  );
+  expect(r.replies).toEqual(["❌ Video too large. Maximum size is 50MB."]);
+});
+
+// Everything above stops at a guard or at the download, so none of it would notice if the
+// transcription were deleted outright. The tests below are the ones that would.
+
+/** A ctx whose download succeeds, returning the path it was asked to write. */
+const makeDownloadableCtx = (video: unknown, r: Recorded): any => ({
+  ...makeCtx(video, r),
+  getFile: async () => ({ download: async (p: string) => p }),
+});
+
+const realSpawn = runner.spawn;
+
+/** Pins the rate limiter, the two subprocesses, and the session in one place. */
+async function withVideoPipeline(
+  ffmpeg: { code: number; stdout: string; stderr: string },
+  whisper: { code: number; stdout: string; stderr: string },
+  body: (sent: string[]) => Promise<void>
+): Promise<void> {
+  const sent: string[] = [];
+  const limiter = rateLimiter as any;
+  const s = session as any;
+  const saved = {
+    sessionId: s.sessionId,
+    conversationTitle: s.conversationTitle,
+    lastMessage: s.lastMessage,
+  };
+  limiter.check = () => [true];
+  // Shifted in call order: ffmpeg extracts the wav first, then whisper reads it.
+  const runs = [ffmpeg, whisper];
+  (runner as any).spawn = () => {
+    const next = runs.shift() ?? { code: 0, stdout: "", stderr: "" };
+    return { stdout: next.stdout, stderr: next.stderr, exited: Promise.resolve(next.code) };
+  };
+  s.sendMessageStreaming = async (prompt: string) => {
+    sent.push(prompt);
+    return "ok";
+  };
+  try {
+    await body(sent);
+  } finally {
+    delete limiter.check;
+    runner.spawn = realSpawn;
+    delete s.sendMessageStreaming;
+    Object.assign(s, saved);
+  }
+}
+
+const OK = { code: 0, stdout: "", stderr: "" };
+
+test("the video prompt carries the transcript and the file path", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    OK,
+    { code: 0, stdout: "the meeting is at noon", stderr: "" },
+    async (sent) => {
+      await handleVideo(
+        makeDownloadableCtx({ file_id: "v5", file_size: 1024, duration: 30 }, r)
+      );
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toContain("the meeting is at noon");
+      // The random suffix, not just the timestamp: a bare Date.now() name collides on
+      // same-millisecond uploads, and now that a .wav hangs off this path the loser's
+      // cleanup deletes the winner's working file. `+`, not `*` — an empty suffix is a
+      // name that still collides, and asserting two paths merely differ would not catch
+      // it either, since two sequential calls usually land in different milliseconds.
+      expect(sent[0]).toMatch(/video_\d+_[a-z0-9]+\.mp4/);
+    }
+  );
+});
+
+// A caption is the branch a user actually hits — "what does he say here?" over a clip. It
+// builds a different prompt string, so a transcript dropped from this one alone is invisible
+// to the test above.
+test("a captioned video carries both the caption and the transcript", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    OK,
+    { code: 0, stdout: "the meeting is at noon", stderr: "" },
+    async (sent) => {
+      const ctx = makeDownloadableCtx(
+        { file_id: "v6", file_size: 1024, duration: 30 },
+        r
+      );
+      ctx.message.caption = "what did he say?";
+      await handleVideo(ctx);
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toContain("what did he say?");
+      expect(sent[0]).toContain("the meeting is at noon");
+    }
+  );
+});
+
+// A silent screen recording is ordinary input, not an error: Claude still gets the path.
+test("a video with no audio track still reaches Claude, marked as silent", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    {
+      code: 234,
+      stdout: "",
+      stderr: "[out#0/wav] Output file does not contain any stream\n",
+    },
+    OK,
+    async (sent) => {
+      await handleVideo(
+        makeDownloadableCtx({ file_id: "v7", file_size: 1024, duration: 30 }, r)
+      );
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toContain("[no audio track]");
+    }
+  );
+});
+
+// Unlike the audio handler, a transcription failure here does not abort: the path alone is
+// still worth sending, since Claude can read the file. Without this test the whole catch
+// could be deleted and the throw would propagate into the query.
+test("a transcription failure still reaches Claude, marked as such", async () => {
+  const r = rec();
+  await withVideoPipeline(
+    { code: 1, stdout: "", stderr: "Invalid data found when processing input\n" },
+    OK,
+    async (sent) => {
+      await handleVideo(
+        makeDownloadableCtx({ file_id: "v8", file_size: 1024, duration: 30 }, r)
+      );
+      expect(sent).toHaveLength(1);
+      expect(sent[0]).toContain("[audio could not be transcribed]");
+      // Marked done, not failed: the query ran.
+      expect(r.reactions).toEqual(["👀", "👌"]);
+    }
+  );
 });
