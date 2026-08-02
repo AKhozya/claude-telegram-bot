@@ -495,6 +495,11 @@ export function isCredentialPath(canonicalPath: string): boolean {
     under(`${home}/.gnupg`) ||
     under(`${home}/.kube`) ||
     under(`${home}/.docker`) ||
+    // Codex keeps a live ChatGPT-plan token in ~/.codex/auth.json. It is not under XDG config,
+    // so the entry below did not cover it: the container image ships an authenticated codex and
+    // the token was readable by `Read` and sendable by `send_file` while every other credential
+    // store here was denied.
+    under(`${home}/.codex`) ||
     under(`${home}/.config`) // gh, op, gcloud, and any other credential store under XDG config
   );
 }

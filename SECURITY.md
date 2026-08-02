@@ -206,6 +206,18 @@ Three limits worth knowing:
 2. **Zero-day vulnerabilities** - Unknown bugs in Claude, the SDK, or dependencies
 3. **Physical access** - Someone with access to the machine running the bot
 4. **Network interception** - Though Telegram uses encryption
+5. **A second agent started from Bash** - `DENIED_TOOLS` refuses the SDK's `Agent` tool because it
+   "spawns a subagent with its OWN Bash/file tools — a second exec surface this process's
+   `PreToolUse` hook never reaches". Anything Bash can launch is that same surface: the container
+   image ships an authenticated `codex` CLI, and `codex exec …` starts a fully-trusted agent with
+   its own shell, model and approval policy, outside `evaluateToolUse` entirely. A string denylist
+   does not close this — writing a script to an allowed path and running it defeats any pattern.
+   The containment is the pod, not this process. Precisely: the `codex` invocation itself is a Bash
+   call and *is* evaluated by `evaluateToolUse`; what escapes is everything Codex does afterwards,
+   through its own shell and its own approval policy. Note the asymmetry deliberately — `Agent` is
+   denied at two layers and Codex at none, though only the latter matches how it is reached.
+   Running Codex `danger-full-access` inside a container is OpenAI's own documented guidance when
+   the container is the intended boundary, so this is the accepted posture, not an oversight.
 
 ## Recommendations
 

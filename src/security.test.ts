@@ -37,6 +37,20 @@ describe("credential-store protection (#12)", () => {
     expect((await evaluateToolUse("Read", { file_path: "/tmp/proj/.env" })).allowed).toBe(false);
   });
 
+  // The image ships an authenticated codex CLI, so ~/.codex/auth.json holds a live token. It sits
+  // outside ~/.config, so the XDG entry above never covered it: until this was added the token was
+  // readable by `Read` and publishable by `send_file` while every other store here was denied.
+  test("the codex token is treated as a credential store, like every other one", async () => {
+    const codex = `${HOME}/.codex/auth.json`;
+    expect(isCredentialPath(codex)).toBe(true);
+    expect((await evaluateToolUse("Read", { file_path: codex })).allowed).toBe(false);
+    expect(
+      (await evaluateToolUse("mcp__send-file__send_file", { file_path: codex })).allowed
+    ).toBe(false);
+    // The whole directory, not just the one filename — config.toml selects the sandbox mode.
+    expect(isCredentialPath(`${HOME}/.codex/config.toml`)).toBe(true);
+  });
+
   test("native Read/Write of the bot's audit log + session file is blocked", async () => {
     const { AUDIT_LOG_PATH, SESSION_FILE } = await import("./config");
     expect((await evaluateToolUse("Read", { file_path: AUDIT_LOG_PATH })).allowed).toBe(false);

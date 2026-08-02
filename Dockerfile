@@ -101,7 +101,7 @@ COPY --from=whisper /out/whisper/ggml-small.bin /usr/local/share/whisper/ggml-sm
 
 # Codex CLI (pre-commit review gate). The linux-x64 platform dep ships codex's
 # static musl binary (codex publishes musl-only for linux) — alpine-safe.
-# Installs to /usr/bin, outside the /home/akhozya PVC shadow.
+# Installs to /usr/local/bin, outside the /home/akhozya PVC shadow.
 # Latest on each scheduled rebuild (BUILD_TS busts the layer). Trusted publisher —
 # no release-age gate, matching the Anthropic-SDK exemption in bunfig.toml.
 RUN echo "codex refresh: ${BUILD_TS}" \

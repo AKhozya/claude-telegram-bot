@@ -33,6 +33,12 @@ const READ_DENY: string[] = [
   `${HOME}/.gnupg`,
   `${HOME}/.kube`,
   `${HOME}/.docker`,
+  // Live ChatGPT-plan token in auth.json; not under XDG config, so the entry below missed it.
+  // Deliberate incompatibility: a codex spawned from Bash inherits this sandbox and is denied its
+  // own auth, so authenticated `codex exec` and BASH_SANDBOX_ENABLED=true cannot both hold. The
+  // cluster runs the sandbox off, which is where codex actually runs; on a host with the sandbox
+  // on, codex fails loudly on auth rather than the token leaking quietly through `cat`.
+  `${HOME}/.codex`,
   `${HOME}/.config`, // gh, op, gcloud, and any other credential store under XDG config
   `${HOME}/.claude/.credentials*`,
   `${HOME}/.netrc`,
