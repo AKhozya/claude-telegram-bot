@@ -21,6 +21,7 @@ import {
   probeDuration,
   extractSceneFrames,
   NoAudioTrackError,
+  SilentAudioError,
 } from "../transcribe";
 
 // Local cap, not Telegram's. Checked against `file_size` before download so an
@@ -184,7 +185,9 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
       transcript =
         error instanceof NoAudioTrackError
           ? "[no audio track]"
-          : "[audio could not be transcribed]";
+          : error instanceof SilentAudioError
+            ? "[silent audio]"
+            : "[audio could not be transcribed]";
       console.error("Video transcription failed:", error);
     }
 

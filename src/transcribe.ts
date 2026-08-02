@@ -21,8 +21,29 @@ const WHISPER_TIMEOUT_MS = 300_000;
 // Reads a container header, not the stream.
 const FFPROBE_TIMEOUT_MS = 15_000;
 
+/**
+ * Peak level at or below which a track is treated as having nothing to transcribe, in dBFS.
+ *
+ * Measured against this model rather than reasoned about, by attenuating a known clip and
+ * reading back what whisper made of it:
+ *
+ *   peak -53.7  transcript correct
+ *   peak -63.9  still usable — one word wrong
+ *   peak -73.4  unrelated invented text
+ *   peak -90.3  [BLANK_AUDIO]
+ *
+ * So the line sits at -70: below it whisper invents, above it a very quiet recording still
+ * transcribes. dBFS is not an audibility threshold, which is why picking a round number by
+ * feel gets this wrong in both directions — -60 would have rejected the usable -63.9 case,
+ * and the 16-bit silence floor near -90 would have let the invented text through.
+ */
+const SILENCE_MAX_VOLUME_DB = -70;
+
 /** The input carried no audio at all — a silent screen recording, say. */
 export class NoAudioTrackError extends Error {}
+
+/** The audio track exists but carries nothing audible — a muted recording, say. */
+export class SilentAudioError extends Error {}
 
 /** ffmpeg or whisper-cli is not installed, or the model is missing. */
 export class TranscriptionUnavailableError extends Error {}
@@ -261,11 +282,15 @@ export async function transcribeMedia(inputPath: string): Promise<string> {
   // open the output before it can fail, so a timeout or a mid-stream error leaves a partial
   // wav behind.
   try {
+    // `volumedetect` measures the track while it is being converted, so silence costs no
+    // extra pass. It reports at info level, so `-loglevel error` would discard the very line
+    // being parsed — the phrase the no-audio check looks for is still present at info.
     const extract = await run(
       [
-        FFMPEG_BIN, "-hide_banner", "-loglevel", "error",
+        FFMPEG_BIN, "-hide_banner", "-loglevel", "info",
         "-i", inputPath,
         "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
+        "-af", "volumedetect",
         "-y", wavPath,
       ],
       FFMPEG_TIMEOUT_MS
@@ -277,6 +302,15 @@ export async function transcribeMedia(inputPath: string): Promise<string> {
         throw new NoAudioTrackError("no audio track");
       }
       throw new Error(`ffmpeg failed (${extract.code}): ${firstLine(extract.stderr)}`);
+    }
+
+    // A track of pure silence is not empty output, so the guard below cannot catch it —
+    // whisper hallucinates onto silence instead, reliably emitting "you". Caught here rather
+    // than after the fact, which also skips a whisper run that had nothing to transcribe.
+    // An unparseable level is not treated as silence: a missing measurement is not evidence.
+    const peak = extract.stderr.match(/max_volume:\s*(-?[\d.]+) dB/);
+    if (peak && Number(peak[1]) <= SILENCE_MAX_VOLUME_DB) {
+      throw new SilentAudioError("silent audio");
     }
 
     const whisper = await run(

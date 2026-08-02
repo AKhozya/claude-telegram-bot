@@ -18,6 +18,7 @@ import {
   transcribeMedia,
   probeDuration,
   NoAudioTrackError,
+  SilentAudioError,
   TranscriptionUnavailableError,
 } from "../transcribe";
 
@@ -186,7 +187,9 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
           ? "❌ Transcription isn't available on this host."
           : error instanceof NoAudioTrackError
             ? "❌ That file has no audio track."
-            : "❌ Couldn't transcribe that.";
+            : error instanceof SilentAudioError
+              ? "❌ That audio is silent."
+              : "❌ Couldn't transcribe that.";
       await ctx.api.editMessageText(chatId, statusMsg.message_id, message);
       return;
     }

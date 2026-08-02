@@ -9,6 +9,7 @@ const {
   probeDuration,
   extractSceneFrames,
   NoAudioTrackError,
+  SilentAudioError,
   TranscriptionUnavailableError,
 } = await import("./transcribe");
 
@@ -303,6 +304,95 @@ test("a frame that fails to extract is left out of the set", async () => {
     expect(await extractSceneFrames(join(scratch, "video_6.mp4"), 60)).toEqual([
       join(scratch, "video_6.mp4.frame-1.jpg"),
     ]);
+  } finally {
+    restore();
+  }
+});
+
+// Whisper does not fail on silence, it invents. A track of digital silence reliably produces
+// the word "you", which then reaches Claude as though it had been spoken. Empty output cannot
+// catch it because the output is not empty, so the level is measured instead — in the decode
+// pass that was happening anyway, which also skips a whisper run with nothing to transcribe.
+test("a silent track is caught before whisper runs", async () => {
+  const calls = fakeSpawns({ code: 0, stderr: "max_volume: -91.0 dB\nmean_volume: -91.0 dB" });
+  try {
+    await expect(transcribeMedia(join(scratch, "silent.ogg"))).rejects.toBeInstanceOf(
+      SilentAudioError
+    );
+    // Decode only — whisper was never spawned.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toContain("volumedetect");
+  } finally {
+    restore();
+  }
+});
+
+// volumedetect reports at info level, so the loglevel the decode runs at is load-bearing:
+// at `error` the line being parsed is discarded and every track looks non-silent.
+test("the decode runs at a loglevel that keeps volumedetect's output", async () => {
+  const calls = fakeSpawns(
+    { code: 0, stderr: "max_volume: -2.2 dB" },
+    { code: 0, stdout: "real speech" }
+  );
+  try {
+    expect(await transcribeMedia(join(scratch, "loud.ogg"))).toBe("real speech");
+    expect(calls[0]![calls[0]!.indexOf("-loglevel") + 1]).toBe("info");
+  } finally {
+    restore();
+  }
+});
+
+// Quiet is not silent. Speech attenuated by 30 dB still measures around -33, far above the
+// line, and must transcribe normally.
+test("a quiet but audible track still transcribes", async () => {
+  fakeSpawns(
+    { code: 0, stderr: "max_volume: -32.9 dB" },
+    { code: 0, stdout: "faint but real" }
+  );
+  try {
+    expect(await transcribeMedia(join(scratch, "quiet.ogg"))).toBe("faint but real");
+  } finally {
+    restore();
+  }
+});
+
+// Just above the line. Measured: a clip peaking at -63.9 dB still transcribed correctly bar
+// one word, so anything above -70 must reach whisper rather than being refused as silent.
+test("a level just above the silence line still transcribes", async () => {
+  fakeSpawns(
+    { code: 0, stderr: "max_volume: -69.9 dB" },
+    { code: 0, stdout: "very quiet but intelligible" }
+  );
+  try {
+    expect(await transcribeMedia(join(scratch, "faint.ogg"))).toBe(
+      "very quiet but intelligible"
+    );
+  } finally {
+    restore();
+  }
+});
+
+// And just below it, where the measurements showed whisper inventing unrelated text.
+test("a level just below the silence line is refused", async () => {
+  fakeSpawns({ code: 0, stderr: "max_volume: -70.1 dB" });
+  try {
+    await expect(transcribeMedia(join(scratch, "toofaint.ogg"))).rejects.toBeInstanceOf(
+      SilentAudioError
+    );
+  } finally {
+    restore();
+  }
+});
+
+// A missing measurement is not evidence of silence. If volumedetect prints nothing parseable
+// the track goes to whisper as before, rather than being refused on an absent reading.
+test("an unreadable level is not treated as silence", async () => {
+  fakeSpawns(
+    { code: 0, stderr: "no volume line here at all" },
+    { code: 0, stdout: "transcribed anyway" }
+  );
+  try {
+    expect(await transcribeMedia(join(scratch, "nolevel.ogg"))).toBe("transcribed anyway");
   } finally {
     restore();
   }
