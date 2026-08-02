@@ -2,6 +2,9 @@ node_modules
 .*.bun-build
 .git
 .env
+# Developer-local and gitignored, so a CI build never sees it and a local build would
+# bake one machine's copy. The Dockerfile supplies the example instead.
+mcp-config.ts
 *.md
 docs
 assets

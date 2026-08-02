@@ -96,6 +96,9 @@ All config via `.env` (copy from `.env.example`). Every configuration variable t
 MCP servers defined in `mcp-config.ts` (copy from `mcp-config.example.ts`; absent means no MCPs).
 The example enables this repo's own `ask-user` and `send-file` and leaves the third-party
 entries commented — those need an account, a key, or a checkout.
+`mcp-config.ts` is gitignored, so the Dockerfile copies the example in as the image default
+and `.dockerignore` drops any local copy. Without that a CI-built image ran with no MCP
+servers while a locally built one baked whichever config that machine happened to have.
 
 ### Runtime Files
 

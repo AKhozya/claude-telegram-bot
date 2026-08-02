@@ -1,5 +1,5 @@
 import { afterAll, afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -105,6 +105,27 @@ describe("loadMcpServers", () => {
     // Pins that the import got far enough to parse. A resolver failure reports the same
     // "failed to load" line, which is how this test passed while proving nothing.
     expect(said).toContain("BuildMessage");
+  });
+
+  // The image has no mcp-config.ts of its own — it is gitignored — so the Dockerfile
+  // copies this example in as the container default. That makes the example a shipped
+  // artifact rather than documentation: if it stops loading, the deployed bot loses
+  // ask_user and send_file and says nothing louder than one startup line.
+  test("the shipped example config loads and enables both bundled servers", async () => {
+    const { servers, said } = await capture(
+      join(import.meta.dir, "..", "mcp-config.example.ts")
+    );
+    expect(Object.keys(servers).sort()).toEqual(["ask-user", "send-file"]);
+    expect(said).toContain("Loaded 2 MCP servers");
+    // The keys alone would still pass with a typo'd path or a moved server directory.
+    // Nothing resolves these until the SDK spawns them, inside the container, where the
+    // only symptom is a tool that never appears.
+    for (const [name, server] of Object.entries(servers)) {
+      const script = "args" in server ? (server.args?.at(-1) ?? "") : "";
+      expect(existsSync(script), `${name} points at a missing script: ${script}`).toBe(
+        true
+      );
+    }
   });
 
   // Likewise a config that parses but exports the wrong name.

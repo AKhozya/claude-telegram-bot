@@ -119,6 +119,13 @@ WORKDIR /app
 RUN chown akhozya:akhozya /app
 COPY --from=deps --chown=akhozya:akhozya /app/node_modules ./node_modules
 COPY --chown=akhozya:akhozya . .
+# mcp-config.ts is gitignored, so a CI build has none and the bot starts with no MCP
+# servers at all — ask_user and send_file are documented features that were silently
+# absent in the cluster. A local build had the opposite problem: it baked whatever the
+# developer's own copy said. .dockerignore now excludes it and the example becomes the
+# image default, so both builds agree. readOnlyRootFilesystem rules out writing it at
+# startup, so it has to be baked here.
+COPY --chown=akhozya:akhozya mcp-config.example.ts ./mcp-config.ts
 
 USER akhozya
 
