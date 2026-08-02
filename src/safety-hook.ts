@@ -11,7 +11,12 @@
 // config.ts is eight generic strings. The two barely overlap, which is why this runs in
 // addition to evaluateToolUse rather than instead of it.
 
+import { accessSync, constants } from "node:fs";
+
 const TIMEOUT_MS = 5000;
+// Grace on top of the child's own timeout so the normal path wins the race and can report
+// the script's exit status, rather than every slow run reading as a hang.
+const DEADLINE_MS = TIMEOUT_MS + 500;
 
 export interface SafetyHookVerdict {
   allowed: boolean;
@@ -47,11 +52,21 @@ export async function runSafetyHook(input: unknown): Promise<SafetyHookVerdict> 
   if (!path) return { allowed: true };
 
   try {
+    // Checked up front because the platforms disagree: Bun.spawn throws for a missing or
+    // non-executable binary on macOS but resolves with exit 127 on Linux/musl. Both deny
+    // either way, but only this makes them deny for the same stated reason. It reports
+    // what was true a moment ago, not what will execute — spawn failing still denies, so
+    // the gap costs nothing.
+    try {
+      accessSync(path, constants.X_OK);
+    } catch {
+      return deny(`safety hook ${path} could not run: missing or not executable`);
+    }
+
     let proc;
     try {
       proc = runner.spawn([path], TIMEOUT_MS);
     } catch (error) {
-      // Bun.spawn throws rather than resolving when the path is missing or not executable.
       return deny(`safety hook ${path} could not run: ${(error as Error)?.message ?? error}`);
     }
 
@@ -60,13 +75,51 @@ export async function runSafetyHook(input: unknown): Promise<SafetyHookVerdict> 
     proc.stdin.write(JSON.stringify(input));
     proc.stdin.end();
 
-    const [, stderr] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-    const code = await proc.exited;
+    // Raced against a wall clock, because awaiting the pipes is not bounded by the child's
+    // timeout: a grandchild that outlives the killed script inherits the write end and
+    // holds it open, so the read never resolves. Observed on Linux with a script whose
+    // `sleep` survived it — the turn would have hung for ever.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finished = (async () => {
+      const [, stderr] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+      ]);
+      return { stderr, code: await proc.exited };
+    })();
+    // Losing the race leaves this promise live; without a catch of its own a later
+    // rejection would surface as an unhandled rejection long after we returned.
+    finished.catch(() => {});
+    let outcome;
+    try {
+      outcome = await Promise.race([
+        finished,
+        new Promise<"deadline">((resolve) => {
+          timer = setTimeout(() => resolve("deadline"), DEADLINE_MS);
+        }),
+      ]);
+    } finally {
+      // In `finally`, not after the race: a rejection from `finished` jumps straight to
+      // the outer catch and would otherwise leave the timer live for the full deadline.
+      clearTimeout(timer);
+    }
 
-    // The timeout kills the child, which surfaces as a signal rather than an exit status.
+    if (outcome === "deadline") {
+      try {
+        // Only the immediate child. A grandchild it left behind keeps running, and with
+        // it the pipe that caused the hang. Killing the process group would need the
+        // child to be a group leader, which costs a setsid that macOS does not ship, and
+        // the hook shipped in the image backgrounds nothing — so this is the bound worth
+        // paying for. The deny below does not depend on the kill succeeding.
+        proc.kill(9);
+      } catch {
+        // Already gone.
+      }
+      return deny(`safety hook ${path} did not finish within ${DEADLINE_MS}ms`);
+    }
+
+    const { stderr, code } = outcome;
+    // The child's own timeout kills it, which surfaces as a signal, not an exit status.
     if (proc.signalCode) {
       return deny(`safety hook ${path} killed by ${proc.signalCode} (limit ${TIMEOUT_MS}ms)`);
     }
