@@ -24,7 +24,7 @@ To achieve this, I set up a folder with a CLAUDE.md that teaches Claude about me
 - 💬 **Text**: Ask questions, give instructions, have conversations
 - 📸 **Photos**: Send screenshots, documents, or anything visual for analysis
 - 📄 **Documents**: PDFs, text files, and archives (ZIP, TAR) are extracted and analyzed
-- 🎬 **Video**: Video messages and video notes — the audio track is transcribed and passed to Claude
+- 🎬 **Video**: Video messages, video notes, and videos sent as files — the audio track is transcribed and frames are pulled at scene changes, so Claude gets both the words and the picture
 - 🎤 **Voice & audio**: Voice notes and audio files are transcribed locally with whisper.cpp and answered like a typed message
 - 🔄 **Session persistence**: Conversations continue across messages
 - 📨 **Message queuing**: Send multiple messages while Claude works - they queue up automatically. Prefix with `!` or use `/stop` to interrupt and send immediately

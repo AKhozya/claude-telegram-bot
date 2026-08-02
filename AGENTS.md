@@ -30,7 +30,7 @@ Telegram message → Handler → Auth check → Rate limit → Claude session �
 - **`src/security.ts`** - `RateLimiter` (token bucket), path validation, command safety, `evaluateToolUse` tool gate
 - **`src/sandbox.ts`** - OS-level Bash sandbox (Seatbelt / bubblewrap), env sanitizing, credential read-denies
 - **`src/retry.ts`** - API retry policy. Bounds the `HttpError` retry `autoRetry` runs unbounded, and installs both halves together
-- **`src/transcribe.ts`** - ffmpeg → whisper.cpp pipeline. ffmpeg is mandatory: whisper.cpp cannot read Telegram's opus and exits 0 while failing, so empty output is the failure signal, not the exit code
+- **`src/transcribe.ts`** - ffmpeg → whisper.cpp pipeline, plus duration probing and scene-change frame extraction for video. ffmpeg is mandatory: whisper.cpp cannot read Telegram's opus and exits 0 while failing, so empty output is the failure signal, not the exit code. Audio whose peak sits at or below `WHISPER_SILENCE_DB` is refused before whisper runs — given silence the model invents words instead of returning nothing
 - **`src/formatting.ts`** - Markdown→HTML conversion for Telegram, tool status emoji formatting
 - **`src/utils.ts`** - Audit logging, typing indicators
 - **`src/types.ts`** - Shared TypeScript types
@@ -41,8 +41,8 @@ Message-type handlers:
 - **`commands.ts`** - `/start`, `/new`, `/stop`, `/status`, `/resume`, `/restart`, `/retry`
 - **`text.ts`** - Text messages; a `!` prefix interrupts the running query, `!stop` is a `/stop` alias
 - **`photo.ts`** - Image analysis with media group buffering (1s timeout for albums)
-- **`document.ts`** - PDF extraction (pdftotext CLI), text files, archives
-- **`video.ts`** - Video messages and video notes; the audio track is transcribed, frames are not analysed
+- **`document.ts`** - PDF extraction (pdftotext CLI), text files, archives. Media sent as a file attachment never reaches it: a dispatcher registered ahead of it in `index.ts` routes `video/*` and `audio/*` MIME types to the handlers below
+- **`video.ts`** - Video messages, video notes, and videos sent as documents. The audio track is transcribed and up to 8 frames are extracted at scene changes, falling back to evenly spaced stills when no cut is detected. Claude has no video tool, so the frames are the only way the picture reaches it
 - **`audio.ts`** - Voice notes and audio files. Transcribes with whisper.cpp and sends the transcript on as if it had been typed, so thinking keywords work spoken
 - **`callback.ts`** - Inline keyboard button handling for ask_user MCP
 - **`streaming.ts`** - Shared `StreamingState` and status callback factory
@@ -104,7 +104,7 @@ entries commented — those need an account, a key, or a checkout.
 | `/tmp/claude-telegram-session.json` | Session persistence for `/resume` | `SESSION_FILE_PATH` |
 | `/tmp/claude-telegram-restart.json` | Chat/message ids so `/restart` can edit its own status message | `RESTART_FILE_PATH` |
 | `/tmp/claude-telegram-audit.log` | Audit log | `AUDIT_LOG_PATH` |
-| `/tmp/telegram-bot/` | Downloaded photos, documents, audio and video, plus the `.wav` transcription derives from a media file | `TEMP_DIR` |
+| `/tmp/telegram-bot/` | Downloaded photos, documents, audio and video, plus the `.wav` transcription derives from a media file and up to 8 `.frame-N.jpg` stills per video | `TEMP_DIR` |
 | `/tmp/ctb-sandbox` | Bash sandbox scratch dir — the only writable path outside `ALLOWED_PATHS` | — |
 | `/tmp/ask-user-<uuid>.json` | IPC file for one `ask_user` round trip. Deleted when the button is tapped; otherwise swept by the poller on the next `ask_user` call — `pending` after 5 min, anything after `TEMP_RETENTION_HOURS` | — |
 | `/tmp/send-file-<uuid>.json` | IPC file for one `send_file` request; polled and deleted by `streaming.ts`, swept on the same terms — on the next `send_file` call, not on a timer | — |
