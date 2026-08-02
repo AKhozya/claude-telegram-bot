@@ -44,6 +44,59 @@ describe("credential-store protection (#12)", () => {
   });
 });
 
+// send_file reads a path and publishes it to Telegram. Until this gate existed it reached
+// none of the file branches: `mcp__server__tool` matches no built-in name, so evaluateToolUse
+// fell through to its allow tail and the credential deny-list never ran on it.
+describe("MCP tools that take a file path", () => {
+  const HOME = process.env.HOME || "";
+  const send = (file_path: unknown) =>
+    evaluateToolUse("mcp__send-file__send_file", { file_path, caption: "x" });
+
+  test("send_file cannot publish a credential store", async () => {
+    expect((await send(`${HOME}/.ssh/id_ed25519`)).allowed).toBe(false);
+    expect((await send(`${HOME}/.config/gh/hosts.yml`)).allowed).toBe(false);
+    expect((await send("/tmp/proj/.env")).allowed).toBe(false);
+  });
+
+  test("send_file cannot publish the bot's own audit log or session state", async () => {
+    const { AUDIT_LOG_PATH, SESSION_FILE } = await import("./config");
+    expect((await send(AUDIT_LOG_PATH)).allowed).toBe(false);
+    expect((await send(SESSION_FILE)).allowed).toBe(false);
+  });
+
+  test("send_file cannot reach outside the allowed paths", async () => {
+    expect((await send("/etc/passwd")).allowed).toBe(false);
+  });
+
+  // The feature still has to work: what it legitimately sends is bot-produced — downloads,
+  // extracted video frames, generated previews — and all of that lives under a temp path.
+  test("send_file still sends what it is for", async () => {
+    expect((await send("/tmp/telegram-bot/clip.mp4.frame-1.jpg")).allowed).toBe(true);
+    expect((await send("/tmp/preview.mp4")).allowed).toBe(true);
+  });
+
+  // Keyed on the argument, not on `mcp__send-file__send_file`: the server half of that name
+  // is whatever key mcp-config.ts uses, so a rename must not reopen the hole.
+  test("the gate follows the file_path argument, not the server name", async () => {
+    const verdict = await evaluateToolUse("mcp__renamed__upload", {
+      file_path: `${HOME}/.ssh/id_rsa`,
+    });
+    expect(verdict.allowed).toBe(false);
+  });
+
+  test("an MCP tool with no file_path is untouched", async () => {
+    const verdict = await evaluateToolUse("mcp__ask-user__ask_user", {
+      question: "q",
+      options: ["a", "b"],
+    });
+    expect(verdict.allowed).toBe(true);
+  });
+
+  test("a non-string file_path is refused rather than coerced", async () => {
+    expect((await send(["/etc/passwd"])).allowed).toBe(false);
+  });
+});
+
 describe("control-file write protection (#12)", () => {
   test("isProtectedControlFile flags code-exec sinks, not normal files", () => {
     expect(isProtectedControlFile("/w/proj/.mcp.json")).toBe(true);

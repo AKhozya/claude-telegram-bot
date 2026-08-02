@@ -67,6 +67,15 @@ It denies:
 - Within those same four tools, denied by name even inside an allowed path: credential stores (read and write), and the bot's own session, restart and audit files (read and write — reading exfils conversations, writing is DoS)
 - Code-execution control files (`settings*.json`, `.claude/hooks/**`, `.mcp.json`) — **write only**. `Read` is deliberately exempt so Claude can inspect its own config; the sandbox's `denyWrite` covers the Bash path separately
 - `Grep`/`Glob` with a search path outside the allowlist. Note this branch checks `isPathAllowed` only; the named runtime-file denials above do not apply to it
+- Any **MCP** tool (`mcp__server__tool`) called with a `file_path` argument, on the same terms as `Read` but without the `$HOME/.claude/` exemption — credential stores, the bot's runtime files, and anything outside `ALLOWED_PATHS` + `TEMP_PATHS`. This exists for the bundled `send_file`, which reads a path and publishes it to Telegram: the same shape as `Artifact` in `DENIED_TOOLS`. The branch keys on the *argument*, not on `mcp__send-file__send_file` — the server half of that name comes from whatever key `mcp-config.ts` uses, so renaming it must not reopen the hole, and any future MCP taking a `file_path` is covered without a code change
+
+The hook is registered without a matcher, so it sees MCP tools as well as built-ins. That matters because every other branch keys on a built-in tool name and the function's tail allows: before the MCP branch existed, `send_file` fell straight through it.
+
+What the MCP branch does **not** cover, stated plainly so it is not mistaken for containment:
+
+- **Other argument names and shapes.** It matches a top-level string `file_path`, the schema the bundled `send_file` uses. A third-party MCP taking `path`, `source`, or a nested `{file: {path}}` reaches the allow tail. Adding any third-party MCP to `mcp-config.ts` means revisiting this branch — the aliases are deliberately not guessed at, because widening the net would also reject tools whose `file_path` is remote rather than local.
+- **TOCTOU and hard links.** The path is canonicalized at check time and opened later by the server, and a hard link inside an allowed path names a credential inode under a benign path. Neither is closed here.
+- **It is not the last line.** With `BASH_SANDBOX_ENABLED=false` — which is how this runs in-cluster, because bubblewrap needs user namespaces the pod's `seccompProfile: RuntimeDefault` blocks — `Bash` can already `cat ~/.ssh/id_ed25519`; Layer 6's patterns do not deny it. The MCP branch closes the *one-tool-call* exfil that prompt injection reaches for, and raises the cost of the rest. It does not make credentials unreachable, and Layer 4 being off is the reason.
 
 The hook does **not** bind Bash syscalls. That is Layer 4's job, and the two are deliberately separate.
 

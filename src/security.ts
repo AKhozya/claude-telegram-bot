@@ -583,6 +583,40 @@ export async function evaluateToolUse(
     }
   }
 
+  // MCP tools reach none of the branches above — the hook is registered without a matcher
+  // so it does see them, but no built-in tool name matches `mcp__server__tool`, and the
+  // tail of this function allows. `send_file` reads a path and publishes it to Telegram,
+  // which is the shape DENIED_TOOLS already refuses in `Artifact`; without this it could
+  // send ~/.ssh/id_ed25519 or the audit log, both of which `Read` is denied.
+  //
+  // Keyed on the ARGUMENT, not on `mcp__send-file__send_file`: the server half of that name
+  // comes from whatever key mcp-config.ts uses, so a rename would silently reopen this, and
+  // any future MCP taking a file_path is covered for free. No `~/.claude` read exemption
+  // here — that exists so Claude can read its own config, not publish it.
+  if (toolName.startsWith("mcp__") && input.file_path !== undefined) {
+    if (typeof input.file_path !== "string") {
+      return { allowed: false, reason: "non-string file path" };
+    }
+    const filePath = input.file_path;
+    if (filePath) {
+      let canonical: string;
+      try {
+        canonical = canonicalize(filePath);
+      } catch {
+        return { allowed: false, reason: `Unresolvable path (symlink loop?): ${filePath}` };
+      }
+      if (isCredentialPath(canonical)) {
+        return { allowed: false, reason: `Access to credential store blocked: ${filePath}` };
+      }
+      if (BOT_RUNTIME_FILES.has(canonical)) {
+        return { allowed: false, reason: `Access to bot runtime file blocked: ${filePath}` };
+      }
+      if (!isPathAllowed(canonical)) {
+        return { allowed: false, reason: `File access outside allowed paths: ${filePath}` };
+      }
+    }
+  }
+
   // Grep/Glob take an optional search dir; a present path outside the allowlist
   // lets Grep output_mode:"content" read files outside ALLOWED_PATHS. Absent = cwd.
   if (["Grep", "Glob"].includes(toolName)) {
