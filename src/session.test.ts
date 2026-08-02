@@ -76,3 +76,60 @@ test("thinking keywords still pin a fixed budget, plain messages stay adaptive",
   expect(getThinkingConfig("think about it")).toEqual({ type: "enabled", budgetTokens: 10000 });
   expect(getThinkingConfig("ultrathink about it")).toEqual({ type: "enabled", budgetTokens: 50000 });
 });
+
+// The second layer used to live inline in the options object, where deleting it left
+// every test green. These drive the exported gate so that deletion goes red.
+test("preToolUseGate runs the external safety hook for Bash and denies on exit 2", async () => {
+  const { preToolUseGate } = await import("./session");
+  const { runner } = await import("./safety-hook");
+  const real = runner.spawn;
+  const saved = process.env.SAFETY_HOOK;
+  const path = `${require("os").tmpdir()}/gate-block-${process.pid}.sh`;
+  require("fs").writeFileSync(path, '#!/bin/bash\necho "BLOCKED: nope" >&2\nexit 2\n');
+  require("fs").chmodSync(path, 0o755);
+  process.env.SAFETY_HOOK = path;
+  try {
+    const out: any = await preToolUseGate(
+      { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" } } as any,
+      undefined,
+      {} as any
+    );
+    expect(out.hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect(out.hookSpecificOutput?.permissionDecisionReason).toBe("BLOCKED: nope");
+  } finally {
+    runner.spawn = real;
+    if (saved === undefined) delete process.env.SAFETY_HOOK;
+    else process.env.SAFETY_HOOK = saved;
+    require("fs").rmSync(path, { force: true });
+  }
+});
+
+test("preToolUseGate does not run the external safety hook for non-Bash tools", async () => {
+  const { preToolUseGate } = await import("./session");
+  const { runner } = await import("./safety-hook");
+  const real = runner.spawn;
+  const saved = process.env.SAFETY_HOOK;
+  process.env.SAFETY_HOOK = "/nonexistent/would-deny.sh";
+  let spawned = 0;
+  runner.spawn = ((...args: any[]) => {
+    spawned++;
+    return (real as any)(...args);
+  }) as typeof runner.spawn;
+  try {
+    const out: any = await preToolUseGate(
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Read",
+        tool_input: { file_path: `${process.env.HOME}/notes.txt` },
+      } as any,
+      undefined,
+      {} as any
+    );
+    expect(spawned).toBe(0);
+    expect(out.hookSpecificOutput).toBeUndefined();
+  } finally {
+    runner.spawn = real;
+    if (saved === undefined) delete process.env.SAFETY_HOOK;
+    else process.env.SAFETY_HOOK = saved;
+  }
+});

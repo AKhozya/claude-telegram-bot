@@ -62,10 +62,31 @@ Supporting modules in the same directory:
 4. OS Bash sandbox (`BASH_SANDBOX_ENABLED`, on by default, fail-closed)
 5. Path validation (`ALLOWED_PATHS`)
 6. Command safety (blocked patterns — best-effort, trivially bypassable)
-7. System prompt constraints (advisory only)
-8. Audit logging
+7. External Bash denylist (`SAFETY_HOOK` → `hooks/validate-safe-bash.sh`)
+8. System prompt constraints (advisory only)
+9. Audit logging
 
 Full detail in [SECURITY.md](SECURITY.md).
+
+### `hooks/`
+
+Claude Code hook scripts shipped in the image. In the cluster they are the only copies:
+chezmoi ignores `.claude/hooks` and `.claude/settings.json` on Linux, so a copy on the
+PVC has nothing to heal it, and the Bash sandbox is off there.
+
+`validate-safe-bash.sh` runs as layer 7 above, through `src/safety-hook.ts`, not through
+`settings.json` — that file is on the PVC and anything the model runs could delete its
+`hooks` key. `SAFETY_HOOK` names the script; unset means the layer is off (the macOS
+standalone build), set means every failure to get exit 0 out of it denies the Bash call.
+Its rules are homelab-specific (`kubectl apply` without `--dry-run`, `helm uninstall`,
+Redis `FLUSHALL`) and barely overlap `BLOCKED_PATTERNS`, which is why both run.
+
+A near-identical `validate-safe-bash.sh` lives in the dotfiles repo for the Mac. Separate
+files: a rule added to one does not reach the other.
+
+The other three are wired through `settings.json` by the deployment's init container and
+are conveniences, not controls — losing one until the next restart degrades context or a
+reminder, and denies nothing.
 
 ### Configuration
 
@@ -81,6 +102,7 @@ All config via `.env` (copy from `.env.example`). Every configuration variable t
 | `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` | Consumed by the SDK child, not by this code. `sandbox.ts` `AUTH_KEEP` passes them through to the child while still hiding them from sandboxed Bash |
 | `ALLOWED_PATHS` | Directories Claude can access — overrides all defaults |
 | `BASH_SANDBOX_ENABLED` | OS Bash sandbox; on unless explicitly `false`/`0`/`off`/`no` |
+| `SAFETY_HOOK` | Absolute path to the external Bash denylist. Unset disables that layer; set makes every failure to run it a deny |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW` | Token bucket |
 | `THINKING_KEYWORDS`, `THINKING_DEEP_KEYWORDS` | Extended-thinking triggers |
 | `WHISPER_MODEL` | Path to the ggml model; baked into the image at `/usr/local/share/whisper/ggml-small.bin` |

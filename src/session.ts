@@ -7,6 +7,8 @@
 
 import {
   query,
+  type HookCallback,
+  type HookJSONOutput,
   type Options,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -29,6 +31,7 @@ import {
   checkPendingAskUserRequests,
   checkPendingSendFileRequests,
 } from "./handlers/streaming";
+import { runSafetyHook } from "./safety-hook";
 import { evaluateToolUse, DENIED_TOOLS } from "./security";
 import type {
   SavedSession,
@@ -36,6 +39,42 @@ import type {
   StatusCallback,
   TokenUsage,
 } from "./types";
+
+const deny = (reason: string): HookJSONOutput => ({
+  hookSpecificOutput: {
+    hookEventName: "PreToolUse" as const,
+    permissionDecision: "deny" as const,
+    permissionDecisionReason: reason,
+  },
+});
+
+/**
+ * The enforcing gate under `bypassPermissions`. Exported so the wiring is testable —
+ * inline in the options object, deleting the second layer below left every test green.
+ */
+export const preToolUseGate: HookCallback = async (input) => {
+  if (input.hook_event_name !== "PreToolUse") return {};
+  const verdict = await evaluateToolUse(
+    input.tool_name,
+    (input.tool_input ?? {}) as Record<string, unknown>
+  );
+  if (!verdict.allowed) {
+    console.warn(`HOOK BLOCKED ${input.tool_name}: ${verdict.reason}`);
+    return deny(verdict.reason);
+  }
+  // Second layer, Bash only and only once the first has allowed: the external denylist in
+  // hooks/validate-safe-bash.sh. Run from here rather than from ~/.claude/settings.json,
+  // which sits on the PVC and can be rewritten by anything the model runs while the Bash
+  // sandbox is off.
+  if (input.tool_name === "Bash") {
+    const hookVerdict = await runSafetyHook(input);
+    if (!hookVerdict.allowed) {
+      console.warn(`SAFETY HOOK BLOCKED Bash: ${hookVerdict.reason}`);
+      return deny(hookVerdict.reason ?? "blocked by the safety hook");
+    }
+  }
+  return {};
+};
 
 /**
  * Thinking config for a message. Exported so the "never disabled" invariant is testable:
@@ -250,28 +289,7 @@ class ClaudeSession {
       additionalDirectories: ALLOWED_PATHS,
       resume: this.sessionId || undefined,
       hooks: {
-        PreToolUse: [
-          {
-            hooks: [
-              async (input) => {
-                if (input.hook_event_name !== "PreToolUse") return {};
-                const verdict = await evaluateToolUse(
-                  input.tool_name,
-                  (input.tool_input ?? {}) as Record<string, unknown>
-                );
-                if (verdict.allowed) return {};
-                console.warn(`HOOK BLOCKED ${input.tool_name}: ${verdict.reason}`);
-                return {
-                  hookSpecificOutput: {
-                    hookEventName: "PreToolUse" as const,
-                    permissionDecision: "deny" as const,
-                    permissionDecisionReason: verdict.reason,
-                  },
-                };
-              },
-            ],
-          },
-        ],
+        PreToolUse: [{ hooks: [preToolUseGate] }],
       },
     };
 

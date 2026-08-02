@@ -121,10 +121,23 @@ describe("control-file write protection (#12)", () => {
     expect(isProtectedControlFile("/w/proj/src/index.ts")).toBe(false);
   });
 
+  // Each of these is a different route back to execution on a later hook event, which is
+  // why the predicate covers the tree rather than a `cache/*/*/hooks/` shape.
+  test("isProtectedControlFile covers the whole plugin tree", () => {
+    expect(isProtectedControlFile("/h/.claude/plugins/cache/mp/p/1.2.3/hooks/hooks.json")).toBe(true);
+    expect(isProtectedControlFile("/h/.claude/plugins/cache/mp/p/1.2.3/hooks/run.mjs")).toBe(true);
+    expect(isProtectedControlFile("/h/.claude/plugins/installed_plugins.json")).toBe(true);
+    expect(isProtectedControlFile("/h/.claude/plugins/cache/mp/p/.claude-plugin/plugin.json")).toBe(true);
+    expect(isProtectedControlFile("/h/.claude/pluginsomething/x.json")).toBe(false);
+  });
+
   test("native Write/Edit to a control file is blocked even inside an allowed path", async () => {
     expect((await evaluateToolUse("Write", { file_path: "/tmp/proj/.mcp.json" })).allowed).toBe(false);
     expect((await evaluateToolUse("Edit", { file_path: "/tmp/proj/.claude/settings.json" })).allowed).toBe(false);
     expect((await evaluateToolUse("Write", { file_path: "/tmp/proj/.claude/hooks/x.sh" })).allowed).toBe(false);
+    expect(
+      (await evaluateToolUse("Write", { file_path: "/tmp/proj/.claude/plugins/cache/m/p/1.0.0/hooks/h.json" })).allowed
+    ).toBe(false);
   });
 
   test("reading a control file is allowed; writing a normal file is allowed", async () => {

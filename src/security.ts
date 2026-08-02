@@ -461,6 +461,12 @@ export function isProtectedControlFile(canonicalPath: string): boolean {
   if (base === ".mcp.json") return true;
   if (/(?:^|\/)\.claude\/settings[^/]*\.json$/.test(p)) return true;
   if (/(?:^|\/)\.claude\/hooks\//.test(p)) return true;
+  // The whole plugin tree, not just `cache/*/*/hooks/`: installs are versioned as
+  // cache/<marketplace>/<plugin>/<version>/hooks/, installed_plugins.json names the
+  // installPath a plugin loads from, and .claude-plugin/plugin.json declares what it
+  // runs — each is a different way to reach execution on a later hook event. Nothing
+  // here writes under it with the native tools; init and the sync sidecar use the shell.
+  if (/(?:^|\/)\.claude\/plugins\//.test(p)) return true;
   return false;
 }
 
