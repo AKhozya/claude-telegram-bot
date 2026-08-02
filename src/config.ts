@@ -282,7 +282,34 @@ export const IPC_PENDING_TTL_MS = 5 * 60 * 1000;
 // Baked into the image at this path; on macOS the binary comes from `brew install
 // whisper-cpp` and the model has to be fetched by hand, so the path is configurable.
 export const WHISPER_MODEL =
-  process.env.WHISPER_MODEL || "/usr/local/share/whisper/ggml-base.bin";
+  process.env.WHISPER_MODEL || "/usr/local/share/whisper/ggml-small.bin";
+
+// Peak level at or below which a track is treated as having nothing to transcribe, in dBFS.
+//
+// Paired with WHISPER_MODEL: the default suits the model baked into the image, and every
+// model draws the line somewhere else. Measured by attenuating a known clip until the
+// transcript stopped being usable — `small` still transcribed correctly at -73.4 dB where
+// `base` was already inventing text, so pointing WHISPER_MODEL at a different model without
+// moving this lets that model's hallucinations through. See transcribe.ts for the readings.
+export const WHISPER_SILENCE_DB = silenceDbEnv();
+
+function silenceDbEnv(): number {
+  const fallback = -76;
+  const raw = process.env.WHISPER_SILENCE_DB;
+  if (raw === undefined || raw.trim() === "") return fallback;
+  const value = Number(raw);
+  // Both failure modes are silent and opposite, which is why this validates rather than
+  // trusting Number(): a non-numeric value yields NaN and every comparison against it is
+  // false, so silence would never be detected; an empty or zero value yields 0, and since
+  // dBFS peaks are negative, every recording would be refused as silent.
+  if (!Number.isFinite(value) || value >= 0) {
+    console.warn(
+      `WHISPER_SILENCE_DB="${raw}" is not a negative number; using ${fallback}`
+    );
+    return fallback;
+  }
+  return value;
+}
 
 // Must match the container's CPU limit, not `nproc` — inside a 2-CPU pod nproc still
 // reports the node's 16, and asking for 4 threads measured 44% slower than asking for 2.

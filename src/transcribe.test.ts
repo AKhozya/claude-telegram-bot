@@ -356,11 +356,11 @@ test("a quiet but audible track still transcribes", async () => {
   }
 });
 
-// Just above the line. Measured: a clip peaking at -63.9 dB still transcribed correctly bar
-// one word, so anything above -70 must reach whisper rather than being refused as silent.
+// Just above the line. Measured on the shipped model: a clip peaking at -73.4 dB still
+// transcribed correctly, so anything above -76 must reach whisper rather than be refused.
 test("a level just above the silence line still transcribes", async () => {
   fakeSpawns(
-    { code: 0, stderr: "max_volume: -69.9 dB" },
+    { code: 0, stderr: "max_volume: -75.9 dB" },
     { code: 0, stdout: "very quiet but intelligible" }
   );
   try {
@@ -372,9 +372,9 @@ test("a level just above the silence line still transcribes", async () => {
   }
 });
 
-// And just below it, where the measurements showed whisper inventing unrelated text.
+// And just below it, where the sweep produced empty output and then an invented word.
 test("a level just below the silence line is refused", async () => {
-  fakeSpawns({ code: 0, stderr: "max_volume: -70.1 dB" });
+  fakeSpawns({ code: 0, stderr: "max_volume: -76.1 dB" });
   try {
     await expect(transcribeMedia(join(scratch, "toofaint.ogg"))).rejects.toBeInstanceOf(
       SilentAudioError
@@ -383,6 +383,68 @@ test("a level just below the silence line is refused", async () => {
     restore();
   }
 });
+
+// The threshold is only useful if the env var actually reaches the comparison. Every test
+// above runs on the default, so a literal -76 in transcribe.ts would satisfy all of them
+// while ignoring WHISPER_SILENCE_DB entirely. A subprocess is the only way to prove
+// otherwise: config.ts binds env at module-eval, and `bun test` shares one module registry.
+test("WHISPER_SILENCE_DB moves the threshold", async () => {
+  const run = async (env: Record<string, string>, peak: string) => {
+    const proc = Bun.spawn(
+      [
+        "bun",
+        "-e",
+        `const { transcribeMedia, SilentAudioError, runner } = await import("${import.meta.dir}/transcribe.ts");
+         runner.spawn = () => ({ stdout: "", stderr: "max_volume: ${peak} dB", exited: Promise.resolve(0) });
+         try { await transcribeMedia("/tmp/x.ogg"); console.log("TRANSCRIBED"); }
+         catch (e) { console.log(e instanceof SilentAudioError ? "SILENT" : "OTHER:" + e.constructor.name); }`,
+      ],
+      {
+        env: { ...process.env, ...env },
+        stdout: "pipe",
+        stderr: "pipe",
+      }
+    );
+    const out = await new Response(proc.stdout).text();
+    await proc.exited;
+    return out.trim().split("\n").pop();
+  };
+
+  // -40 is well inside what the default would happily transcribe, so a refusal at -40.1
+  // can only come from the override being read.
+  expect(await run({ WHISPER_SILENCE_DB: "-40" }, "-40.1")).toBe("SILENT");
+  expect(await run({ WHISPER_SILENCE_DB: "-40" }, "-39.9")).not.toBe("SILENT");
+  // And the default still refuses only below -76.
+  expect(await run({}, "-40.1")).not.toBe("SILENT");
+  expect(await run({}, "-76.1")).toBe("SILENT");
+}, 30_000);
+
+// Both bad values fail silently and in opposite directions, so each is pinned: a
+// non-numeric value would disable the check, an empty one would refuse every recording.
+test("a malformed WHISPER_SILENCE_DB falls back rather than breaking the check", async () => {
+  const check = async (value: string, peak: string) => {
+    const proc = Bun.spawn(
+      [
+        "bun",
+        "-e",
+        `const { transcribeMedia, SilentAudioError, runner } = await import("${import.meta.dir}/transcribe.ts");
+         runner.spawn = () => ({ stdout: "", stderr: "max_volume: ${peak} dB", exited: Promise.resolve(0) });
+         try { await transcribeMedia("/tmp/x.ogg"); console.log("TRANSCRIBED"); }
+         catch (e) { console.log(e instanceof SilentAudioError ? "SILENT" : "OTHER"); }`,
+      ],
+      { env: { ...process.env, WHISPER_SILENCE_DB: value }, stdout: "pipe", stderr: "pipe" }
+    );
+    const out = await new Response(proc.stdout).text();
+    await proc.exited;
+    return out.trim().split("\n").pop();
+  };
+
+  for (const bad of ["bogus", "", "   ", "0", "5", "Infinity", "NaN"]) {
+    // Falls back to -76: a quiet-but-real peak transcribes, a silent one is refused.
+    expect(await check(bad, "-40.0")).not.toBe("SILENT");
+    expect(await check(bad, "-91.0")).toBe("SILENT");
+  }
+}, 60_000);
 
 // A missing measurement is not evidence of silence. If volumedetect prints nothing parseable
 // the track goes to whisper as before, rather than being refused on an absent reading.

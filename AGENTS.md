@@ -83,9 +83,10 @@ All config via `.env` (copy from `.env.example`). Every configuration variable t
 | `BASH_SANDBOX_ENABLED` | OS Bash sandbox; on unless explicitly `false`/`0`/`off`/`no` |
 | `RATE_LIMIT_ENABLED`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW` | Token bucket |
 | `THINKING_KEYWORDS`, `THINKING_DEEP_KEYWORDS` | Extended-thinking triggers |
-| `WHISPER_MODEL` | Path to the ggml model; baked into the image at `/usr/local/share/whisper/ggml-base.bin` |
+| `WHISPER_MODEL` | Path to the ggml model; baked into the image at `/usr/local/share/whisper/ggml-small.bin` |
 | `WHISPER_THREADS` | Threads for whisper.cpp, default 2. Must track the CPU limit — `nproc` reports the node's count inside a capped pod |
 | `TRANSCRIBE_MAX_DURATION_SECONDS` | Longest clip accepted, default 600. Size does not bound transcription time |
+| `WHISPER_SILENCE_DB` | Peak dBFS at or below which audio counts as silent, default -76. Model-specific — whisper invents words on silence rather than returning nothing, and each model starts doing so at a different level, so this moves with `WHISPER_MODEL` |
 | `AUDIT_LOG_PATH`, `AUDIT_LOG_JSON` | Audit log location and format |
 | `SESSION_FILE_PATH`, `RESTART_FILE_PATH`, `TEMP_DIR` | Runtime file overrides |
 | `TEMP_REAP_INTERVAL_MS`, `TEMP_RETENTION_HOURS` | Temp-dir sweep cadence (default 1h) and file age (default 24h). Nothing else clears `TEMP_DIR`. The retention is also the age at which the pollers in `streaming.ts` drop an MCP request file in `/tmp`. It is not a bound on one: the pollers run only while Claude is calling `ask_user` or `send_file`, so an idle bot sweeps nothing |

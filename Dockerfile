@@ -9,7 +9,7 @@ RUN echo "build: $BUILD_TS" && bun update
 
 # whisper.cpp and its model. Both live in this stage because it declares no BUILD_TS: the
 # runtime stage below does, and a declared ARG joins the cache key of every RUN after it, so
-# a scheduled rebuild there re-downloads the 148 MB model. Here they survive the rebuild and
+# a scheduled rebuild there re-downloads the 465 MB model. Here they survive the rebuild and
 # arrive by COPY.
 # Built static so the runtime image needs no libstdc++/libgomp and the toolchain never lands
 # in it. OpenMP is off because static libgomp on musl is the usual failure; ggml's own thread
@@ -34,15 +34,20 @@ RUN apk add --no-cache cmake g++ make git curl \
     && cmake --build build -j"$(nproc)" --config Release \
     && ! ldd build/bin/whisper-cli 2>&1 | grep -q "=>"
 
-# Multilingual base model — the English-only variant silently forces English output. Pinned
+# Multilingual small model — the English-only variant silently forces English output. Pinned
 # to a HuggingFace revision rather than `main` so a scheduled rebuild cannot pick up a
 # different file, and checksum-verified like kubectl and flux below.
 # The checksum is literal for the same reason as the commit above.
+#
+# small over base: measured 5.1% word error against base's 6.1% on the same clip, for 41s
+# instead of 15s and a 1646MB peak instead of 698MB. medium reached 4.9% but took 136s and
+# 3760MB, and large-v3-turbo was worse than base at 19.8% while dropping a tenth of the words
+# — it is not a candidate at any memory limit.
 ARG WHISPER_MODEL_REV=5359861c739e955e79d9a303bcbc70fb988958b1
 RUN mkdir -p /out/whisper \
-    && curl -fsSL "https://huggingface.co/ggerganov/whisper.cpp/resolve/${WHISPER_MODEL_REV}/ggml-base.bin" \
-         -o /out/whisper/ggml-base.bin \
-    && echo "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe  /out/whisper/ggml-base.bin" \
+    && curl -fsSL "https://huggingface.co/ggerganov/whisper.cpp/resolve/${WHISPER_MODEL_REV}/ggml-small.bin" \
+         -o /out/whisper/ggml-small.bin \
+    && echo "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b  /out/whisper/ggml-small.bin" \
        | sha256sum -c -
 
 # kubectl and flux, fetched here for the same reason as the model above: the runtime stage
@@ -92,7 +97,7 @@ RUN apk add --no-cache git openssh-client curl jq ca-certificates bash poppler-u
 COPY --from=tools /out/kubectl /usr/local/bin/kubectl
 COPY --from=tools /out/flux /usr/local/bin/flux
 COPY --from=whisper /tmp/whisper.cpp/build/bin/whisper-cli /usr/local/bin/whisper-cli
-COPY --from=whisper /out/whisper/ggml-base.bin /usr/local/share/whisper/ggml-base.bin
+COPY --from=whisper /out/whisper/ggml-small.bin /usr/local/share/whisper/ggml-small.bin
 
 # Codex CLI (pre-commit review gate). The linux-x64 platform dep ships codex's
 # static musl binary (codex publishes musl-only for linux) — alpine-safe.

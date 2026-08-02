@@ -8,7 +8,7 @@
  */
 
 import { stat, unlink } from "fs/promises";
-import { WHISPER_MODEL, WHISPER_THREADS } from "./config";
+import { WHISPER_MODEL, WHISPER_SILENCE_DB, WHISPER_THREADS } from "./config";
 
 const FFMPEG_BIN = "ffmpeg";
 const FFPROBE_BIN = "ffprobe";
@@ -24,20 +24,25 @@ const FFPROBE_TIMEOUT_MS = 15_000;
 /**
  * Peak level at or below which a track is treated as having nothing to transcribe, in dBFS.
  *
- * Measured against this model rather than reasoned about, by attenuating a known clip and
- * reading back what whisper made of it:
+ * Measured against the shipped model rather than reasoned about, by attenuating a known clip
+ * and reading back what whisper made of it. For `ggml-small`:
  *
- *   peak -53.7  transcript correct
- *   peak -63.9  still usable — one word wrong
- *   peak -73.4  unrelated invented text
- *   peak -90.3  [BLANK_AUDIO]
+ *   peak -63.9  usable
+ *   peak -73.4  still usable
+ *   peak -78.3  empty
+ *   peak -90.3  invents the word "you"
  *
- * So the line sits at -70: below it whisper invents, above it a very quiet recording still
- * transcribes. dBFS is not an audibility threshold, which is why picking a round number by
- * feel gets this wrong in both directions — -60 would have rejected the usable -63.9 case,
- * and the 16-bit silence floor near -90 would have let the invented text through.
+ * Hence -76, between the last usable reading and the first useless one.
+ *
+ * This number belongs to the model and does not survive a model change. On `ggml-base` the
+ * same sweep put the line at -70, because base was already producing invented text at -73.4
+ * where small still transcribes correctly. Re-measure when the model moves; a threshold
+ * carried over unchanged would have rejected working audio here.
+ *
+ * Overridable for that reason: WHISPER_MODEL is configurable, so the pair has to move
+ * together. The default belongs to the model baked into the image.
  */
-const SILENCE_MAX_VOLUME_DB = -70;
+const SILENCE_MAX_VOLUME_DB = WHISPER_SILENCE_DB;
 
 /** The input carried no audio at all — a silent screen recording, say. */
 export class NoAudioTrackError extends Error {}
