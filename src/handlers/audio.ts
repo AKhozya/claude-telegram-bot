@@ -7,7 +7,7 @@
 
 import type { BotContext } from "../types";
 import { session } from "../session";
-import { TRANSCRIBE_MAX_DURATION_S } from "../config";
+import { TELEGRAM_MESSAGE_LIMIT, TRANSCRIBE_MAX_DURATION_S } from "../config";
 import { auditLog, startTypingIndicator, uniqueTempDir } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
 import { handleProcessingError } from "./media-group";
@@ -26,7 +26,6 @@ import {
 // Claude; this is only so the user can see what was heard.
 // How much of the transcript the status message echoes back, in code points.
 const TRANSCRIPT_PREVIEW_CHARS = 4000;
-const TELEGRAM_MESSAGE_LIMIT = 4096;
 const TRANSCRIPT_PREFIX = "🎤 ";
 
 // Checked against `file_size` before the download. The public Bot API caps a download at 20 MB

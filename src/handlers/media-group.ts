@@ -149,7 +149,7 @@ export async function handleProcessingError(
   error: unknown,
   state: StreamingState
 ): Promise<void> {
-  console.error("Error processing media:", error);
+  console.error("Error processing update:", error);
   await markFailed(ctx);
 
   await state.deleteToolMessages(ctx);

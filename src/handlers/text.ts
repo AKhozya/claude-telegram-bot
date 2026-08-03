@@ -6,9 +6,9 @@ import type { BotContext } from "../types";
 import { session } from "../session";
 import { auditLog, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
-import { markReceived, markDone, markFailed } from "./reactions";
+import { handleProcessingError } from "./media-group";
+import { markReceived, markDone } from "./reactions";
 import { rateLimitOrReply } from "./rate-limit";
-import { describeError } from "../formatting";
 
 /**
  * Resolve a leading `!`: cancel whatever is running, then return what should be sent on.
@@ -85,16 +85,12 @@ export async function handleText(ctx: BotContext): Promise<void> {
       await markDone(ctx);
       break;
     } catch (error) {
-      const errorStr = String(error);
-      const isClaudeCodeCrash = errorStr.includes("exited with code");
-
-      await state.deleteToolMessages(ctx);
-
       // Crash only — a user cancellation must not be retried behind their back.
-      if (isClaudeCodeCrash && attempt < MAX_RETRIES) {
+      if (String(error).includes("exited with code") && attempt < MAX_RETRIES) {
         console.log(
           `Claude Code crashed, retrying (attempt ${attempt + 2}/${MAX_RETRIES + 1})...`
         );
+        await state.deleteToolMessages(ctx);
         await session.kill(); // Clear corrupted session
         await ctx.reply(`⚠️ Claude crashed, retrying...`);
         state = new StreamingState();
@@ -102,18 +98,7 @@ export async function handleText(ctx: BotContext): Promise<void> {
         continue;
       }
 
-      console.error("Error processing message:", error);
-
-      if (errorStr.includes("abort") || errorStr.includes("cancel")) {
-        // Only show "Query stopped" if it was an explicit stop, not an interrupt from a new message
-        const wasInterrupt = session.consumeInterruptFlag();
-        if (!wasInterrupt) {
-          await ctx.reply("🛑 Query stopped.");
-        }
-      } else {
-        await ctx.reply(`❌ Error: ${describeError(error)}`);
-      }
-      await markFailed(ctx);
+      await handleProcessingError(ctx, error, state);
       break;
     }
   }

@@ -5,7 +5,7 @@
  */
 
 import type { BotContext } from "../types";
-import { TEMP_DIR } from "../config";
+import { uniqueTempDir } from "../utils";
 import { createMediaGroupBuffer } from "./media-group";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markFailed } from "./reactions";
@@ -24,9 +24,7 @@ async function downloadPhoto(ctx: BotContext): Promise<string> {
     throw new Error("No photo in message");
   }
 
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).slice(2, 8);
-  const photoPath = `${TEMP_DIR}/photo_${timestamp}_${random}.jpg`;
+  const photoPath = `${uniqueTempDir("photo")}.jpg`;
 
   return await downloadTelegramFile(ctx, photoPath);
 }

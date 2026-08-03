@@ -8,16 +8,16 @@ import type { Context } from "grammy";
 import type { BotContext } from "../types";
 import { session } from "../session";
 import { WORKING_DIR, RESTART_FILE } from "../config";
+import { handleText } from "./text";
 
 /** /start - Show welcome message and status. */
 export async function handleStart(ctx: Context): Promise<void> {
   const status = session.isActive ? "Active session" : "No active session";
-  const workDir = WORKING_DIR;
 
   await ctx.reply(
     `🤖 <b>Claude Telegram Bot</b>\n\n` +
       `Status: ${status}\n` +
-      `Working directory: <code>${workDir}</code>\n\n` +
+      `Working directory: <code>${WORKING_DIR}</code>\n\n` +
       `<b>Commands:</b>\n` +
       `/new - Start fresh session\n` +
       `/stop - Stop current query\n` +
@@ -220,7 +220,6 @@ export async function handleRetry(ctx: Context): Promise<void> {
   const message = session.lastMessage;
   await ctx.reply(`🔄 Retrying: "${message.slice(0, 50)}${message.length > 50 ? "..." : ""}"`);
 
-  const { handleText } = await import("./text");
   await handleText(withMessageText(ctx as BotContext, message));
 }
 

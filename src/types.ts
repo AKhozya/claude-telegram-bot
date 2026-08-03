@@ -44,12 +44,8 @@ export interface McpHttpConfig {
   headers?: Record<string, string>;
 }
 
-export type AuditEventType =
-  | "message"
-  | "auth"
-  | "tool_use"
-  | "error"
-  | "rate_limit";
+// Only the events utils.ts actually writes.
+export type AuditEventType = "message" | "rate_limit";
 
 export interface AuditEvent {
   timestamp: string;

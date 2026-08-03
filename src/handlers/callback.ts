@@ -89,8 +89,6 @@ export async function handleCallback(ctx: Context): Promise<void> {
     console.debug("Failed to delete request file:", error);
   }
 
-  const message = selectedOption;
-
   // Interrupt any running query - button responses are always immediate.
   // Shared dance: mark interrupt (silence the old query) + clear stopRequested
   // (so this button message is not cancelled at query start).
@@ -108,7 +106,7 @@ export async function handleCallback(ctx: Context): Promise<void> {
 
   try {
     const response = await session.sendMessageStreaming(
-      message,
+      selectedOption,
       username,
       userId,
       statusCallback,
@@ -116,7 +114,7 @@ export async function handleCallback(ctx: Context): Promise<void> {
       ctx
     );
 
-    await auditLog(userId, username, "CALLBACK", message, response);
+    await auditLog(userId, username, "CALLBACK", selectedOption, response);
   } catch (error) {
     console.error("Error processing callback:", error);
 
