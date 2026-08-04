@@ -50,6 +50,7 @@ Message-type handlers:
 Supporting modules in the same directory:
 - **`auth.ts`** - `authGate` middleware, the single choke point for the user allowlist
 - **`media-group.ts`** - Generic album buffer; rate-limits once per album, not per item
+- **`errors.ts`** - `handleProcessingError`, the shared catch-block body for every query-running handler. Not in `streaming.ts` because `session.ts` imports the pollers from there and this handler needs `session` — moving it closes an import cycle
 - **`download.ts`** - Shared file download via the files plugin (honours `TELEGRAM_API_ROOT`)
 - **`reactions.ts`** - Best-effort 👀/👌/👎 message reactions
 - **`trigger.ts`** - HTTP endpoint that injects a prompt as if the first allowed user sent it. Binds `TRIGGER_HOST` (default `127.0.0.1`); disabled unless `TRIGGER_SECRET` is set
