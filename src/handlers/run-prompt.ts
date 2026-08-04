@@ -6,7 +6,7 @@ import type { BotContext } from "../types";
 import { session } from "../session";
 import { auditLog, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
-import { handleProcessingError } from "./media-group";
+import { handleProcessingError } from "./errors";
 import { markDone } from "./reactions";
 
 export interface RunPromptOptions {

@@ -40,7 +40,7 @@ User sends message → Check user ID in allowlist → Reject if not authorized
 
 - User IDs are numeric and cannot be spoofed in Telegram
 - Get your ID from [@userinfobot](https://t.me/userinfobot)
-- Unauthorized attempts are logged
+- Unauthorized updates are dropped silently — no reply and no log entry, so the bot never advertises itself to strangers
 
 ### Layer 2: Rate Limiting
 
@@ -165,8 +165,9 @@ Claude receives a safety prompt that instructs it to:
 
 ### Layer 8: Audit Logging
 
-Logging of every interaction is attempted; see the limits below for when a record is dropped
-instead.
+Audit records are attempted for authorized messages and their responses, and for rate-limit
+rejections; see the limits below for when a record is dropped instead. Unauthorized updates
+(dropped silently) and queries that fail mid-processing leave no record.
 
 ```
 Log location: /tmp/claude-telegram-audit.log (configurable)
@@ -174,9 +175,6 @@ Log location: /tmp/claude-telegram-audit.log (configurable)
 
 Logged events:
 - `message` - User messages and Claude responses
-- `auth` - Authorization attempts
-- `tool_use` - Claude tool usage
-- `error` - Errors during processing
 - `rate_limit` - Rate limit events
 
 Enable JSON format for easier parsing: `AUDIT_LOG_JSON=true`

@@ -1,8 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 const { rateLimiter } = await import("../security");
-const { createMediaGroupBuffer, handleProcessingError } = await import("./media-group");
-const { StreamingState } = await import("./streaming");
+const { createMediaGroupBuffer } = await import("./media-group");
 const { MEDIA_GROUP_TIMEOUT } = await import("../config");
 
 interface Recorded {
@@ -125,23 +124,5 @@ describe("media group rate limiting", () => {
       await Bun.sleep(MEDIA_GROUP_TIMEOUT + 150);
       expect(seen).toBe("the album caption");
     });
-  });
-});
-
-describe("handleProcessingError tool-message cleanup", () => {
-  test("every tool message is attempted even when one delete throws", async () => {
-    const rec = record();
-    const ctx = makeCtx(rec, undefined, 902);
-    const state = new StreamingState();
-    state.toolMessages = [901, 902, 903].map((id) => ({
-      chat: { id: 100 },
-      message_id: id,
-    })) as any;
-
-    await handleProcessingError(ctx, new Error("boom"), state);
-
-    expect(rec.deleted).toEqual([901, 902, 903]);
-    expect(rec.reactions).toEqual(["👎"]);
-    expect(rec.replies).toEqual(["❌ Error: Error: boom"]);
   });
 });

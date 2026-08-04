@@ -4,14 +4,14 @@
  * Handles inline keyboard button presses (ask_user MCP integration).
  */
 
-import type { Context } from "grammy";
 import { unlinkSync } from "fs";
+import type { BotContext } from "../types";
 import { session } from "../session";
 import { auditLog, startTypingIndicator } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
-import { describeError } from "../formatting";
+import { handleProcessingError } from "./errors";
 
-export async function handleCallback(ctx: Context): Promise<void> {
+export async function handleCallback(ctx: BotContext): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
   const chatId = ctx.chat?.id;
@@ -116,19 +116,7 @@ export async function handleCallback(ctx: Context): Promise<void> {
 
     await auditLog(userId, username, "CALLBACK", selectedOption, response);
   } catch (error) {
-    console.error("Error processing callback:", error);
-
-    await state.deleteToolMessages(ctx);
-
-    if (String(error).includes("abort") || String(error).includes("cancel")) {
-      // Only show "Query stopped" if it was an explicit stop, not an interrupt from a new message
-      const wasInterrupt = session.consumeInterruptFlag();
-      if (!wasInterrupt) {
-        await ctx.reply("🛑 Query stopped.");
-      }
-    } else {
-      await ctx.reply(`❌ Error: ${describeError(error)}`);
-    }
+    await handleProcessingError(ctx, error, state);
   } finally {
     stopProcessing();
     typing.stop();
@@ -137,7 +125,7 @@ export async function handleCallback(ctx: Context): Promise<void> {
 
 /** resume:{session_id} */
 async function handleResumeCallback(
-  ctx: Context,
+  ctx: BotContext,
   callbackData: string
 ): Promise<void> {
   const userId = ctx.from?.id;

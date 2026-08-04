@@ -10,7 +10,7 @@ import { session } from "../session";
 import { TELEGRAM_MESSAGE_LIMIT, TRANSCRIBE_MAX_DURATION_S } from "../config";
 import { auditLog, startTypingIndicator, uniqueTempDir } from "../utils";
 import { StreamingState, createStatusCallback } from "./streaming";
-import { handleProcessingError } from "./media-group";
+import { handleProcessingError } from "./errors";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markDone, markFailed } from "./reactions";
 import { rateLimitOrReply } from "./rate-limit";

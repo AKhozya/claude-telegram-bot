@@ -7,17 +7,25 @@ const { handleCallback } = await import("./callback");
 // `isRunning` is what /status and /stop read. A button-initiated query that never sets it
 // is invisible to both — the drift `session.ts` documents and Batch 3 fixed one function
 // up, in handleCallback's askuser branch.
-const makeCtx = (data: string): any => ({
+const makeCtx = (
+  data: string,
+  rec?: { replies: string[]; reactions: string[] }
+): any => ({
   from: { id: 1, username: "tester" },
   chat: { id: 100 },
   msg: { message_id: 5 },
   callbackQuery: { data },
   answerCallbackQuery: async () => {},
   editMessageText: async () => {},
-  reply: async () => ({ chat: { id: 100 }, message_id: 901 }),
+  reply: async (t: string) => {
+    rec?.replies.push(t);
+    return { chat: { id: 100 }, message_id: 901 };
+  },
   replyWithChatAction: async () => {},
   api: {
-    setMessageReaction: async () => {},
+    setMessageReaction: async (_c: number, _m: number, r: any[]) => {
+      rec?.reactions.push(r[0].emoji);
+    },
     deleteMessage: async () => {},
   },
 });
@@ -90,9 +98,13 @@ describe("ask_user button", () => {
       throw new Error("boom");
     };
 
-    await handleCallback(makeCtx(`askuser:${requestId}:0`));
+    const rec = { replies: [] as string[], reactions: [] as string[] };
+    await handleCallback(makeCtx(`askuser:${requestId}:0`, rec));
 
     expect(runningDuringQuery).toEqual([true]);
     expect(session.isRunning).toBe(false);
+    // The error must reach the user via the shared handler, not vanish in the catch.
+    expect(rec.reactions).toEqual(["👎"]);
+    expect(rec.replies).toEqual(["❌ Error: Error: boom"]);
   });
 });
