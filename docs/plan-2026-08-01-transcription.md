@@ -42,15 +42,15 @@ a pod on worker-node-2 at the real 2 CPU / 2Gi limits. The **size** figures were
 2026-08-01 for this plan and appear nowhere else — the earlier record has on-disk arithmetic
 only, and its image baseline (616 MB) was the uncompressed figure, not the 588 MB pull.
 
-| Fact | Value | Source |
-|---|---|---|
-| Transcription cost, 2 CPU | ~4.9 s per audio-minute (~12× realtime) | Spike, `base.en` |
-| Peak RSS, 20-minute clip | 493 MB, against a 53Mi idle bot in a 2Gi limit | Spike, `base.en` |
-| Threads | `-t 2` beats the default `-t 4` by 44 % under a 2-CPU cap | Spike |
-| Static binary | 5.4 MiB, `ldd` reports `Not a valid dynamic program` | Spike |
-| ffmpeg closure | 568 files, 120.1 MiB on disk, **43.7 MiB compressed pull** | Here, 2026-08-01 |
-| Model `ggml-base.bin` | 147,951,465 bytes, **127.6 MiB compressed pull** | Here, 2026-08-01 |
-| Current image | **588 MB compressed** (15 layers, tag 1.27.23, GHCR manifest) | Here, 2026-08-01 |
+| Fact                      | Value                                                         | Source           |
+| ------------------------- | ------------------------------------------------------------- | ---------------- |
+| Transcription cost, 2 CPU | ~4.9 s per audio-minute (~12× realtime)                       | Spike, `base.en` |
+| Peak RSS, 20-minute clip  | 493 MB, against a 53Mi idle bot in a 2Gi limit                | Spike, `base.en` |
+| Threads                   | `-t 2` beats the default `-t 4` by 44 % under a 2-CPU cap     | Spike            |
+| Static binary             | 5.4 MiB, `ldd` reports `Not a valid dynamic program`          | Spike            |
+| ffmpeg closure            | 568 files, 120.1 MiB on disk, **43.7 MiB compressed pull**    | Here, 2026-08-01 |
+| Model `ggml-base.bin`     | 147,951,465 bytes, **127.6 MiB compressed pull**              | Here, 2026-08-01 |
+| Current image             | **588 MB compressed** (15 layers, tag 1.27.23, GHCR manifest) | Here, 2026-08-01 |
 
 **The timing and memory rows were measured with `base.en`, not the multilingual `base` this
 plan ships.** The two are the same architecture and within 13 KB of each other on disk, and
@@ -66,25 +66,25 @@ difference to matter: 493 MB against a 2Gi cap, 49 s against a 300 s timeout.
 Everything below ⚠ was on the validate-before-build shortlist. All of it has now been
 spiked — no item in this table is still resting on reasoning.
 
-| Confidence | Claim | How it was settled |
-|---|---|---|
-| ✅ | whisper.cpp v1.9.1 compiles on musl with only `cmake`/`g++`/`make` and links fully static | Built it; `ldd` rejects the result as non-dynamic |
-| ✅ | `whisper-cli` cannot read Telegram opus **and exits 0 while failing** | Ran it: `failed to read audio file`, `rc=0` |
-| ✅ | Piping ffmpeg into `whisper-cli -f -` looks like it works and silently transcribes nothing | Piped real speech: empty output, exit 0, timings printed. Temp file returns the correct transcript |
-| ✅ | ffmpeg exits non-zero on a video with no audio track | rc=234, `Output file does not contain any stream`, no output file |
-| ✅ | A missing model is reported, unlike unreadable audio | rc=3, `failed to initialize whisper context` |
-| ✅ | `Bun.spawn` throws synchronously with `code === "ENOENT"` when the binary is absent | Spiked both PATH and absolute-path forms |
-| ✅ | `Bun.spawn`'s `timeout` fires, kills with SIGTERM, and reports exit 143 | Spiked; partial stdout is lost, so timeout is only ever a failure |
-| ✅ | whisper-cli's `--language` defaults to `en`; `-l auto` is required and is harmlessly ignored by `.en` models | Read `--help`, ran both models with and without the flag |
-| ✅ | The multilingual `base` model matches `base.en` on speed and on the English sample | Ran both: 9 s each under emulation, both transcripts correct |
-| ✅ | ffmpeg probes an extensionless input by content | Copied an ogg to a name with no extension; conversion succeeded |
-| ✅ | Model URL and checksum | `resolve/<rev>` pinned URL returns 200 and the exact byte count; sha256 matches HuggingFace's own LFS oid |
-| ✅ | `brew install whisper-cpp` installs a binary named `whisper-cli` | Read the Homebrew formula; its own test invokes `#{bin}/whisper-cli` |
-| ✅ | The fake-`spawn` test harness works | Ran a standalone script: real subprocess, string-backed fake, and ENOENT all behave |
-| ✅ | The image is built in **homelab** CI on `ubuntu-latest`, `linux/amd64`, natively | Read `.github/workflows/claude-telegram-build.yml` |
-| ✅ | Task 1's `transcribe.ts` compiles against the real `config.ts` and Bun's types, with no cast on `new Response(proc.stdout)` | Written into the repo as a throwaway probe, `bun run typecheck` clean, then deleted |
-| ✅ | Task 1's eight tests pass against that module | Ran them: 8 pass / 13 expect() |
-| ✅ | The Dockerfile's `ldd` guard accepts a static binary and rejects a dynamic one | Ran both forms against the real binaries: static passes, dynamic fails |
+| Confidence | Claim                                                                                                                       | How it was settled                                                                                        |
+| ---------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| ✅         | whisper.cpp v1.9.1 compiles on musl with only `cmake`/`g++`/`make` and links fully static                                   | Built it; `ldd` rejects the result as non-dynamic                                                         |
+| ✅         | `whisper-cli` cannot read Telegram opus **and exits 0 while failing**                                                       | Ran it: `failed to read audio file`, `rc=0`                                                               |
+| ✅         | Piping ffmpeg into `whisper-cli -f -` looks like it works and silently transcribes nothing                                  | Piped real speech: empty output, exit 0, timings printed. Temp file returns the correct transcript        |
+| ✅         | ffmpeg exits non-zero on a video with no audio track                                                                        | rc=234, `Output file does not contain any stream`, no output file                                         |
+| ✅         | A missing model is reported, unlike unreadable audio                                                                        | rc=3, `failed to initialize whisper context`                                                              |
+| ✅         | `Bun.spawn` throws synchronously with `code === "ENOENT"` when the binary is absent                                         | Spiked both PATH and absolute-path forms                                                                  |
+| ✅         | `Bun.spawn`'s `timeout` fires, kills with SIGTERM, and reports exit 143                                                     | Spiked; partial stdout is lost, so timeout is only ever a failure                                         |
+| ✅         | whisper-cli's `--language` defaults to `en`; `-l auto` is required and is harmlessly ignored by `.en` models                | Read `--help`, ran both models with and without the flag                                                  |
+| ✅         | The multilingual `base` model matches `base.en` on speed and on the English sample                                          | Ran both: 9 s each under emulation, both transcripts correct                                              |
+| ✅         | ffmpeg probes an extensionless input by content                                                                             | Copied an ogg to a name with no extension; conversion succeeded                                           |
+| ✅         | Model URL and checksum                                                                                                      | `resolve/<rev>` pinned URL returns 200 and the exact byte count; sha256 matches HuggingFace's own LFS oid |
+| ✅         | `brew install whisper-cpp` installs a binary named `whisper-cli`                                                            | Read the Homebrew formula; its own test invokes `#{bin}/whisper-cli`                                      |
+| ✅         | The fake-`spawn` test harness works                                                                                         | Ran a standalone script: real subprocess, string-backed fake, and ENOENT all behave                       |
+| ✅         | The image is built in **homelab** CI on `ubuntu-latest`, `linux/amd64`, natively                                            | Read `.github/workflows/claude-telegram-build.yml`                                                        |
+| ✅         | Task 1's `transcribe.ts` compiles against the real `config.ts` and Bun's types, with no cast on `new Response(proc.stdout)` | Written into the repo as a throwaway probe, `bun run typecheck` clean, then deleted                       |
+| ✅         | Task 1's eight tests pass against that module                                                                               | Ran them: 8 pass / 13 expect()                                                                            |
+| ✅         | The Dockerfile's `ldd` guard accepts a static binary and rejects a dynamic one                                              | Ran both forms against the real binaries: static passes, dynamic fails                                    |
 
 One defect this table caught before it shipped: an `existsSync(WHISPER_MODEL)` guard at the
 top of `transcribeMedia` looked obviously right and would have made **every** unit test fail
@@ -96,31 +96,31 @@ tests cannot get in front of it. The model check now reads whisper's own stderr 
 An adversarial pass over the first draft found six defects that code review could not have
 caught later, because they were baked into the design:
 
-| Severity | Defect | Fix |
-|---|---|---|
-| High | Every handler test stopped at the download, so **deleting the transcription and the hand-off to Claude left them all passing** | Tasks 2 and 3 now each carry tests that drive a successful download and assert the transcript reaches `sendMessageStreaming` |
-| High | `audio_${Date.now()}` collides for two messages in the same millisecond, and the loser's cleanup deletes the winner's `.wav`. The repo already fixed exactly this in `document.ts` | `uniqueTempDir` moves to `src/utils.ts` and both handlers use it, including `video.ts`, which had the same latent bug |
-| Medium | `delete runner.spawn` does not restore it — `spawn` is an own property of an object literal, unlike `rateLimiter.check`, which lives on a prototype. The module would be left broken for later test files | Save the original and assign it back |
-| Medium | Transcription ran **before** `session.startProcessing()`, so for ~49 s `/status` reported an idle bot | `startProcessing()` moves ahead of the transcription, matching `video.ts`. This fixes `/status` only — `/stop` was already unable to interrupt a transcription, and still is; see the cut corner below |
-| Medium | The plan cited the earlier spike for figures that spike does not contain, and attributed `base.en` measurements to the multilingual model | The facts table now names its source per row and states the extrapolation openly |
-| Low | Task 3's expected test count silently assumed Task 2 had run | Execution order says so, with the alternative count |
+| Severity | Defect                                                                                                                                                                                                    | Fix                                                                                                                                                                                                    |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| High     | Every handler test stopped at the download, so **deleting the transcription and the hand-off to Claude left them all passing**                                                                            | Tasks 2 and 3 now each carry tests that drive a successful download and assert the transcript reaches `sendMessageStreaming`                                                                           |
+| High     | `audio_${Date.now()}` collides for two messages in the same millisecond, and the loser's cleanup deletes the winner's `.wav`. The repo already fixed exactly this in `document.ts`                        | `uniqueTempDir` moves to `src/utils.ts` and both handlers use it, including `video.ts`, which had the same latent bug                                                                                  |
+| Medium   | `delete runner.spawn` does not restore it — `spawn` is an own property of an object literal, unlike `rateLimiter.check`, which lives on a prototype. The module would be left broken for later test files | Save the original and assign it back                                                                                                                                                                   |
+| Medium   | Transcription ran **before** `session.startProcessing()`, so for ~49 s `/status` reported an idle bot                                                                                                     | `startProcessing()` moves ahead of the transcription, matching `video.ts`. This fixes `/status` only — `/stop` was already unable to interrupt a transcription, and still is; see the cut corner below |
+| Medium   | The plan cited the earlier spike for figures that spike does not contain, and attributed `base.en` measurements to the multilingual model                                                                 | The facts table now names its source per row and states the extrapolation openly                                                                                                                       |
+| Low      | Task 3's expected test count silently assumed Task 2 had run                                                                                                                                              | Execution order says so, with the alternative count                                                                                                                                                    |
 
 A second pass over the corrected draft found three more:
 
-| Severity | Defect | Fix |
-|---|---|---|
-| High | Task 1's `git add` staged none of the three files the `uniqueTempDir` move touches, so a clean checkout after Task 2 or 3 would fail on a missing export | All three paths added to the commit |
-| Medium | The claim that `/stop` "takes effect at the query" is false — `stopAndSettle` clears `stopRequested` 100 ms later, so nothing survives | Claim withdrawn. `/stop` during transcription is now a named cut corner with its ceiling and its fix |
-| Low | Task 3 said "the failing test", singular, and predicted one failure while adding four tests | Steps 1-2 now say four, with a table of which three fail and why the fourth does not |
+| Severity | Defect                                                                                                                                                   | Fix                                                                                                  |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| High     | Task 1's `git add` staged none of the three files the `uniqueTempDir` move touches, so a clean checkout after Task 2 or 3 would fail on a missing export | All three paths added to the commit                                                                  |
+| Medium   | The claim that `/stop` "takes effect at the query" is false — `stopAndSettle` clears `stopRequested` 100 ms later, so nothing survives                   | Claim withdrawn. `/stop` during transcription is now a named cut corner with its ceiling and its fix |
+| Low      | Task 3 said "the failing test", singular, and predicted one failure while adding four tests                                                              | Steps 1-2 now say four, with a table of which three fail and why the fourth does not                 |
 
 A third pass found four more, all in the plan's own prose rather than its code:
 
-| Severity | Defect | Fix |
-|---|---|---|
-| Medium | The review table above claimed moving `startProcessing()` fixed `/stop` too, contradicting the cut corner that says it does not | Row rewritten as `/status`-only. The cut corner now also separates *skipping the query* from *killing the subprocess*, which need different fixes |
-| Low | `transcribe.ts`'s own comment still told the reader to delete-to-restore, contradicting the corrected test helper | Comment rewritten to say assign the original back, and why this case differs from `rateLimiter.check` |
-| Low | Correcting the `video.ts` docstring left a second false reference to the same non-existent skill in the `finally` block | Task 3 Step 3 now replaces both |
-| Low | The file table claimed `transcribe.test.ts` covers "every failure mode", and omitted the three files the `uniqueTempDir` move touches | Both corrected; the uncovered modes are named |
+| Severity | Defect                                                                                                                                | Fix                                                                                                                                               |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Medium   | The review table above claimed moving `startProcessing()` fixed `/stop` too, contradicting the cut corner that says it does not       | Row rewritten as `/status`-only. The cut corner now also separates _skipping the query_ from _killing the subprocess_, which need different fixes |
+| Low      | `transcribe.ts`'s own comment still told the reader to delete-to-restore, contradicting the corrected test helper                     | Comment rewritten to say assign the original back, and why this case differs from `rateLimiter.check`                                             |
+| Low      | Correcting the `video.ts` docstring left a second false reference to the same non-existent skill in the `finally` block               | Task 3 Step 3 now replaces both                                                                                                                   |
+| Low      | The file table claimed `transcribe.test.ts` covers "every failure mode", and omitted the three files the `uniqueTempDir` move touches | Both corrected; the uncovered modes are named                                                                                                     |
 
 One finding was rejected: the review claimed `superpowers:subagent-driven-development` and
 `superpowers:executing-plans` do not exist. Both are present in the installed superpowers
@@ -128,14 +128,14 @@ One finding was rejected: the review claimed `superpowers:subagent-driven-develo
 
 ### Cut corners — deliberate, with the ceiling named
 
-| Corner | Why it is acceptable | When to revisit |
-|---|---|---|
-| **No album buffering for audio.** Telegram can deliver several `audio` files as one media group; each will be handled separately | `video.ts` already sets this precedent and does the same. The failure mode is N sequential queries, not corruption or loss | If audio albums turn out to be a real usage pattern. `createMediaGroupBuffer` in `media-group.ts` is generic and already does this for photos and documents |
-| **No concurrency limit on transcription.** Two clips arriving together run two whisper processes | Each is pinned to 2 threads, so they contend rather than corrupt, and 2 × 493 MB still fits the 2Gi limit | If the bot ever serves more than one person |
-| **Silence produces a hallucinated transcript.** 30 s of digital silence returns `" you"`, exit 0 | Measured, and `-sns` does not suppress it. Nobody sends silent voice notes on purpose, and the empty-output check still catches genuine read failures | If it shows up in practice, whisper.cpp v1.9 has `--vad`, which needs a second model file |
-| **Video frames are still not analysed.** Only the audio track is transcribed | Claude has no video tool; extracting frames is a separate feature with its own cost | If visual video content is actually wanted |
-| **The transcript is written to the audit log unredacted**, exactly as typed messages already are | Consistent with `text.ts`, which logs the message body. Changing it would be a separate decision about the audit log as a whole | If audit-log contents ever need a redaction policy |
-| **Duration comes from the sender.** Telegram documents `duration` as "defined by sender", so a hostile client could understate it | Only allowlisted users reach the handler, and the 20 MB Bot API download cap is the real backstop | If the allowlist ever widens |
+| Corner                                                                                                                                                                                                                                                                                                         | Why it is acceptable                                                                                                                                                                                                                                                                | When to revisit                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **No album buffering for audio.** Telegram can deliver several `audio` files as one media group; each will be handled separately                                                                                                                                                                               | `video.ts` already sets this precedent and does the same. The failure mode is N sequential queries, not corruption or loss                                                                                                                                                          | If audio albums turn out to be a real usage pattern. `createMediaGroupBuffer` in `media-group.ts` is generic and already does this for photos and documents                                                                                                                                                                                                                                                                                                    |
+| **No concurrency limit on transcription.** Two clips arriving together run two whisper processes                                                                                                                                                                                                               | Each is pinned to 2 threads, so they contend rather than corrupt, and 2 × 493 MB still fits the 2Gi limit                                                                                                                                                                           | If the bot ever serves more than one person                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| **Silence produces a hallucinated transcript.** 30 s of digital silence returns `" you"`, exit 0                                                                                                                                                                                                               | Measured, and `-sns` does not suppress it. Nobody sends silent voice notes on purpose, and the empty-output check still catches genuine read failures                                                                                                                               | If it shows up in practice, whisper.cpp v1.9 has `--vad`, which needs a second model file                                                                                                                                                                                                                                                                                                                                                                      |
+| **Video frames are still not analysed.** Only the audio track is transcribed                                                                                                                                                                                                                                   | Claude has no video tool; extracting frames is a separate feature with its own cost                                                                                                                                                                                                 | If visual video content is actually wanted                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| **The transcript is written to the audit log unredacted**, exactly as typed messages already are                                                                                                                                                                                                               | Consistent with `text.ts`, which logs the message body. Changing it would be a separate decision about the audit log as a whole                                                                                                                                                     | If audit-log contents ever need a redaction policy                                                                                                                                                                                                                                                                                                                                                                                                             |
+| **Duration comes from the sender.** Telegram documents `duration` as "defined by sender", so a hostile client could understate it                                                                                                                                                                              | Only allowlisted users reach the handler, and the 20 MB Bot API download cap is the real backstop                                                                                                                                                                                   | If the allowlist ever widens                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | **`/stop` cannot interrupt a transcription.** `startProcessing()` makes `/status` honest and makes `session.stop()` return `"pending"`, but `stopAndSettle` in `commands.ts` clears `stopRequested` 100 ms later, so nothing survives to cancel the query that follows. The whisper subprocess is never killed | The window is bounded by the duration cap — 49 s at the 10-minute maximum, ~4 s for a typical voice note. Making it work means changing what `pending` means for every caller of `stop()`, which is a change to the stop machinery and belongs in its own commit with its own tests | If the duration cap is ever raised, or if a stuck transcription is observed. Two different fixes, and they are not the same size: **skipping the query** needs only that `stopRequested` survive the `"pending"` path so the handler can check it once `transcribeMedia` returns; **killing the whisper process mid-run** needs an `AbortSignal` threaded into `transcribeMedia` and onto `Bun.spawn`, and is the only one that shortens a stuck transcription |
 
 ### Rejected alternatives
@@ -157,26 +157,27 @@ One finding was rejected: the review claimed `superpowers:subagent-driven-develo
 
 ## File structure
 
-| File | Responsibility |
-|---|---|
-| `src/transcribe.ts` (new) | The whole ffmpeg → whisper pipeline. Knows nothing about Telegram. Exports `transcribeMedia`, two error types, and the `runner` seam tests swap |
-| `src/transcribe.test.ts` (new) | The failure modes that shape the design — silent empty output, no audio track, unloadable model, missing binary — driven through a fake `runner.spawn`. Not covered: a generic ffmpeg failure and either subprocess timing out, both of which take the same plain `throw` path as an unexpected non-zero exit |
-| `src/utils.ts` | Gains `uniqueTempDir`, relocated from `document.ts` so all three media handlers can use it |
-| `src/handlers/document.ts`, `src/handlers/document.test.ts` | Import `uniqueTempDir` from its new home; no behaviour change |
-| `src/handlers/audio.ts` (new) | Voice and audio messages: download, transcribe, hand the transcript to Claude as if typed |
-| `src/handlers/audio.test.ts` (new) | Guards, caps, and the unavailable path |
-| `src/config.ts` | Three new settings |
-| `src/index.ts` | Route `message:voice` / `message:audio` to the new handler instead of the refusal |
-| `src/handlers/video.ts` | Transcribe the audio track; correct the docstring |
-| `src/handlers/video.test.ts` | Keep the existing guard tests honest under the new flow |
-| `Dockerfile` | whisper build stage, `ffmpeg`, the pinned model |
-| `.env.example`, `AGENTS.md`, `README.md` | Document the three settings and the two external dependencies |
+| File                                                        | Responsibility                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/transcribe.ts` (new)                                   | The whole ffmpeg → whisper pipeline. Knows nothing about Telegram. Exports `transcribeMedia`, two error types, and the `runner` seam tests swap                                                                                                                                                               |
+| `src/transcribe.test.ts` (new)                              | The failure modes that shape the design — silent empty output, no audio track, unloadable model, missing binary — driven through a fake `runner.spawn`. Not covered: a generic ffmpeg failure and either subprocess timing out, both of which take the same plain `throw` path as an unexpected non-zero exit |
+| `src/utils.ts`                                              | Gains `uniqueTempDir`, relocated from `document.ts` so all three media handlers can use it                                                                                                                                                                                                                    |
+| `src/handlers/document.ts`, `src/handlers/document.test.ts` | Import `uniqueTempDir` from its new home; no behaviour change                                                                                                                                                                                                                                                 |
+| `src/handlers/audio.ts` (new)                               | Voice and audio messages: download, transcribe, hand the transcript to Claude as if typed                                                                                                                                                                                                                     |
+| `src/handlers/audio.test.ts` (new)                          | Guards, caps, and the unavailable path                                                                                                                                                                                                                                                                        |
+| `src/config.ts`                                             | Three new settings                                                                                                                                                                                                                                                                                            |
+| `src/index.ts`                                              | Route `message:voice` / `message:audio` to the new handler instead of the refusal                                                                                                                                                                                                                             |
+| `src/handlers/video.ts`                                     | Transcribe the audio track; correct the docstring                                                                                                                                                                                                                                                             |
+| `src/handlers/video.test.ts`                                | Keep the existing guard tests honest under the new flow                                                                                                                                                                                                                                                       |
+| `Dockerfile`                                                | whisper build stage, `ffmpeg`, the pinned model                                                                                                                                                                                                                                                               |
+| `.env.example`, `AGENTS.md`, `README.md`                    | Document the three settings and the two external dependencies                                                                                                                                                                                                                                                 |
 
 ---
 
 ## Task 1: The transcription pipeline
 
 **Files:**
+
 - Create: `src/transcribe.ts`
 - Create: `src/transcribe.test.ts`
 - Modify: `src/config.ts` (append a section near the other runtime-file settings)
@@ -184,6 +185,7 @@ One finding was rejected: the review claimed `superpowers:subagent-driven-develo
   `uniqueTempDir` to the shared module — Tasks 2 and 3 both need it)
 
 **Interfaces:**
+
 - Consumes: `positiveNumberEnv` from `src/config.ts`
 - Produces:
   - `transcribeMedia(inputPath: string): Promise<string>` — returns trimmed transcript text
@@ -202,8 +204,7 @@ Append after the `IPC_PENDING_TTL_MS` block, before the `Bun.write` line that cr
 
 // Baked into the image at this path; on macOS the binary comes from `brew install
 // whisper-cpp` and the model has to be fetched by hand, so the path is configurable.
-export const WHISPER_MODEL =
-  process.env.WHISPER_MODEL || "/usr/local/share/whisper/ggml-base.bin";
+export const WHISPER_MODEL = process.env.WHISPER_MODEL || "/usr/local/share/whisper/ggml-base.bin";
 
 // Must match the container's CPU limit, not `nproc` — inside a 2-CPU pod nproc still
 // reports the node's 16, and asking for 4 threads measured 44% slower than asking for 2.
@@ -211,10 +212,7 @@ export const WHISPER_THREADS = positiveNumberEnv("WHISPER_THREADS", 2);
 
 // Transcription costs ~4.9s per minute of audio at 2 CPU, so this cap is what bounds how
 // long the bot can be busy with one clip.
-export const TRANSCRIBE_MAX_DURATION_S = positiveNumberEnv(
-  "TRANSCRIBE_MAX_DURATION_SECONDS",
-  600
-);
+export const TRANSCRIBE_MAX_DURATION_S = positiveNumberEnv("TRANSCRIBE_MAX_DURATION_SECONDS", 600);
 ```
 
 - [ ] **Step 2: Move `uniqueTempDir` to `src/utils.ts`**
@@ -325,7 +323,7 @@ test("a video with no audio track is reported as such, not as a generic failure"
   });
   try {
     await expect(transcribeMedia("/tmp/telegram-bot/video_1.mp4")).rejects.toBeInstanceOf(
-      NoAudioTrackError
+      NoAudioTrackError,
     );
   } finally {
     restore();
@@ -338,9 +336,7 @@ test("a video with no audio track is reported as such, not as a generic failure"
 test("whisper exiting 0 with no output is a failure, not an empty transcript", async () => {
   fakeSpawns({ code: 0 }, { code: 0, stdout: "   \n" });
   try {
-    await expect(transcribeMedia("/tmp/telegram-bot/voice_4.ogg")).rejects.toThrow(
-      /no transcript/
-    );
+    await expect(transcribeMedia("/tmp/telegram-bot/voice_4.ogg")).rejects.toThrow(/no transcript/);
   } finally {
     restore();
   }
@@ -350,7 +346,7 @@ test("a non-zero whisper exit surfaces its stderr", async () => {
   fakeSpawns({ code: 0 }, { code: 1, stderr: "error: failed to process audio\n" });
   try {
     await expect(transcribeMedia("/tmp/telegram-bot/voice_5.ogg")).rejects.toThrow(
-      /failed to process audio/
+      /failed to process audio/,
     );
   } finally {
     restore();
@@ -361,14 +357,11 @@ test("a non-zero whisper exit surfaces its stderr", async () => {
 // message differs. Checked by stderr rather than by stat-ing the model: an existsSync guard
 // at the top of the module makes every test above fail on a dev machine that has no model.
 test("an unloadable model is unavailability, not a bad file", async () => {
-  fakeSpawns(
-    { code: 0 },
-    { code: 3, stderr: "error: failed to initialize whisper context\n" }
-  );
+  fakeSpawns({ code: 0 }, { code: 3, stderr: "error: failed to initialize whisper context\n" });
   try {
-    await expect(
-      transcribeMedia("/tmp/telegram-bot/voice_6.ogg")
-    ).rejects.toBeInstanceOf(TranscriptionUnavailableError);
+    await expect(transcribeMedia("/tmp/telegram-bot/voice_6.ogg")).rejects.toBeInstanceOf(
+      TranscriptionUnavailableError,
+    );
   } finally {
     restore();
   }
@@ -383,9 +376,9 @@ test("a missing binary is reported as unavailable, not as a broken file", async 
     throw err;
   };
   try {
-    await expect(
-      transcribeMedia("/tmp/telegram-bot/voice_7.ogg")
-    ).rejects.toBeInstanceOf(TranscriptionUnavailableError);
+    await expect(transcribeMedia("/tmp/telegram-bot/voice_7.ogg")).rejects.toBeInstanceOf(
+      TranscriptionUnavailableError,
+    );
   } finally {
     restore();
   }
@@ -478,12 +471,23 @@ export async function transcribeMedia(inputPath: string): Promise<string> {
 
   const extract = await run(
     [
-      FFMPEG_BIN, "-hide_banner", "-loglevel", "error",
-      "-i", inputPath,
-      "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-      "-y", wavPath,
+      FFMPEG_BIN,
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      inputPath,
+      "-vn",
+      "-ar",
+      "16000",
+      "-ac",
+      "1",
+      "-c:a",
+      "pcm_s16le",
+      "-y",
+      wavPath,
     ],
-    FFMPEG_TIMEOUT_MS
+    FFMPEG_TIMEOUT_MS,
   );
 
   if (extract.code !== 0) {
@@ -498,15 +502,19 @@ export async function transcribeMedia(inputPath: string): Promise<string> {
     const whisper = await run(
       [
         WHISPER_BIN,
-        "-m", WHISPER_MODEL,
-        "-f", wavPath,
-        "-t", String(WHISPER_THREADS),
+        "-m",
+        WHISPER_MODEL,
+        "-f",
+        wavPath,
+        "-t",
+        String(WHISPER_THREADS),
         "-nt",
         // Without this whisper-cli forces English: `--language` defaults to `en`, and a
         // multilingual model obeys it. English-only models ignore `auto` harmlessly.
-        "-l", "auto",
+        "-l",
+        "auto",
       ],
-      WHISPER_TIMEOUT_MS
+      WHISPER_TIMEOUT_MS,
     );
 
     // A model that will not load is a deployment problem, and the user-facing message
@@ -524,7 +532,7 @@ export async function transcribeMedia(inputPath: string): Promise<string> {
       // Exit 0 with nothing on stdout is what an unreadable input looks like. The exit
       // code cannot be the failure signal here.
       throw new Error(
-        `whisper produced no transcript: ${firstLine(whisper.stderr) || "empty output"}`
+        `whisper produced no transcript: ${firstLine(whisper.stderr) || "empty output"}`,
       );
     }
     return text;
@@ -559,11 +567,13 @@ git commit -m "Add ffmpeg and whisper.cpp transcription pipeline"
 ## Task 2: The voice and audio handler
 
 **Files:**
+
 - Create: `src/handlers/audio.ts`
 - Create: `src/handlers/audio.test.ts`
 - Modify: `src/index.ts` (the `message:voice` / `message:audio` registration)
 
 **Interfaces:**
+
 - Consumes: `transcribeMedia`, `NoAudioTrackError`, `TranscriptionUnavailableError` from
   `src/transcribe.ts`; `TRANSCRIBE_MAX_DURATION_S` from `src/config.ts`
 - Produces: `handleAudio(ctx: BotContext): Promise<void>`
@@ -624,9 +634,7 @@ test("a message with neither voice nor audio returns before spending a reaction"
 test("a clip past the duration cap is refused before it is downloaded", async () => {
   const r = rec();
   await handleAudio(makeCtx({ voice: { file_id: "v1", duration: 601 } }, r));
-  expect(r.replies).toEqual([
-    "❌ Too long to transcribe. Maximum is 10 minutes.",
-  ]);
+  expect(r.replies).toEqual(["❌ Too long to transcribe. Maximum is 10 minutes."]);
   expect(r.reactions).toEqual(["👀", "👎"]);
   expect(r.edits).toEqual([]);
 });
@@ -673,7 +681,7 @@ const realSpawn = runner.spawn;
 /** Pins the rate limiter, the two subprocesses, and the session in one place. */
 async function withPipeline(
   whisperStdout: string,
-  body: (sent: string[]) => Promise<void>
+  body: (sent: string[]) => Promise<void>,
 ): Promise<void> {
   const sent: string[] = [];
   const limiter = rateLimiter as any;
@@ -712,9 +720,7 @@ async function withPipeline(
 test("the transcript is what gets sent to Claude, and is echoed back to the user", async () => {
   const r = rec();
   await withPipeline("  book me a flight to Rome  ", async (sent) => {
-    await handleAudio(
-      makeDownloadableCtx({ voice: { file_id: "v9", duration: 8 } }, r)
-    );
+    await handleAudio(makeDownloadableCtx({ voice: { file_id: "v9", duration: 8 } }, r));
     expect(sent).toEqual(["book me a flight to Rome"]);
   });
   expect(r.edits).toContain("🎤 book me a flight to Rome");
@@ -739,9 +745,7 @@ test("a host without the binaries says so, and sends nothing to Claude", async (
     return "";
   };
   try {
-    await handleAudio(
-      makeDownloadableCtx({ voice: { file_id: "v10", duration: 8 } }, r)
-    );
+    await handleAudio(makeDownloadableCtx({ voice: { file_id: "v10", duration: 8 } }, r));
   } finally {
     delete limiter.check;
     runner.spawn = realSpawn;
@@ -777,11 +781,7 @@ import { handleProcessingError } from "./media-group";
 import { downloadTelegramFile } from "./download";
 import { markReceived, markDone, markFailed } from "./reactions";
 import { rateLimitOrReply } from "./rate-limit";
-import {
-  transcribeMedia,
-  NoAudioTrackError,
-  TranscriptionUnavailableError,
-} from "../transcribe";
+import { transcribeMedia, NoAudioTrackError, TranscriptionUnavailableError } from "../transcribe";
 
 // How much of the transcript the status message shows back. The whole thing still goes to
 // Claude; this is only so the user can see what was heard.
@@ -805,8 +805,8 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
     await markFailed(ctx);
     await ctx.reply(
       `❌ Too long to transcribe. Maximum is ${Math.floor(
-        TRANSCRIBE_MAX_DURATION_S / 60
-      )} minutes.`
+        TRANSCRIBE_MAX_DURATION_S / 60,
+      )} minutes.`,
     );
     return;
   }
@@ -839,11 +839,7 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
     } catch (error) {
       console.error("Failed to download audio:", error);
       await markFailed(ctx);
-      await ctx.api.editMessageText(
-        chatId,
-        statusMsg.message_id,
-        "❌ Failed to download audio."
-      );
+      await ctx.api.editMessageText(chatId, statusMsg.message_id, "❌ Failed to download audio.");
       return;
     }
 
@@ -880,7 +876,7 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
       userId,
       statusCallback,
       chatId,
-      ctx
+      ctx,
     );
 
     await auditLog(userId, username, "VOICE", transcript, response);
@@ -913,7 +909,7 @@ Replace this block:
 // No speech-to-text in this build. Without this, voice/audio match no filter at
 // all — `message:text` needs a `text` field — and the user gets silence.
 bot.on(["message:voice", "message:audio"], (ctx) =>
-  ctx.reply("🎤 Voice and audio aren't supported — please send text.")
+  ctx.reply("🎤 Voice and audio aren't supported — please send text."),
 );
 ```
 
@@ -940,10 +936,12 @@ git commit -m "Transcribe voice and audio messages instead of refusing them"
 ## Task 3: Transcribe the audio track of videos
 
 **Files:**
+
 - Modify: `src/handlers/video.ts`
 - Modify: `src/handlers/video.test.ts`
 
 **Interfaces:**
+
 - Consumes: `transcribeMedia`, `NoAudioTrackError` from `src/transcribe.ts`
 - Produces: nothing new
 
@@ -975,9 +973,7 @@ test("an over-long video is refused before it is downloaded", async () => {
 // silently passes every other test in this file.
 test("a video breaking both caps is refused on size, the cheaper guard", async () => {
   const r = rec();
-  await handleVideo(
-    makeCtx({ file_id: "v4", file_size: 51 * 1024 * 1024, duration: 601 }, r)
-  );
+  await handleVideo(makeCtx({ file_id: "v4", file_size: 51 * 1024 * 1024, duration: 601 }, r));
   expect(r.replies).toEqual(["❌ Video too large. Maximum size is 50MB."]);
 });
 
@@ -992,7 +988,7 @@ const realSpawn = runner.spawn;
 async function withVideoPipeline(
   whisper: { code: number; stdout: string; stderr: string },
   ffmpeg: { code: number; stdout: string; stderr: string },
-  body: (sent: string[]) => Promise<void>
+  body: (sent: string[]) => Promise<void>,
 ): Promise<void> {
   const sent: string[] = [];
   const limiter = rateLimiter as any;
@@ -1031,13 +1027,11 @@ test("the video prompt carries the transcript and the file path", async () => {
     { code: 0, stdout: "the meeting is at noon", stderr: "" },
     OK,
     async (sent) => {
-      await handleVideo(
-        makeDownloadableCtx({ file_id: "v5", file_size: 1024, duration: 30 }, r)
-      );
+      await handleVideo(makeDownloadableCtx({ file_id: "v5", file_size: 1024, duration: 30 }, r));
       expect(sent).toHaveLength(1);
       expect(sent[0]).toContain("the meeting is at noon");
       expect(sent[0]).toContain(".mp4");
-    }
+    },
   );
 });
 
@@ -1052,12 +1046,10 @@ test("a video with no audio track still reaches Claude, marked as silent", async
       stderr: "[out#0/wav] Output file does not contain any stream\n",
     },
     async (sent) => {
-      await handleVideo(
-        makeDownloadableCtx({ file_id: "v6", file_size: 1024, duration: 30 }, r)
-      );
+      await handleVideo(makeDownloadableCtx({ file_id: "v6", file_size: 1024, duration: 30 }, r));
       expect(sent).toHaveLength(1);
       expect(sent[0]).toContain("[no audio track]");
-    }
+    },
   );
 });
 ```
@@ -1067,11 +1059,11 @@ test("a video with no audio track still reaches Claude, marked as silent", async
 Run: `bun test src/handlers/video.test.ts`
 Expected: 3 fail, 4 pass. Specifically:
 
-| Test | Why it fails now |
-|---|---|
-| over-long video refused | No duration guard exists, so the reply is `📹 Downloading video...` |
-| prompt carries the transcript | The prompt still says "Please transcribe it for me" and contains no transcript |
-| no audio track marker | Same — nothing calls `transcribeMedia`, so no marker is ever produced |
+| Test                               | Why it fails now                                                                                                                  |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| over-long video refused            | No duration guard exists, so the reply is `📹 Downloading video...`                                                               |
+| prompt carries the transcript      | The prompt still says "Please transcribe it for me" and contains no transcript                                                    |
+| no audio track marker              | Same — nothing calls `transcribeMedia`, so no marker is ever produced                                                             |
 | refused on size, the cheaper guard | **Passes already.** The size guard exists and returns first; this test exists to keep it first once a second guard sits beside it |
 
 - [ ] **Step 3: Correct the docstring in `src/handlers/video.ts`**
@@ -1102,16 +1094,16 @@ There is a second, equally false claim about that skill further down the same fi
 `finally` block. Replace:
 
 ```ts
-    // Deliberately not removed — the video-processing skill reads it from disk during
-    // the query above. The temp reaper collects it once it ages past TEMP_RETENTION_HOURS.
+// Deliberately not removed — the video-processing skill reads it from disk during
+// the query above. The temp reaper collects it once it ages past TEMP_RETENTION_HOURS.
 ```
 
 with:
 
 ```ts
-    // Deliberately not removed — the path went into the prompt, so Claude may still read
-    // the file during the query above. The temp reaper collects it once it ages past
-    // TEMP_RETENTION_HOURS. The derived .wav is already gone; transcribeMedia unlinks it.
+// Deliberately not removed — the path went into the prompt, so Claude may still read
+// the file during the query above. The temp reaper collects it once it ages past
+// TEMP_RETENTION_HOURS. The derived .wav is already gone; transcribeMedia unlinks it.
 ```
 
 - [ ] **Step 4: Give the download a collision-proof name**
@@ -1122,18 +1114,18 @@ derived from it, one call's cleanup deletes the other's working file. Replace th
 path construction:
 
 ```ts
-  const timestamp = Date.now();
+const timestamp = Date.now();
 
-  // Telegram delivers both regular videos and video notes as mp4.
-  const videoPath = `${TEMP_DIR}/video_${timestamp}.mp4`;
+// Telegram delivers both regular videos and video notes as mp4.
+const videoPath = `${TEMP_DIR}/video_${timestamp}.mp4`;
 ```
 
 with:
 
 ```ts
-  // Telegram delivers both regular videos and video notes as mp4. The random suffix in
-  // uniqueTempDir is load-bearing now that a .wav is derived from this path.
-  const videoPath = `${uniqueTempDir("video")}.mp4`;
+// Telegram delivers both regular videos and video notes as mp4. The random suffix in
+// uniqueTempDir is load-bearing now that a .wav is derived from this path.
+const videoPath = `${uniqueTempDir("video")}.mp4`;
 ```
 
 - [ ] **Step 5: Add the duration guard**
@@ -1153,17 +1145,15 @@ Directly after the existing size guard — the block ending
 `` `❌ Video too large. Maximum size is ${MAX_VIDEO_SIZE / 1024 / 1024}MB.` `` — insert:
 
 ```ts
-  // Size does not bound transcription time, so duration is guarded separately. Size is
-  // checked first because it is the one that costs a transfer.
-  if (video.duration > TRANSCRIBE_MAX_DURATION_S) {
-    await markFailed(ctx);
-    await ctx.reply(
-      `❌ Too long to transcribe. Maximum is ${Math.floor(
-        TRANSCRIBE_MAX_DURATION_S / 60
-      )} minutes.`
-    );
-    return;
-  }
+// Size does not bound transcription time, so duration is guarded separately. Size is
+// checked first because it is the one that costs a transfer.
+if (video.duration > TRANSCRIBE_MAX_DURATION_S) {
+  await markFailed(ctx);
+  await ctx.reply(
+    `❌ Too long to transcribe. Maximum is ${Math.floor(TRANSCRIBE_MAX_DURATION_S / 60)} minutes.`,
+  );
+  return;
+}
 ```
 
 - [ ] **Step 6: Transcribe before building the prompt**
@@ -1171,31 +1161,29 @@ Directly after the existing size guard — the block ending
 In `src/handlers/video.ts`, replace the prompt-building block:
 
 ```ts
-    const prompt = caption
-      ? `Here's a video file at path: ${videoPath}\n\nUser says: ${caption}`
-      : `I've received a video file at path: ${videoPath}\n\nPlease transcribe it for me.`;
+const prompt = caption
+  ? `Here's a video file at path: ${videoPath}\n\nUser says: ${caption}`
+  : `I've received a video file at path: ${videoPath}\n\nPlease transcribe it for me.`;
 ```
 
 with:
 
 ```ts
-    // A video with no audio track is normal, not an error — a screen recording, say. Any
-    // other failure is reported in the prompt rather than aborting, because the file path
-    // is still useful to Claude.
-    let transcript = "";
-    try {
-      transcript = await transcribeMedia(videoPath);
-    } catch (error) {
-      transcript =
-        error instanceof NoAudioTrackError
-          ? "[no audio track]"
-          : "[audio could not be transcribed]";
-      console.error("Video transcription failed:", error);
-    }
+// A video with no audio track is normal, not an error — a screen recording, say. Any
+// other failure is reported in the prompt rather than aborting, because the file path
+// is still useful to Claude.
+let transcript = "";
+try {
+  transcript = await transcribeMedia(videoPath);
+} catch (error) {
+  transcript =
+    error instanceof NoAudioTrackError ? "[no audio track]" : "[audio could not be transcribed]";
+  console.error("Video transcription failed:", error);
+}
 
-    const prompt = caption
-      ? `Here's a video file at path: ${videoPath}\n\nTranscript of its audio:\n${transcript}\n\nUser says: ${caption}`
-      : `I've received a video file at path: ${videoPath}\n\nTranscript of its audio:\n${transcript}`;
+const prompt = caption
+  ? `Here's a video file at path: ${videoPath}\n\nTranscript of its audio:\n${transcript}\n\nUser says: ${caption}`
+  : `I've received a video file at path: ${videoPath}\n\nTranscript of its audio:\n${transcript}`;
 ```
 
 - [ ] **Step 7: Run the tests to verify they pass**
@@ -1220,9 +1208,11 @@ git commit -m "Transcribe the audio track of videos and correct the handler docs
 ## Task 4: Ship ffmpeg, whisper-cli and the model in the image
 
 **Files:**
+
 - Modify: `Dockerfile`
 
 **Interfaces:**
+
 - Consumes: nothing from earlier tasks
 - Produces: `/usr/local/bin/whisper-cli` and `/usr/local/share/whisper/ggml-base.bin` in the
   runtime image, matching `WHISPER_MODEL`'s default from Task 1
@@ -1328,11 +1318,13 @@ git commit -m "Build whisper.cpp static and ship it with ffmpeg and the base mod
 ## Task 5: Document the feature
 
 **Files:**
+
 - Modify: `.env.example`
 - Modify: `AGENTS.md`
 - Modify: `README.md`
 
 **Interfaces:**
+
 - Consumes: the three settings from Task 1
 - Produces: nothing code depends on
 

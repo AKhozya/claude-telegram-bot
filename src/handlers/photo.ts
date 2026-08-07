@@ -39,7 +39,7 @@ export async function processPhotos(
   caption: string | undefined,
   userId: number,
   username: string,
-  chatId: number
+  chatId: number,
 ): Promise<void> {
   let prompt: string;
   if (photoPaths.length === 1) {
@@ -96,7 +96,7 @@ export async function handlePhoto(ctx: BotContext): Promise<void> {
         await ctx.api.editMessageText(
           statusMsg.chat.id,
           statusMsg.message_id,
-          "❌ Failed to download photo."
+          "❌ Failed to download photo.",
         );
       } catch (editError) {
         console.debug("Failed to edit status message:", editError);
@@ -109,14 +109,7 @@ export async function handlePhoto(ctx: BotContext): Promise<void> {
   }
 
   if (!mediaGroupId && statusMsg) {
-    await processPhotos(
-      ctx,
-      [photoPath],
-      ctx.message?.caption,
-      userId,
-      username,
-      chatId
-    );
+    await processPhotos(ctx, [photoPath], ctx.message?.caption, userId, username, chatId);
 
     try {
       await ctx.api.deleteMessage(statusMsg.chat.id, statusMsg.message_id);
@@ -128,12 +121,5 @@ export async function handlePhoto(ctx: BotContext): Promise<void> {
 
   if (!mediaGroupId) return; // narrows the type; unreachable given the branch above
 
-  await photoBuffer.addToGroup(
-    mediaGroupId,
-    photoPath,
-    ctx,
-    userId,
-    username,
-    processPhotos
-  );
+  await photoBuffer.addToGroup(mediaGroupId, photoPath, ctx, userId, username, processPhotos);
 }

@@ -90,14 +90,7 @@ const run = async (events: unknown[]) => {
   const origSave = s.saveSession;
   s.saveSession = async () => {};
   try {
-    return await session.sendMessageStreaming(
-      "hi",
-      "tester",
-      1,
-      async () => {},
-      42,
-      ctx
-    );
+    return await session.sendMessageStreaming("hi", "tester", 1, async () => {}, 42, ctx);
   } finally {
     s.saveSession = origSave;
   }
@@ -116,11 +109,7 @@ test("an ask_user request written after its tool_use is still found", async () =
 });
 
 test("a send_file request written after its tool_use is still found", async () => {
-  await run([
-    toolUse("tu_2", "mcp__send-file__send_file"),
-    writeRequestFile,
-    toolResult("tu_2"),
-  ]);
+  await run([toolUse("tu_2", "mcp__send-file__send_file"), writeRequestFile, toolResult("tu_2")]);
   expect(checks).toEqual(["send:true"]);
 });
 

@@ -9,8 +9,8 @@ Eight parallel audits: core `src/`, `src/handlers/`, comments (x2), architecture
 
 Branch `simplify-2026-07`, off `7b600c1`. Run `git log --oneline main..HEAD` — that, not this block, is the authority on what landed.
 
-| Batch | State |
-|---|---|
+| Batch                                                                                                      | State                                               |
+| ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | 0, 0b docs · 1 free deletes · 2 docker · 3 bugs · 4 dedup helpers · 5 local shrinks · 6 tests · 7 comments | **Done.** Codex clean on each. All batches complete |
 
 Gate now reads **306 pass / 986 expect()**, up from the 228/808 baseline — Batch 3 added two audit-log tests, Batch 4 eighteen, Batch 5 thirty-four, Batch 7 one, and the MCP rewrite twenty-three. It must never fall. Batch 6 held it at exactly 282/906: it converted tests and added none, so an increase would have hidden a lost case as readily as a decrease would have exposed one.
@@ -19,28 +19,28 @@ Gate now reads **306 pass / 986 expect()**, up from the 228/808 baseline — Bat
 
 ## Constraints agreed before the audit
 
-| Constraint | Value |
-|---|---|
-| Behavior | Behavior-preserving only. Anything observable gets its own opt-in decision. |
-| New deps | May be proposed, never applied without a yes. |
-| Scope | `src/`, tests, MCP servers, build/infra, docs. |
-| Deliverable | This plan, then applied cuts in batches, typecheck + test green per batch. |
+| Constraint  | Value                                                                       |
+| ----------- | --------------------------------------------------------------------------- |
+| Behavior    | Behavior-preserving only. Anything observable gets its own opt-in decision. |
+| New deps    | May be proposed, never applied without a yes.                               |
+| Scope       | `src/`, tests, MCP servers, build/infra, docs.                              |
+| Deliverable | This plan, then applied cuts in batches, typecheck + test green per batch.  |
 
 ## Assumptions and confidence
 
-| # | Claim | Tier | Basis |
-|---|---|---|---|
-| A1 | `node:net` `BlockList` reproduces every branch of the hand-rolled SSRF classifier | ✅ | Probed Bun 1.3.14: 8 v4 + 9 v6 cases incl. `::ffff:7f00:1`, `::ffff:a9fe:a9fe`, `fe90::1`, `febf::1` in / `fec0::1` out |
-| A2 | No import cycle between `utils.ts` and `session.ts` | ✅ | `session.ts` imports config/formatting/sandbox/security/types/handlers-streaming; none reaches `utils.ts` |
-| A3 | `handlers/index.ts` barrel has exactly one consumer | ✅ | `rg` → `src/index.ts:30` only |
-| A4 | `.env.example` documents `CLAUDE_CLI_PATH`; code reads `CLAUDE_CODE_PATH` | ✅ | `rg` across tree: one definition site, `session.ts:282` |
-| A5 | `README.md:195` advertises an intent-classification security layer that does not exist | ✅ | `rg -ni 'intent\|classif' src/` → one unrelated hit (`sandbox.ts:52` "intentionally") |
-| A6 | `video.ts` catch passes `[]` — tool messages leak on failure | ✅ | `state` declared line ~109 inside `try`; catch at :128 |
-| A7 | `callback.ts` never calls `startProcessing()` | ✅ | `rg` over the file: zero hits |
-| A8 | `.*.bun-build` missing from `.dockerignore`; 2x 63 MB present now | ✅ | `ls` + `grep` — in `.gitignore:46` only |
-| A9 | `Bun.escapeHTML` emits `&#x27;` for `'` | ✅ | Probed. Telegram HTML-mode acceptance of numeric entities NOT confirmed |
-| A10 | Line-saving numbers per finding | ⚠ | Agent estimates. Measured per batch at apply time, not trusted up front. |
-| A11 | `test.each` conversion preserves failure-output readability | 🟡 | Single agent measured 177→80 lines; not independently re-measured |
+| #   | Claim                                                                                  | Tier | Basis                                                                                                                   |
+| --- | -------------------------------------------------------------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------------- |
+| A1  | `node:net` `BlockList` reproduces every branch of the hand-rolled SSRF classifier      | ✅   | Probed Bun 1.3.14: 8 v4 + 9 v6 cases incl. `::ffff:7f00:1`, `::ffff:a9fe:a9fe`, `fe90::1`, `febf::1` in / `fec0::1` out |
+| A2  | No import cycle between `utils.ts` and `session.ts`                                    | ✅   | `session.ts` imports config/formatting/sandbox/security/types/handlers-streaming; none reaches `utils.ts`               |
+| A3  | `handlers/index.ts` barrel has exactly one consumer                                    | ✅   | `rg` → `src/index.ts:30` only                                                                                           |
+| A4  | `.env.example` documents `CLAUDE_CLI_PATH`; code reads `CLAUDE_CODE_PATH`              | ✅   | `rg` across tree: one definition site, `session.ts:282`                                                                 |
+| A5  | `README.md:195` advertises an intent-classification security layer that does not exist | ✅   | `rg -ni 'intent\|classif' src/` → one unrelated hit (`sandbox.ts:52` "intentionally")                                   |
+| A6  | `video.ts` catch passes `[]` — tool messages leak on failure                           | ✅   | `state` declared line ~109 inside `try`; catch at :128                                                                  |
+| A7  | `callback.ts` never calls `startProcessing()`                                          | ✅   | `rg` over the file: zero hits                                                                                           |
+| A8  | `.*.bun-build` missing from `.dockerignore`; 2x 63 MB present now                      | ✅   | `ls` + `grep` — in `.gitignore:46` only                                                                                 |
+| A9  | `Bun.escapeHTML` emits `&#x27;` for `'`                                                | ✅   | Probed. Telegram HTML-mode acceptance of numeric entities NOT confirmed                                                 |
+| A10 | Line-saving numbers per finding                                                        | ⚠    | Agent estimates. Measured per batch at apply time, not trusted up front.                                                |
+| A11 | `test.each` conversion preserves failure-output readability                            | 🟡   | Single agent measured 177→80 lines; not independently re-measured                                                       |
 
 **Validate before build:** A9 (probe a live apostrophe through Telegram HTML mode) and A11 (convert one describe block, eyeball a deliberately failing row) — both gate optional items only.
 
@@ -56,28 +56,28 @@ The docs are a different story — not bloated, **wrong**. 22 stale claims, thre
 
 Zero runtime risk. Highest ratio in the plan.
 
-| Item | File | Action |
-|---|---|---|
-| `CLAUDE_CLI_PATH` documented, `CLAUDE_CODE_PATH` read | `.env.example:51` | Rename. Setting the documented name silently does nothing. |
-| "Intent classification — AI filter blocks dangerous requests" listed as security layer 2 | `README.md:195` | Delete. Never existed. |
-| "Text messages with intent filtering" | `AGENTS.md:38` | Delete the clause. |
-| "System prompt is the **primary** protection layer" | `SECURITY.md:126` | Inverted under `bypassPermissions`. The PreToolUse hook (`session.ts:255`) is the enforcing control; the prompt is advisory. `README.md:201` already says this correctly — the two files disagree. |
-| Defense-in-depth list omits the OS Bash sandbox entirely | `SECURITY.md:33-143` | Add `sandbox.ts` layer + `BASH_SANDBOX_ENABLED`. A reader deploying on SECURITY.md alone never learns it exists. |
-| Denylist presented with no caveat | `SECURITY.md:85-115` | Carry over README's "best-effort, trivially bypassable by construction". |
-| `~/.claude` missing from documented default paths | `SECURITY.md:66-72` | Five entries in `config.ts:80`, four documented. |
-| `/private/tmp/` missing from temp paths | `SECURITY.md:82` | `TEMP_PATHS` has 3 (`config.ts:199`). |
-| `cp mcp-config.ts mcp-config.local.ts` | `README.md:123` | Backwards, and the destination is never read. Correct: `cp mcp-config.example.ts mcp-config.ts`. |
-| Clone URL carries `?tab=readme-ov-file`; `cd` into wrong dir | `README.md:37-38` | Fix both. |
-| BotFather `/setcommands` list | `README.md:80-89` | Bot overwrites it on every boot (`index.ts:116`). Registered set: new, stop, status, resume, retry, restart — no `/start`. |
-| `THINKING_TRIGGER_KEYWORDS` | `README.md:30` | Not read anywhere. Real names: `THINKING_KEYWORDS`, `THINKING_DEEP_KEYWORDS`. Defaults are `think,pensa,ragiona` — "reason" triggers nothing. |
-| "~3,300 lines TypeScript" | `AGENTS.md:16` | 5,695. Understates by 45%. |
-| Key Modules omits `sandbox.ts` | `AGENTS.md:24-32` | The newest and largest security surface. |
-| Handler list: 8 of 14 | `AGENTS.md:34-44` | Missing auth, media-group, trigger, download, reactions, index. |
-| Runtime files: 3 of 6 | `AGENTS.md:64-68` | Missing restart.json, ctb-sandbox, ask-user-*.json. |
-| Env vars: 4 of 20 | `AGENTS.md:55-60` | Document the rest or drop the pretence of a list. |
-| `bun run test` missing from commands | `AGENTS.md:7-12` | CI gates on it. |
-| `/retry` missing from command table | `README.md:133-142` | 7 registered, 6 documented. |
-| ~17 lines of prose bloat + `wether` typo x2 | README, SECURITY, AGENTS, guide | Apply the listed rewrites. |
+| Item                                                                                     | File                            | Action                                                                                                                                                                                             |
+| ---------------------------------------------------------------------------------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLAUDE_CLI_PATH` documented, `CLAUDE_CODE_PATH` read                                    | `.env.example:51`               | Rename. Setting the documented name silently does nothing.                                                                                                                                         |
+| "Intent classification — AI filter blocks dangerous requests" listed as security layer 2 | `README.md:195`                 | Delete. Never existed.                                                                                                                                                                             |
+| "Text messages with intent filtering"                                                    | `AGENTS.md:38`                  | Delete the clause.                                                                                                                                                                                 |
+| "System prompt is the **primary** protection layer"                                      | `SECURITY.md:126`               | Inverted under `bypassPermissions`. The PreToolUse hook (`session.ts:255`) is the enforcing control; the prompt is advisory. `README.md:201` already says this correctly — the two files disagree. |
+| Defense-in-depth list omits the OS Bash sandbox entirely                                 | `SECURITY.md:33-143`            | Add `sandbox.ts` layer + `BASH_SANDBOX_ENABLED`. A reader deploying on SECURITY.md alone never learns it exists.                                                                                   |
+| Denylist presented with no caveat                                                        | `SECURITY.md:85-115`            | Carry over README's "best-effort, trivially bypassable by construction".                                                                                                                           |
+| `~/.claude` missing from documented default paths                                        | `SECURITY.md:66-72`             | Five entries in `config.ts:80`, four documented.                                                                                                                                                   |
+| `/private/tmp/` missing from temp paths                                                  | `SECURITY.md:82`                | `TEMP_PATHS` has 3 (`config.ts:199`).                                                                                                                                                              |
+| `cp mcp-config.ts mcp-config.local.ts`                                                   | `README.md:123`                 | Backwards, and the destination is never read. Correct: `cp mcp-config.example.ts mcp-config.ts`.                                                                                                   |
+| Clone URL carries `?tab=readme-ov-file`; `cd` into wrong dir                             | `README.md:37-38`               | Fix both.                                                                                                                                                                                          |
+| BotFather `/setcommands` list                                                            | `README.md:80-89`               | Bot overwrites it on every boot (`index.ts:116`). Registered set: new, stop, status, resume, retry, restart — no `/start`.                                                                         |
+| `THINKING_TRIGGER_KEYWORDS`                                                              | `README.md:30`                  | Not read anywhere. Real names: `THINKING_KEYWORDS`, `THINKING_DEEP_KEYWORDS`. Defaults are `think,pensa,ragiona` — "reason" triggers nothing.                                                      |
+| "~3,300 lines TypeScript"                                                                | `AGENTS.md:16`                  | 5,695. Understates by 45%.                                                                                                                                                                         |
+| Key Modules omits `sandbox.ts`                                                           | `AGENTS.md:24-32`               | The newest and largest security surface.                                                                                                                                                           |
+| Handler list: 8 of 14                                                                    | `AGENTS.md:34-44`               | Missing auth, media-group, trigger, download, reactions, index.                                                                                                                                    |
+| Runtime files: 3 of 6                                                                    | `AGENTS.md:64-68`               | Missing restart.json, ctb-sandbox, ask-user-*.json.                                                                                                                                                |
+| Env vars: 4 of 20                                                                        | `AGENTS.md:55-60`               | Document the rest or drop the pretence of a list.                                                                                                                                                  |
+| `bun run test` missing from commands                                                     | `AGENTS.md:7-12`                | CI gates on it.                                                                                                                                                                                    |
+| `/retry` missing from command table                                                      | `README.md:133-142`             | 7 registered, 6 documented.                                                                                                                                                                        |
+| ~17 lines of prose bloat + `wether` typo x2                                              | README, SECURITY, AGENTS, guide | Apply the listed rewrites.                                                                                                                                                                         |
 
 **Rejected from the docs findings:** AGENTS.md:28 "Agent SDK V2" vs `session.ts:320` "// Use V1 query() API". These name different things — package generation vs API surface within the package. Not a contradiction. Drop the version marker rather than flip it to V1.
 
@@ -89,13 +89,13 @@ The "~17 lines" estimate counted the author's first-person narrative, which is r
 
 **Accepted — DELETE.** Each restates a heading, a code block, or a sentence already on the page.
 
-| # | Site | Text | Why |
-|---|---|---|---|
-| 1 | `SECURITY.md:3` | "This document describes the security architecture of the Claude Telegram Bot." | Restates the H1 above it. |
-| 2 | `SECURITY.md:20` (3rd sentence) | "Instead of per-action prompts, we rely on defense-in-depth with multiple security layers described below." | The `## Defense in Depth` heading two sections down is the same statement. Keep sentences 1-2. |
-| 3 | `SECURITY.md:35` | "The bot implements multiple layers of security:" | Restates the heading directly above. |
-| 4 | `SECURITY.md:148` | "Each path argument is checked against `ALLOWED_PATHS` before execution." | The code block immediately above demonstrates exactly this, four times, with per-line comments. |
-| 5 | `README.md:62` (final sentence) | "This uses your Claude Code subscription which is much more cost-effective for heavy usage." | Duplicates the table's "High usage, cost-effective" *and* the API-cost note at `:70`. Keep `:70`. |
+| #   | Site                            | Text                                                                                                        | Why                                                                                               |
+| --- | ------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| 1   | `SECURITY.md:3`                 | "This document describes the security architecture of the Claude Telegram Bot."                             | Restates the H1 above it.                                                                         |
+| 2   | `SECURITY.md:20` (3rd sentence) | "Instead of per-action prompts, we rely on defense-in-depth with multiple security layers described below." | The `## Defense in Depth` heading two sections down is the same statement. Keep sentences 1-2.    |
+| 3   | `SECURITY.md:35`                | "The bot implements multiple layers of security:"                                                           | Restates the heading directly above.                                                              |
+| 4   | `SECURITY.md:148`               | "Each path argument is checked against `ALLOWED_PATHS` before execution."                                   | The code block immediately above demonstrates exactly this, four times, with per-line comments.   |
+| 5   | `README.md:62` (final sentence) | "This uses your Claude Code subscription which is much more cost-effective for heavy usage."                | Duplicates the table's "High usage, cost-effective" _and_ the API-cost note at `:70`. Keep `:70`. |
 
 Rows 4 and 5 were both wrong, caught by the Codex review of the applied batch and reinstated in shortened form:
 
@@ -104,17 +104,17 @@ Rows 4 and 5 were both wrong, caught by the Codex review of the applied batch an
 
 **Accepted — TRIM.**
 
-| # | Site | Cut | Keep |
-|---|---|---|---|
-| 6 | `README.md:190` | "for details on how permissions work and what protections are in place" | The link. A doc titled "Security Model" needs no gloss. |
-| 7 | `AGENTS.md:36` | "Each message type has a dedicated async handler:" | "Message-type handlers:" |
+| #   | Site            | Cut                                                                     | Keep                                                    |
+| --- | --------------- | ----------------------------------------------------------------------- | ------------------------------------------------------- |
+| 6   | `README.md:190` | "for details on how permissions work and what protections are in place" | The link. A doc titled "Security Model" needs no gloss. |
+| 7   | `AGENTS.md:36`  | "Each message type has a dedicated async handler:"                      | "Message-type handlers:"                                |
 
 **Considered and rejected.**
 
-| Site | Why it stays |
-|---|---|
+| Site                                                                                   | Why it stays                                                                                       |
+| -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | `README.md:152` "The bot will start automatically on login and restart if it crashes." | Reads as restating "LaunchAgent", but a reader who doesn't know launchd learns the behaviour here. |
-| `README.md:189` security warning | Hedges and intensifiers are load-bearing in a warning. |
+| `README.md:189` security warning                                                       | Hedges and intensifiers are load-bearing in a warning.                                             |
 
 **Protected — do not sweep.**
 
@@ -147,11 +147,11 @@ Compiler-checked, mechanical.
 **Measured on apply (2026-07-30, linux/arm64, `oven/bun:1.3-alpine`).** The ~469 MB
 estimate understated it — it assumed `node_modules` ≈343 MB; the real layer is 617 MB.
 
-| Layer | Before | After |
-|---|---|---|
-| `RUN chown -R akhozya:akhozya /app` | 744 MB | gone (8.19 kB non-recursive dir chown) |
-| `COPY . .` | 127 MB | 905 kB |
-| Layer sum | 2390 MB | 1520 MB |
+| Layer                               | Before  | After                                  |
+| ----------------------------------- | ------- | -------------------------------------- |
+| `RUN chown -R akhozya:akhozya /app` | 744 MB  | gone (8.19 kB non-recursive dir chown) |
+| `COPY . .`                          | 127 MB  | 905 kB                                 |
+| Layer sum                           | 2390 MB | 1520 MB                                |
 
 **−870 MB** for three lines of text — 744 from the duplicated recursive chown, 126 from
 the two `.bun-build` leftovers. `docker image ls` reports 3.27 GB → 2.12 GB.
@@ -194,7 +194,7 @@ Read **−870 MB** as this machine's number.
 
 1. **`video.ts:109`** — `const state = new StreamingState()` sits inside the `try`, so the catch at :135 passes `[]` to `handleProcessingError`. Tool-status messages are never deleted when a video query fails. Hoist the declaration above the `try`. (`markFailed` is unaffected — `handleProcessingError` calls it.)
 2. **`callback.ts:102`** — no `session.startProcessing()`, so `isRunning` is false between the button tap and the query. `/status` and `/stop` misreport for button-initiated queries. This is the same drift `session.ts:170-178` already documents. Add the call + `finally { stopProcessing() }`.
-3. **`utils.ts:20-45` audit log mode** — `fs.appendFile` with no mode, umask 022, nothing chmods it → `0644`. Under `AUDIT_LOG_JSON=true` the JSON branch logs the full message and full response **unredacted** (the 500-char truncation is only in the human-readable branch). A user pasting a credential into Telegram writes it world-readable to `/tmp/claude-telegram-audit.log`. The bot's own sandbox blocks *Claude* from reading it — that does nothing for another OS user. Fix: `mode: 0o600` plus an explicit chmod on first create, mirroring `sandbox.ts:22`'s `0o700`.
+3. **`utils.ts:20-45` audit log mode** — `fs.appendFile` with no mode, umask 022, nothing chmods it → `0644`. Under `AUDIT_LOG_JSON=true` the JSON branch logs the full message and full response **unredacted** (the 500-char truncation is only in the human-readable branch). A user pasting a credential into Telegram writes it world-readable to `/tmp/claude-telegram-audit.log`. The bot's own sandbox blocks _Claude_ from reading it — that does nothing for another OS user. Fix: `mode: 0o600` plus an explicit chmod on first create, mirroring `sandbox.ts:22`'s `0o700`.
 
 Note on 2: folding `callback.ts`'s catch into `handleProcessingError` also **adds a 👎 reaction** it does not currently post. Do that knowingly or leave the catch inline.
 
@@ -210,7 +210,7 @@ Note on 2: folding `callback.ts`'s catch into `handleProcessingError` also **add
 
 ## Batch 4 — Five helpers for duplicated handler code
 
-*(Was headed "six copies of one handler tail". Misleading: six is the rate-limit-block count in item 2. The `runPrompt` tail in item 5 has two confirmed sites.)*
+_(Was headed "six copies of one handler tail". Misleading: six is the rate-limit-block count in item 2. The `runPrompt` tail in item 5 has two confirmed sites.)_
 
 Ordered smallest-blast-radius first so each lands green before the next.
 
@@ -226,18 +226,21 @@ Ordered smallest-blast-radius first so each lands green before the next.
    Plan review confirms the six blocks themselves are interchangeable: same check, same `auditLogRateLimit`, same exact reply text, same `markFailed`, same bare return from a `Promise<void>` caller. A boolean helper must still make the caller return, and each call must stay inside its existing guard.
 
    **The "free hoist" in `document.ts` was wrong — do not do it** (plan review, 2026-07-30). The two copies are not parallel branches of one split. The first sits inside `if (isArchiveFile) { … return; }`; the second inside `if (!mediaGroupId)`. Hoisting above them would charge **every album item individually**, breaking the once-per-album rule this same item relies on. A `downloadDocument` failure path also `return`s before both, so a hoisted check would rate-limit requests that currently return first. Keep both calls where they are.
+
 3. **`stopAndSettle()`** in `commands.ts` — `handleNew:38-44` re-inlines `handleStop:53-60`'s stop → `Bun.sleep(100)` → `clearStopRequested` dance. That 100 ms + clear pairing is exactly the coupling `session.ts:170-178` records as already dropped once by a hand-copy. ~-6.
    The duplication itself is confirmed: both handlers run the same `isRunning` → `stop()` → successful-result → `sleep(100)` → `clearStopRequested` sequence.
 
    **The stated reason for not folding the sleep into `ClaudeSession.stop()` was false** (plan review, 2026-07-30). That test exercises `session.interruptForNewMessage()`, not `handleNew`/`handleStop`, and it stubs `s.stop` — so moving a sleep into the real `stop()` would not fail it. It guards mark/stop/clear **ordering**, nothing about the sleep. The decision to leave `stop()` alone may still be right, but it needs a real reason: check `stop()`'s other callers first and confirm none of them would be wrong with a 100 ms settle baked in. Decide at apply time on that evidence, not on this test.
+
 4. **`state.deleteToolMessages(ctx)`** on `StreamingState` — the 7-line swallow-and-delete loop. `grep -n "for (const toolMsg of" src/handlers/*.ts`. It already owns the array. ~-19.
 
    **Five sites now, not the four the audit found** — Batch 3 added one to `document.ts`'s `processArchive` catch. `media-group.ts`'s copy is inside `handleProcessingError` and takes `toolMessages` as a parameter, not `state`; converting it means changing that signature or passing the state in. Decide which at apply time.
 
    Per plan-review finding 3, the unified version **logs** (`console.debug("Failed to delete tool message:", …)`). `text.ts` swallows silently today and gains that line. Debug-level, no user-visible change, recorded rather than absorbed.
+
 5. **`runPrompt(ctx, {...})`** — the full tail (`startProcessing` → title → typing → `StreamingState` + `createStatusCallback` → `sendMessageStreaming` → `auditLog` → `markDone` → catch → `finally`).
 
-   **CORRECTED after plan review.** The original claim — "three byte-identical sites: `processPhotos`, `processDocuments`, the `processArchive` tail" — was wrong. The success paths match; the catch blocks do not. `processPhotos` and `processDocuments` catch with `handleProcessingError(ctx, error, state.toolMessages)`. `processArchive` still catches differently: `console.error` → `markFailed` → delete `statusMsg` → its own `❌ Failed to process archive: …` text. (Batch 3 added a tool-message loop there, so the *leak* is gone, but the error text and shape still differ — folding it would change what the user reads.)
+   **CORRECTED after plan review.** The original claim — "three byte-identical sites: `processPhotos`, `processDocuments`, the `processArchive` tail" — was wrong. The success paths match; the catch blocks do not. `processPhotos` and `processDocuments` catch with `handleProcessingError(ctx, error, state.toolMessages)`. `processArchive` still catches differently: `console.error` → `markFailed` → delete `statusMsg` → its own `❌ Failed to process archive: …` text. (Batch 3 added a tool-message loop there, so the _leak_ is gone, but the error text and shape still differ — folding it would change what the user reads.)
 
    Confirmed scope is **two** sites: `processPhotos` and `processDocuments`.
 
@@ -253,7 +256,7 @@ Ordered smallest-blast-radius first so each lands green before the next.
 
 All six items landed. The nine files they were extracted from go +97 / −218; the two new files (`handlers/rate-limit.ts`, `handlers/run-prompt.ts`) add 99. **−22 source lines net** — the payoff here is the removed drift surface, not the line count. Gate 230 pass / 812 expect() → **248 / 848**.
 
-- **Item 3's decision was re-justified on evidence, and the answer did not change.** `stop()` has exactly three callers — `interruptForNewMessage`, `handleNew`, `handleStop` — and all three want the settle, so folding it in *would* have worked: `interruptForNewMessage` guards on `isRunning` first, which is the same condition as the commands' `if (result)`. Declined anyway, for a reason the old text did not have: the settle exists for what the caller does **next** (`/new` kills the session, `/stop` clears the way for the next message), not for the stop itself. `stop()` stays a pure cancel request, and `interruptForNewMessage` keeps the variant that also marks the interrupt — which `/stop` must not do, or the preempted query stops showing "🛑 Query stopped.".
+- **Item 3's decision was re-justified on evidence, and the answer did not change.** `stop()` has exactly three callers — `interruptForNewMessage`, `handleNew`, `handleStop` — and all three want the settle, so folding it in _would_ have worked: `interruptForNewMessage` guards on `isRunning` first, which is the same condition as the commands' `if (result)`. Declined anyway, for a reason the old text did not have: the settle exists for what the caller does **next** (`/new` kills the session, `/stop` clears the way for the next message), not for the stop itself. `stop()` stays a pure cancel request, and `interruptForNewMessage` keeps the variant that also marks the interrupt — which `/stop` must not do, or the preempted query stops showing "🛑 Query stopped.".
 - **Item 4** changed `handleProcessingError`'s third parameter from `toolMessages: Message[]` to `state: StreamingState`. Only two non-test callers exist (`video.ts`, `run-prompt.ts`); both pass `state`. `text.ts` gains the `console.debug` line it never emitted, as decided.
 - **Item 5 shipped with the four independent parameters.** `photo.ts` passes `auditInput: prompt`; `document.ts` passes `` `[${documents.length} docs] ${caption || ""}` ``, byte-identical to before. `video.ts` and `callback.ts` stayed out.
 - **Item 5's one reordering, checked and accepted.** `startProcessing()` used to run before the prompt was built; the caller now builds the prompt first. Unobservable: prompt construction is pure synchronous string building with no await, so nothing can interleave in the gap.
@@ -264,7 +267,7 @@ All six items landed. The nine files they were extracted from go +97 / −218; t
 - `prompt-audit.test.ts` spawns subprocesses. `AUDIT_LOG_PATH` binds at config module-eval and `bun test` shares one registry, so an in-process call would append test data to the real `/tmp/claude-telegram-audit.log`.
 - **Gap, stated not papered over:** `processDocuments` is not exported, so its audit input cannot be pinned against the pre-refactor code. What exists instead is a direct `runPrompt` guard — send `SECRET-DOCUMENT-BODY`, audit `[1 docs] a caption`, assert the log holds the second and not the first, with an exit-3 check that the prompt reached `sendMessageStreaming` so the negative assertion cannot pass vacuously.
 
-**Codex, three rounds.** Round 1 (source): no findings, SHIP. Round 2 (tests): three defects — a helper restoring prototype methods by assigning them back instead of deleting; two tests recording only *successful* deletions, so skipping the failing id produced the same array as attempting all three; and a throw-path test that a no-op handler would have passed. All three verified against source, fixed, and confirmed closed in round 3.
+**Codex, three rounds.** Round 1 (source): no findings, SHIP. Round 2 (tests): three defects — a helper restoring prototype methods by assigning them back instead of deleting; two tests recording only _successful_ deletions, so skipping the failing id produced the same array as attempting all three; and a throw-path test that a no-op handler would have passed. All three verified against source, fixed, and confirmed closed in round 3.
 
 Two claims Codex could not check from the diff were closed by direct grep instead of taken on faith: every `handleProcessingError` caller passes `state`, and `startProcessing()` sits after `answerCallbackQuery` (`callback.ts` :172 → :180 → try :185 → finally :198).
 
@@ -283,36 +286,36 @@ recorded resolutions further down this document. Deleted here.
 
 ### Applied
 
-| File | Cut | Replacement |
-|---|---|---|
-| `session.ts` | two near-identical "sleep 200, then 3 attempts x 100 ms" pollers | one `pollFor(check)` + two call lines |
-| `formatting.ts` | 8-element `imageExtensions` + `.some(endsWith)` | one `IMAGE_EXTENSIONS` regex |
-| `utils.ts` | `await import("fs/promises")` re-executed per call, at two sites | one top-level `node:fs/promises` import |
-| `utils.ts` | `checkInterrupt`'s lazy-import cycle guard + structural type + module cache | moved into `text.ts`, its only caller, which already imports `session` |
-| `media-group.ts` | the `setTimeout(processGroup, …)` written once per branch | one `arm()` closure. `clearTimeout` stays explicit in the debounce branch — folding it in hides which branch is a restart |
-| `streaming.ts` | keyboard object literal in a loop | `keyboard.text(display, data).primary().row()` |
-| `document.ts` | `isArchive` + `getArchiveExtension` over the same list | one `find(endsWith)`; order-independent since `"x.tar.gz".endsWith(".tar")` is false |
+| File             | Cut                                                                         | Replacement                                                                                                               |
+| ---------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `session.ts`     | two near-identical "sleep 200, then 3 attempts x 100 ms" pollers            | one `pollFor(check)` + two call lines                                                                                     |
+| `formatting.ts`  | 8-element `imageExtensions` + `.some(endsWith)`                             | one `IMAGE_EXTENSIONS` regex                                                                                              |
+| `utils.ts`       | `await import("fs/promises")` re-executed per call, at two sites            | one top-level `node:fs/promises` import                                                                                   |
+| `utils.ts`       | `checkInterrupt`'s lazy-import cycle guard + structural type + module cache | moved into `text.ts`, its only caller, which already imports `session`                                                    |
+| `media-group.ts` | the `setTimeout(processGroup, …)` written once per branch                   | one `arm()` closure. `clearTimeout` stays explicit in the debounce branch — folding it in hides which branch is a restart |
+| `streaming.ts`   | keyboard object literal in a loop                                           | `keyboard.text(display, data).primary().row()`                                                                            |
+| `document.ts`    | `isArchive` + `getArchiveExtension` over the same list                      | one `find(endsWith)`; order-independent since `"x.tar.gz".endsWith(".tar")` is false                                      |
 
 Plus one behavior fix, not a shrink, surfaced by a row that was dropped — see below.
 
 ### Dropped, with the reason
 
-| Row | Why |
-|---|---|
-| `config.ts` `csvEnv` | Already resolved dropped; the three splitters are not parallel. Row deleted |
-| `callback.ts` regex routing | Already resolved dropped; loses two specific error toasts and touches the no-cut #19 charset guard. Row deleted |
-| `session.ts` `Bun.file().size` probe | Not equivalent for every path the config allows: on a FIFO the probe returns 0 and short-circuits where `readFileSync` would block on a writer. Three lines is not worth a hang |
-| `session.ts` `getThinkingLevel` twice | The proposed mechanism is itself broken — the adaptive branch returns `{type:"adaptive"}` with no `budgetTokens`, so the derived label reads `"undefined"`. And there is nothing to save: it is a pure scan of two keyword arrays |
-| `formatting.ts` verb table | `Read` is not symmetric with `Write`/`Edit` — it carries the image early-return. Lifting that back out leaves the same line count plus an indirection |
-| `security.ts` / `sandbox.ts` `CREDENTIAL_DIRS` | Two different matching models — basename equality plus `under()` containment, vs. glob strings for the SDK — over two non-identical sets. A shared constant needs a mode flag to serve both. Security layer: the fold has to be exact or not happen |
-| `streaming.ts` extension lookup | A method-name table needs `ctx[method](...)` and loses type safety; an arrow table is longer. Two `Set.has` calls are not a problem |
-| `commands.ts` `InlineKeyboard` | Replaces a `.map()` with a loop. The options object stays regardless because of `parse_mode`. Saves nothing |
-| `commands.ts` `new Context(...)` | Constructor shape is right and files hydration does survive (it rides `ctx.api`), but `bot.command()` sets `ctx.match` as an **own property** — probe-verified, `own keys: ["update","api","me","match"]` — which `Object.assign(…, ctx, …)` copies and the constructor drops. Zero lines saved, and it turns a type-only import into a runtime one |
-| `reactions.ts` `ctx.react` | `ctx.react` exists, but it `orThrow`s on a missing chat/message where the current guard returns silently, and six test files build fake contexts stubbing `api.setMessageReaction` with no `.react`. One of them would keep passing **vacuously**, via a swallowed TypeError instead of the guard it claims to test. Four source lines do not buy that |
-| `document.ts` `localeCompare` comparator | Old and new agreed on every case spiked, but it swaps a deterministic numeric parse for locale-dependent collation, and the output is PDF **page order** fed to a vision prompt — a wrong sort is silent. One line |
-| `document.ts` `mkdir`/`rm` via `node:fs/promises` | Error text changes, and `processArchive`'s catch puts `String(error).slice(0,100)` in front of the user. The perf argument does not survive contact: every one of those spawns sits beside a `pdftocairo`/`unzip`/`tar` spawn on the same path |
-| `photo.ts` album-branch hoist | Not a local shrink. The download is shared but its failure reporting differs by path — edit a status message vs. reply — so hoisting means duplicating ~18 lines or extracting a helper. `handlePhoto` has no test |
-| `Bun.randomUUIDv7()` everywhere | The row conflated four things. Kept the part that was a real bug (below); dropped swapping stdlib `randomUUID` in `session.ts`'s atomic-write path for a Bun-only API, and dropped the two `doc_${Date.now()}` **filename fallbacks**, which are not unique-suffix sites at all |
+| Row                                               | Why                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `config.ts` `csvEnv`                              | Already resolved dropped; the three splitters are not parallel. Row deleted                                                                                                                                                                                                                                                                            |
+| `callback.ts` regex routing                       | Already resolved dropped; loses two specific error toasts and touches the no-cut #19 charset guard. Row deleted                                                                                                                                                                                                                                        |
+| `session.ts` `Bun.file().size` probe              | Not equivalent for every path the config allows: on a FIFO the probe returns 0 and short-circuits where `readFileSync` would block on a writer. Three lines is not worth a hang                                                                                                                                                                        |
+| `session.ts` `getThinkingLevel` twice             | The proposed mechanism is itself broken — the adaptive branch returns `{type:"adaptive"}` with no `budgetTokens`, so the derived label reads `"undefined"`. And there is nothing to save: it is a pure scan of two keyword arrays                                                                                                                      |
+| `formatting.ts` verb table                        | `Read` is not symmetric with `Write`/`Edit` — it carries the image early-return. Lifting that back out leaves the same line count plus an indirection                                                                                                                                                                                                  |
+| `security.ts` / `sandbox.ts` `CREDENTIAL_DIRS`    | Two different matching models — basename equality plus `under()` containment, vs. glob strings for the SDK — over two non-identical sets. A shared constant needs a mode flag to serve both. Security layer: the fold has to be exact or not happen                                                                                                    |
+| `streaming.ts` extension lookup                   | A method-name table needs `ctx[method](...)` and loses type safety; an arrow table is longer. Two `Set.has` calls are not a problem                                                                                                                                                                                                                    |
+| `commands.ts` `InlineKeyboard`                    | Replaces a `.map()` with a loop. The options object stays regardless because of `parse_mode`. Saves nothing                                                                                                                                                                                                                                            |
+| `commands.ts` `new Context(...)`                  | Constructor shape is right and files hydration does survive (it rides `ctx.api`), but `bot.command()` sets `ctx.match` as an **own property** — probe-verified, `own keys: ["update","api","me","match"]` — which `Object.assign(…, ctx, …)` copies and the constructor drops. Zero lines saved, and it turns a type-only import into a runtime one    |
+| `reactions.ts` `ctx.react`                        | `ctx.react` exists, but it `orThrow`s on a missing chat/message where the current guard returns silently, and six test files build fake contexts stubbing `api.setMessageReaction` with no `.react`. One of them would keep passing **vacuously**, via a swallowed TypeError instead of the guard it claims to test. Four source lines do not buy that |
+| `document.ts` `localeCompare` comparator          | Old and new agreed on every case spiked, but it swaps a deterministic numeric parse for locale-dependent collation, and the output is PDF **page order** fed to a vision prompt — a wrong sort is silent. One line                                                                                                                                     |
+| `document.ts` `mkdir`/`rm` via `node:fs/promises` | Error text changes, and `processArchive`'s catch puts `String(error).slice(0,100)` in front of the user. The perf argument does not survive contact: every one of those spawns sits beside a `pdftocairo`/`unzip`/`tar` spawn on the same path                                                                                                         |
+| `photo.ts` album-branch hoist                     | Not a local shrink. The download is shared but its failure reporting differs by path — edit a status message vs. reply — so hoisting means duplicating ~18 lines or extracting a helper. `handlePhoto` has no test                                                                                                                                     |
+| `Bun.randomUUIDv7()` everywhere                   | The row conflated four things. Kept the part that was a real bug (below); dropped swapping stdlib `randomUUID` in `session.ts`'s atomic-write path for a Bun-only API, and dropped the two `doc_${Date.now()}` **filename fallbacks**, which are not unique-suffix sites at all                                                                        |
 
 ### The one behavior change
 
@@ -344,7 +347,7 @@ round trip, and the `node:fs/promises` import has no observable behavior. Neithe
 
 **Rule: a Batch 4 or 5 item ships its test in the same commit as its edit.**
 
-**Order matters more than the tests do.** Write the test against the **unrefactored** code and watch it pass *before* touching anything. A test written after a behavior-preserving refactor only describes the new code — it cannot show behavior held, which is the single thing these two batches claim. Any test that will not pass before the edit is testing the wrong thing.
+**Order matters more than the tests do.** Write the test against the **unrefactored** code and watch it pass _before_ touching anything. A test written after a behavior-preserving refactor only describes the new code — it cannot show behavior held, which is the single thing these two batches claim. Any test that will not pass before the edit is testing the wrong thing.
 
 No conflict with Batch 6's "run last": that rule forbids **rewriting** the existing suite mid-flight, because the suite is the oracle. Adding new coverage builds more oracle. Opposite direction.
 
@@ -352,14 +355,14 @@ No conflict with Batch 6's "run last": that rule forbids **rewriting** the exist
 
 What each item needs:
 
-| Item | Test |
-|---|---|
-| 4.0 `handleResumeCallback` | `isRunning` true during the query, false after — and after a throw |
-| 4.1 `setTitleIfNew` | the >50 truncation, and that an already-active session keeps its title. Then one call site per handler |
-| 4.2 `rateLimitOrReply` | over-limit replies and returns true; the album path charges once, not once per item |
-| 4.4 `deleteToolMessages` | every message attempted even when one delete throws — that swallow is the point |
-| 4.5 `runPrompt` | `processPhotos` and `processDocuments` only. Success and catch paths |
-| Batch 5 | Per row, and only where the row has observable behavior. Four of the five rows named here were dropped at plan review; the survivor (`getArchiveExtension`) shipped its test, as did two rows this list never anticipated. See Batch 5's own Coverage block |
+| Item                       | Test                                                                                                                                                                                                                                                        |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 4.0 `handleResumeCallback` | `isRunning` true during the query, false after — and after a throw                                                                                                                                                                                          |
+| 4.1 `setTitleIfNew`        | the >50 truncation, and that an already-active session keeps its title. Then one call site per handler                                                                                                                                                      |
+| 4.2 `rateLimitOrReply`     | over-limit replies and returns true; the album path charges once, not once per item                                                                                                                                                                         |
+| 4.4 `deleteToolMessages`   | every message attempted even when one delete throws — that swallow is the point                                                                                                                                                                             |
+| 4.5 `runPrompt`            | `processPhotos` and `processDocuments` only. Success and catch paths                                                                                                                                                                                        |
+| Batch 5                    | Per row, and only where the row has observable behavior. Four of the five rows named here were dropped at plan review; the survivor (`getArchiveExtension`) shipped its test, as did two rows this list never anticipated. See Batch 5's own Coverage block |
 
 **Still uncovered after all of it:** the Telegram wire. A manual pass at deploy stays the check for that — nothing in-process reaches it.
 
@@ -374,17 +377,17 @@ count in the original table was stale except one.
 
 ### Applied
 
-| Row | What landed |
-|---|---|
-| `bunfig.toml` `[test] preload` | New `test-preload.ts` sets `TELEGRAM_BOT_TOKEN`/`TELEGRAM_ALLOWED_USERS`. The identical preamble was in **16 of 20** files, not 12 of 16 |
-| `security.test.ts` `checkCommandSafety` | **58** single-expect cases across three describes → one `test.each` per describe. The 2 multi-expect `/proc` tests stay as they are |
-| `security.test.ts` `evaluateToolUse` | **41** stateless cases → one typed `TOOL_GATE_CASES` table. The **7** that mutate module or process state stay standalone |
-| `streaming.test.ts` | **4** in-test `await import("./streaming")` folded into the existing top-level destructure, not 3 |
+| Row                                     | What landed                                                                                                                              |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `bunfig.toml` `[test] preload`          | New `test-preload.ts` sets `TELEGRAM_BOT_TOKEN`/`TELEGRAM_ALLOWED_USERS`. The identical preamble was in **16 of 20** files, not 12 of 16 |
+| `security.test.ts` `checkCommandSafety` | **58** single-expect cases across three describes → one `test.each` per describe. The 2 multi-expect `/proc` tests stay as they are      |
+| `security.test.ts` `evaluateToolUse`    | **41** stateless cases → one typed `TOOL_GATE_CASES` table. The **7** that mutate module or process state stay standalone                |
+| `streaming.test.ts`                     | **4** in-test `await import("./streaming")` folded into the existing top-level destructure, not 3                                        |
 
 ### Dropped, with the reason
 
-| Row | Why |
-|---|---|
+| Row                                               | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | push-closures → `mock()` + `toHaveBeenCalledWith` | Only **5** sites exist, not 7, and `auth.test.ts` — one of the three files named — has none; it uses counters. `toHaveBeenCalledWith` matches **any** call, so it cannot express `reactions.test.ts`'s `calls[0]` / `calls[1]` ordering (spiked: a spy called `("b")` then `("a")` passes `toHaveBeenCalledWith("a")`). Collapsing three assertions into one would also drop the `expect()` count below the gate. Nine lines is not worth a weaker oracle |
 
 ### Why the preload is safe
@@ -441,13 +444,13 @@ already removed most of the duplicated `try/catch { /* ignore */ }` sites.
 
 ### Applied — 13 deletions
 
-| Site | Comment |
-|---|---|
-| `commands.ts` | `// Format date: "18/01 10:30"` — the template two statements below assembles `${dateStr} ${timeStr}` in plain sight |
-| `formatting.ts` x7 | Headers, Bold, Double underscore, Blockquotes, Bullet lists, Horizontal rules, Links — each restated the regex beneath it |
-| `formatting.ts` | `// Handle blockquote at end` — the one finding both passes agreed on |
-| `security.ts` x2 | `// flags / empty tokens` (translates `!arg \|\| arg.startsWith("-")`) and `// file:, gopher:, ...` (restates an explicit http/https allowlist) |
-| `session.ts` x2 | `// Use V1 query() API …` and `// V1 query completes …`. The installed SDK exports one `query`; there is no V1/V2 split for the marker to name |
+| Site               | Comment                                                                                                                                         |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `commands.ts`      | `// Format date: "18/01 10:30"` — the template two statements below assembles `${dateStr} ${timeStr}` in plain sight                            |
+| `formatting.ts` x7 | Headers, Bold, Double underscore, Blockquotes, Bullet lists, Horizontal rules, Links — each restated the regex beneath it                       |
+| `formatting.ts`    | `// Handle blockquote at end` — the one finding both passes agreed on                                                                           |
+| `security.ts` x2   | `// flags / empty tokens` (translates `!arg \|\| arg.startsWith("-")`) and `// file:, gopher:, ...` (restates an explicit http/https allowlist) |
+| `session.ts` x2    | `// Use V1 query() API …` and `// V1 query completes …`. The installed SDK exports one `query`; there is no V1/V2 split for the marker to name  |
 
 ### The TRIM half was DROPPED, not applied
 
@@ -481,10 +484,10 @@ longer existed. Both surviving comments in that chain were rewritten to stand al
 Rewriting them turned up a real asymmetry that neither comment had recorded, and that the
 first rewrite got wrong in the other direction:
 
-| Pass | Regex | Excludes the doubled form on its own? |
-|---|---|---|
+| Pass       | Regex                      | Excludes the doubled form on its own?                                                                                |
+| ---------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | single `*` | `/(?<!\*)\*(.+?)\*(?!\*)/` | **No.** `(.+?)` spans the inner delimiters, so `**x**` alone yields `<b>*x*</b>`. The `**` pass above must run first |
-| single `_` | `/(?<!_)_([^_]+)_(?!_)/` | **Yes.** `[^_]+` cannot span them, so order is irrelevant |
+| single `_` | `/(?<!_)_([^_]+)_(?!_)/`   | **Yes.** `[^_]+` cannot span them, so order is irrelevant                                                            |
 
 Nothing covered this. A reorder is silent — the output stays well-formed HTML, so the
 tag-balance fuzz tests in `streaming.test.ts` cannot see it. A guard test landed in
@@ -511,22 +514,22 @@ From the security review. These look redundant, verbose, or paranoid to a simpli
 
 **Deliberate cross-layer redundancy — both sites stay:**
 
-| Pair | Site A | Site B | Why both |
-|---|---|---|---|
-| ALLOWED_PATHS containment | `security.ts:509` `evaluateToolUse` (native tools) | `sandbox.ts:104` `buildSandboxSettings` (Bash, OS-level) | The hook does not bind Bash syscalls; the sandbox does not bind Read/Write/Edit. Cutting either opens one whole tool surface. |
-| Credential paths | `security.ts:466` `isCredentialPath` | `sandbox.ts:30` `READ_DENY` | Same split. Sharing the *list* is fine (Batch 5); sharing an *enforcement point* is not. |
-| `/proc/<pid>/environ` | `security.ts:172` regex | `security.ts:480` + `sandbox.ts:49` | Three different execution paths to one leak. |
-| Secret env vars | `sandbox.ts:82` `sanitizeEnv` | `sandbox.ts:73,134` `credentials.envVars` | `AUTH_KEEP` vars are deliberately *kept* in the child env so Claude can authenticate — the sandbox deny is the only thing hiding them from Bash. |
-| `DENIED_TOOLS` | `session.ts:248` SDK `disallowedTools` | `security.ts:509` hook check | A stops the model emitting it; B is the runtime backstop. |
-| Tool-use verdict | `session.ts:254` PreToolUse hook | `session.ts:368` stream backstop | The backstop must never throw — throwing aborts the turn instead of letting Claude see the denial. |
-| Bash write gating | `security.ts:112` redirect/rm parser | `sandbox.ts:104` OS sandbox | `BASH_SANDBOX_ENABLED=false` is a supported mode (`sandbox.ts:93`). There, the parser is the only containment left. |
-| Temp access | `security.ts:76` broad `TEMP_PATHS` | `sandbox.ts:8` narrow `SANDBOX_SCRATCH` | Asymmetric on purpose: native tools need scattered `/tmp` downloads, Bash is confined to one scratch dir. |
-| Rate limiting | `photo/video/document.ts` per-item | `media-group.ts:103` per-album | Unifying either double-charges a 10-photo album or drops single-send limiting. |
-| Archive containment | `document.ts:234` zip-slip pre-check | `document.ts:212` `stripLinks` + `:273` `nlink>1` re-check | Write-outside, read-exfil, and a TOCTOU belt. Three attack classes. |
+| Pair                      | Site A                                             | Site B                                                     | Why both                                                                                                                                         |
+| ------------------------- | -------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ALLOWED_PATHS containment | `security.ts:509` `evaluateToolUse` (native tools) | `sandbox.ts:104` `buildSandboxSettings` (Bash, OS-level)   | The hook does not bind Bash syscalls; the sandbox does not bind Read/Write/Edit. Cutting either opens one whole tool surface.                    |
+| Credential paths          | `security.ts:466` `isCredentialPath`               | `sandbox.ts:30` `READ_DENY`                                | Same split. Sharing the _list_ is fine (Batch 5); sharing an _enforcement point_ is not.                                                         |
+| `/proc/<pid>/environ`     | `security.ts:172` regex                            | `security.ts:480` + `sandbox.ts:49`                        | Three different execution paths to one leak.                                                                                                     |
+| Secret env vars           | `sandbox.ts:82` `sanitizeEnv`                      | `sandbox.ts:73,134` `credentials.envVars`                  | `AUTH_KEEP` vars are deliberately _kept_ in the child env so Claude can authenticate — the sandbox deny is the only thing hiding them from Bash. |
+| `DENIED_TOOLS`            | `session.ts:248` SDK `disallowedTools`             | `security.ts:509` hook check                               | A stops the model emitting it; B is the runtime backstop.                                                                                        |
+| Tool-use verdict          | `session.ts:254` PreToolUse hook                   | `session.ts:368` stream backstop                           | The backstop must never throw — throwing aborts the turn instead of letting Claude see the denial.                                               |
+| Bash write gating         | `security.ts:112` redirect/rm parser               | `sandbox.ts:104` OS sandbox                                | `BASH_SANDBOX_ENABLED=false` is a supported mode (`sandbox.ts:93`). There, the parser is the only containment left.                              |
+| Temp access               | `security.ts:76` broad `TEMP_PATHS`                | `sandbox.ts:8` narrow `SANDBOX_SCRATCH`                    | Asymmetric on purpose: native tools need scattered `/tmp` downloads, Bash is confined to one scratch dir.                                        |
+| Rate limiting             | `photo/video/document.ts` per-item                 | `media-group.ts:103` per-album                             | Unifying either double-charges a 10-photo album or drops single-send limiting.                                                                   |
+| Archive containment       | `document.ts:234` zip-slip pre-check               | `document.ts:212` `stripLinks` + `:273` `nlink>1` re-check | Write-outside, read-exfil, and a TOCTOU belt. Three attack classes.                                                                              |
 
 **Single points that look prunable and are load-bearing:** `security.ts:391` `canonicalize` (lexical `..` resolution against a symlink segment is the exact escape it prevents — no stdlib realpath tolerates a missing tail), `security.ts:112` `checkRedirectTargets` (every edge case is a documented near-miss), `security.ts:342` DNS-resolve branch (closes `evil.example.com A 169.254.169.254`), `sandbox.ts:99` fail-secure env parse, `sandbox.ts:14` scratch-dir symlink pre-check, `trigger.ts:31` `timingSafeEqual`, `callback.ts:44` requestId charset (callback_data is attacker-shaped regardless of which buttons were rendered), `session.ts:86` `writeJsonAtomic`, `utils.ts:121` reaper NaN guard (the failure mode is deletion), `index.ts:44` `authGate` before `sequentialize` (the sole auth choke point), `streaming.ts:106` `isPathAllowed` (the **only** validation of `send_file`'s path anywhere — the MCP server does none), `security.test.ts:694` SDK tool-surface tripwire.
 
-**Pushback on the architect's finding 7:** `plugins.test.ts` is 15 lines and reads as "testing a dependency", but it asserts *our* wiring does not throw at install time. Keep.
+**Pushback on the architect's finding 7:** `plugins.test.ts` is 15 lines and reads as "testing a dependency", but it asserts _our_ wiring does not throw at install time. Keep.
 
 **Pushback on architect finding 11** (move the MCP-IPC pollers out of `streaming.ts` into `session.ts`): net 0 lines, grows the largest file 617 → 745. Buys graph shape, not size. Skip.
 
@@ -534,17 +537,17 @@ From the security review. These look redundant, verbose, or paranoid to a simpli
 
 ## Deliberately rejected
 
-| Proposal | Lines | Why not |
-|---|---|---|
-| `net.BlockList` for `isPrivateV4`/`isBlockedV6` | -23 | A1 says it would work — every branch probed identical. But it is the SSRF classifier, the payoff is 23 lines, and the security review flags it no-cut. Not worth touching working, tested code. Revisit only with a differential fuzz test as the gate. |
-| MCP servers → `registerTool` + zod | -177 | Wire-visible change: malformed input goes from `-32603` with a custom message to `-32602` zod text. Violates behavior-preserving. **Take the `fail()` helper alone** (-41 on `send_file`) — zero API difference. **Overturned by decision 3** — the full rewrite was taken and applied; the measured saving is -102, and the wire change is not the one described here. |
-| Delete `AUDIT_LOG_JSON` | -13 | Operator-facing, documented in `SECURITY.md:143`. |
-| `Bun.escapeHTML` | -6 | A9: emits `&#x27;` for `'`; Telegram HTML-mode acceptance unconfirmed. Six lines is not worth a rendering regression. |
-| `extname()` for the 4 extension spellings | -4 | Extension-less `README` currently yields `.readme` and can match `TEXT_EXTENSIONS`; `extname` yields `""`. |
-| `describeError` in `document.ts:386,623` | 0 | Widens the cap 100 → 200 chars. |
-| `PATH` prepend via `toReversed`+Set | -5 | Moves an already-present entry to the front instead of leaving it. |
-| Delete the archive feature | **-200** | Largest removable block in the repo, and it carries the densest attack surface (zip-slip, link stripping, 2 external CLIs). Not behavior-preserving — raised as a **question**, not a recommendation. Grep the audit log for `ARCHIVE` events before deciding. |
-| Widen denylist to `tee`/`dd of=`/`cp`/`mv`/`find -delete` | +N | Real gap, and it is the *only* gap when `BASH_SANDBOX_ENABLED=false` with no OS backstop. Already self-documented as an accepted ceiling at `security.ts:144-149`. Scope expansion — separate decision. |
+| Proposal                                                  | Lines    | Why not                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `net.BlockList` for `isPrivateV4`/`isBlockedV6`           | -23      | A1 says it would work — every branch probed identical. But it is the SSRF classifier, the payoff is 23 lines, and the security review flags it no-cut. Not worth touching working, tested code. Revisit only with a differential fuzz test as the gate.                                                                                                                 |
+| MCP servers → `registerTool` + zod                        | -177     | Wire-visible change: malformed input goes from `-32603` with a custom message to `-32602` zod text. Violates behavior-preserving. **Take the `fail()` helper alone** (-41 on `send_file`) — zero API difference. **Overturned by decision 3** — the full rewrite was taken and applied; the measured saving is -102, and the wire change is not the one described here. |
+| Delete `AUDIT_LOG_JSON`                                   | -13      | Operator-facing, documented in `SECURITY.md:143`.                                                                                                                                                                                                                                                                                                                       |
+| `Bun.escapeHTML`                                          | -6       | A9: emits `&#x27;` for `'`; Telegram HTML-mode acceptance unconfirmed. Six lines is not worth a rendering regression.                                                                                                                                                                                                                                                   |
+| `extname()` for the 4 extension spellings                 | -4       | Extension-less `README` currently yields `.readme` and can match `TEXT_EXTENSIONS`; `extname` yields `""`.                                                                                                                                                                                                                                                              |
+| `describeError` in `document.ts:386,623`                  | 0        | Widens the cap 100 → 200 chars.                                                                                                                                                                                                                                                                                                                                         |
+| `PATH` prepend via `toReversed`+Set                       | -5       | Moves an already-present entry to the front instead of leaving it.                                                                                                                                                                                                                                                                                                      |
+| Delete the archive feature                                | **-200** | Largest removable block in the repo, and it carries the densest attack surface (zip-slip, link stripping, 2 external CLIs). Not behavior-preserving — raised as a **question**, not a recommendation. Grep the audit log for `ARCHIVE` events before deciding.                                                                                                          |
+| Widen denylist to `tee`/`dd of=`/`cp`/`mv`/`find -delete` | +N       | Real gap, and it is the _only_ gap when `BASH_SANDBOX_ENABLED=false` with no OS backstop. Already self-documented as an accepted ceiling at `security.ts:144-149`. Scope expansion — separate decision.                                                                                                                                                                 |
 
 ## Sequencing
 
@@ -568,12 +571,12 @@ Per batch: `bun run typecheck` && `bun test`, then one commit. The counts must n
 
 ## Decisions — 2026-07-30
 
-| # | Question | Decision |
-|---|---|---|
-| 1 | Batch 3 scope | **All three, in order:** `video.ts` tool-message leak, `callback.ts` `isRunning`, audit-log `0o600`. |
-| 2 | Archive feature | **Keep.** Local check inconclusive — no `/tmp/claude-telegram-audit.log` on this host and no pod matched `app=claude-telegram-bot`. Not re-litigated by a future pass without new evidence: run `grep -c ARCHIVE "$AUDIT_LOG_PATH"` against the running bot to reopen. |
-| 3 | MCP servers | **Full `registerTool` + zod rewrite**, -177 lines. Accepted as a deliberate wire change. Applied 2026-07-30; measured -102, and the wire change differs from the prediction — see below. |
-| 4 | `security.test.ts` `test.each` | **Do it, last**, gated on ≥228 tests / ≥808 expect(). |
+| #   | Question                       | Decision                                                                                                                                                                                                                                                               |
+| --- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Batch 3 scope                  | **All three, in order:** `video.ts` tool-message leak, `callback.ts` `isRunning`, audit-log `0o600`.                                                                                                                                                                   |
+| 2   | Archive feature                | **Keep.** Local check inconclusive — no `/tmp/claude-telegram-audit.log` on this host and no pod matched `app=claude-telegram-bot`. Not re-litigated by a future pass without new evidence: run `grep -c ARCHIVE "$AUDIT_LOG_PATH"` against the running bot to reopen. |
+| 3   | MCP servers                    | **Full `registerTool` + zod rewrite**, -177 lines. Accepted as a deliberate wire change. Applied 2026-07-30; measured -102, and the wire change differs from the prediction — see below.                                                                               |
+| 4   | `security.test.ts` `test.each` | **Do it, last**, gated on ≥228 tests / ≥808 expect().                                                                                                                                                                                                                  |
 
 ### Consequences of decision 1
 
@@ -609,27 +612,28 @@ The per-batch gate (`bun run typecheck` + `bun test`) **cannot catch findings 1,
 
 The `registerTool` rewrite is the plan's only accepted behavior change beyond the `video.ts`
 fix. Both servers moved from the low-level `Server` + `setRequestHandler` pair to `McpServer`
-+ `registerTool` with zod input schemas. **285 → 183 lines (−102)**, not the −177 the audit
-estimated — A10 said those numbers were agent estimates, and this is the size of the miss.
+
+- `registerTool` with zod input schemas. **285 → 183 lines (−102)**, not the −177 the audit
+  estimated — A10 said those numbers were agent estimates, and this is the size of the miss.
 
 The predicted wire change was wrong in two ways, both found by probing the old and new
 servers over real stdio with an SDK `Client` before and after:
 
-| Case | Before | After |
-|---|---|---|
-| `ask_user` missing/empty question, `<2` options | JSON-RPC error `-32603`, "question and at least 2 options required" | tool result `isError: true`, text `MCP error -32602: Input validation error: …` + zod detail |
-| `ask_user` 11 options, non-string options, numeric question | **accepted** — request file written, bot renders it | refused, `-32602` |
-| `send_file` missing/empty/non-string `file_path` | tool result `isError: true`, "Error: file_path is required" | tool result `isError: true`, `-32602` text |
-| `send_file` file absent, oversize, or no `TELEGRAM_CHAT_ID` | `isError: true` refusal | **unchanged** — still the callback's own text |
-| Unknown tool name | `-32603` "Unknown tool: nope" | `isError: true`, "Tool nope not found" |
-| Valid calls, either tool | — | identical result text and identical request-file shape |
+| Case                                                        | Before                                                              | After                                                                                        |
+| ----------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `ask_user` missing/empty question, `<2` options             | JSON-RPC error `-32603`, "question and at least 2 options required" | tool result `isError: true`, text `MCP error -32602: Input validation error: …` + zod detail |
+| `ask_user` 11 options, non-string options, numeric question | **accepted** — request file written, bot renders it                 | refused, `-32602`                                                                            |
+| `send_file` missing/empty/non-string `file_path`            | tool result `isError: true`, "Error: file_path is required"         | tool result `isError: true`, `-32602` text                                                   |
+| `send_file` file absent, oversize, or no `TELEGRAM_CHAT_ID` | `isError: true` refusal                                             | **unchanged** — still the callback's own text                                                |
+| Unknown tool name                                           | `-32603` "Unknown tool: nope"                                       | `isError: true`, "Tool nope not found"                                                       |
+| Valid calls, either tool                                    | —                                                                   | identical result text and identical request-file shape                                       |
 
 1. **Nothing throws any more.** `McpServer` catches its own `McpError` and returns it as an
    `isError` tool result, so what the model receives is a readable refusal it can correct,
    not a protocol error. The plan predicted a bare `-32602` on the wire.
 2. **The rewrite tightens as well as re-codes.** Three `ask_user` shapes that previously
    succeeded are now refused. All three already violated the advertised schema — `maxItems:
-   10` and `items: {type: string}` were declared from the start and never enforced — so this
+10` and `items: {type: string}` were declared from the start and never enforced — so this
    closes a gap between what the tool promised and what it accepted, rather than narrowing
    the contract. Called out because it is a behaviour change the decision did not name.
 
@@ -655,12 +659,12 @@ behaved identically — so each needed its own yes. Researched 2026-07-31 agains
 spec and the live code; **three were taken, two were not, and the research turned up a
 fifth that was worse than any of them.**
 
-| Where | Input | What happens |
-|---|---|---|
-| `ask_user`, `options` items | `["", "Cancel"]` | An empty label is queued. `createAskUserKeyboard` passes it straight to `keyboard.text()`, Telegram rejects the whole `sendMessage`, and `streaming.ts:67` swallows the error — so **one empty option silently loses the entire prompt**, not just its button |
-| `send_file`, `caption` | 1,025 characters | Queued, then rejected at send time: Telegram's caption limit is 1,024 |
-| `send_file`, `file_path` | a non-empty file with no read permission | `Bun.file(path).size` reads `stat`, so the size check passes (probed: size 7, `text()` throws `EACCES`). The file is queued and delivery fails later |
-| both, `request_id` | two overlapping calls | `crypto.randomUUID().slice(0, 8)` keeps 32 bits. A collision overwrites a pending request. Unchanged from the original, and the odds are small, but the failure is silent |
+| Where                       | Input                                    | What happens                                                                                                                                                                                                                                                  |
+| --------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ask_user`, `options` items | `["", "Cancel"]`                         | An empty label is queued. `createAskUserKeyboard` passes it straight to `keyboard.text()`, Telegram rejects the whole `sendMessage`, and `streaming.ts:67` swallows the error — so **one empty option silently loses the entire prompt**, not just its button |
+| `send_file`, `caption`      | 1,025 characters                         | Queued, then rejected at send time: Telegram's caption limit is 1,024                                                                                                                                                                                         |
+| `send_file`, `file_path`    | a non-empty file with no read permission | `Bun.file(path).size` reads `stat`, so the size check passes (probed: size 7, `text()` throws `EACCES`). The file is queued and delivery fails later                                                                                                          |
+| both, `request_id`          | two overlapping calls                    | `crypto.randomUUID().slice(0, 8)` keeps 32 bits. A collision overwrites a pending request. Unchanged from the original, and the odds are small, but the failure is silent                                                                                     |
 
 ### The research, 2026-07-31
 
@@ -685,10 +689,10 @@ Also corrected: there is no retry loop. `pollFor` is a 200 ms settle plus 3 atte
 `""` straight through unvalidated (probed). Settled from the implementation instead, since
 no bot token was available on this host for a live call:
 
-| Source | Finding |
-|---|---|
-| tdlib `td/telegram/ReplyMarkup.cpp`, `get_inline_keyboard_button` | `if (button->text_.empty()) return Status::Error(400, "Inline keyboard button text must be non-empty");` — an **empty** label is rejected, and takes the whole keyboard with it |
-| tdlib `td/telegram/misc.cpp`, `clean_input_string` | Validates UTF-8, maps the C0 controls **including tab** to a space, drops CR, and **never trims**. `clean_name` in the same file ends `return trim(str)`; button text does not go through it |
+| Source                                                            | Finding                                                                                                                                                                                      |
+| ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| tdlib `td/telegram/ReplyMarkup.cpp`, `get_inline_keyboard_button` | `if (button->text_.empty()) return Status::Error(400, "Inline keyboard button text must be non-empty");` — an **empty** label is rejected, and takes the whole keyboard with it              |
+| tdlib `td/telegram/misc.cpp`, `clean_input_string`                | Validates UTF-8, maps the C0 controls **including tab** to a space, drops CR, and **never trims**. `clean_name` in the same file ends `return trim(str)`; button text does not go through it |
 
 So the two cases differ in cost, which is what the guard is shaped around. An **empty** label
 loses the entire prompt with no message to the user. A merely **invisible** one — `"   "`,
@@ -706,11 +710,11 @@ proving the path.
 
 ### Applied
 
-| # | Fix | Where |
-|---|---|---|
-| 4 | Whole UUID as the request id | both servers |
-| 1 | `z.string().min(1).regex(RENDERS_SOMETHING)` per option — empty and blank labels both refused | `ask_user_mcp/server.ts` |
-| 5 | `pending` past `IPC_PENDING_TTL_MS` (5 min) is dead; anything past `TEMP_RETENTION_MS` is deleted; the reap runs before the chat filter, and the retention half runs **before the parse** so an unparseable file is not re-read forever | `streaming.ts`, both pollers |
+| #   | Fix                                                                                                                                                                                                                                     | Where                        |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| 4   | Whole UUID as the request id                                                                                                                                                                                                            | both servers                 |
+| 1   | `z.string().min(1).regex(RENDERS_SOMETHING)` per option — empty and blank labels both refused                                                                                                                                           | `ask_user_mcp/server.ts`     |
+| 5   | `pending` past `IPC_PENDING_TTL_MS` (5 min) is dead; anything past `TEMP_RETENTION_MS` is deleted; the reap runs before the chat filter, and the retention half runs **before the parse** so an unparseable file is not re-read forever | `streaming.ts`, both pollers |
 
 **Left alone:** the caption bound and the unreadable-file check. Both already fail visibly
 and clean up after themselves, and both fixes would reject input that works today.
@@ -757,20 +761,20 @@ Batches 6 and 7 changed no runtime behaviour — tests and comments only — so 
 list is what Batches 3, 4 and 5 left behind, unchanged. The last two rows are the MCP
 rewrite, which did change behaviour and whose tests stop at the server.
 
-| Path | What to send | What changed under it |
-|---|---|---|
-| Text | a normal message | `setTitleIfNew`, `rateLimitOrReply`, `deleteToolMessages` — five call sites folded into one each |
-| Text | `!` + a follow-up while a query runs | `checkInterrupt` moved from `utils.ts` into `text.ts`; the preempted query must stay silent, not print "🛑 Query stopped." |
-| Text | `!stop` and `!/stop` | both must cancel and forward nothing |
-| Photo | one image | shared `runPrompt`; the whole constructed prompt is audited here, deliberately |
-| Album | 3+ images at once | the debounce was rewritten as one `arm()` closure. The album must be rate-limited **once**, not once per image |
-| Video | a video and a video note | the catch used to pass `[]` and leak tool messages; that is the Batch 3 fix |
-| Document | a PDF, a text file, and **two archives uploaded together** | the two-archive case is the Batch 5 fix: extraction dirs used to collide within a millisecond and delete each other's files mid-read |
-| Button | an `ask_user` prompt, then tap an option | the keyboard is now built with `.text().primary().row()`; `isRunning` must be true during the query and false after. Also the first live exercise of the rewritten `ask_user` server — the tests prove it writes the right file, nothing proves `callback.ts` still finds it. `callback_data` now carries a whole UUID, 47 of the 64 bytes Telegram allows: if that were wrong the buttons would not work at all |
-| File | ask Claude to send a file back, with and without a caption | the rewritten `send_file` server. Same gap: the tests cover the write, not `streaming.ts` reading it. Send one image and one non-media file, so both the `replyWithPhoto` and `replyWithDocument` branches run |
-| `/new`, `/stop` | during a running query | the stop → settle → clear sequence |
-| `/resume` | pick a saved session | check what `/status` and `/stop` report **during the recap** — Batch 4 changed it |
-| `/restart` | once | Batch 7 could not settle statically whether the 500 ms sleep is what stops a redelivered `/restart` looping. Watch for a restart loop |
+| Path            | What to send                                               | What changed under it                                                                                                                                                                                                                                                                                                                                                                                            |
+| --------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Text            | a normal message                                           | `setTitleIfNew`, `rateLimitOrReply`, `deleteToolMessages` — five call sites folded into one each                                                                                                                                                                                                                                                                                                                 |
+| Text            | `!` + a follow-up while a query runs                       | `checkInterrupt` moved from `utils.ts` into `text.ts`; the preempted query must stay silent, not print "🛑 Query stopped."                                                                                                                                                                                                                                                                                       |
+| Text            | `!stop` and `!/stop`                                       | both must cancel and forward nothing                                                                                                                                                                                                                                                                                                                                                                             |
+| Photo           | one image                                                  | shared `runPrompt`; the whole constructed prompt is audited here, deliberately                                                                                                                                                                                                                                                                                                                                   |
+| Album           | 3+ images at once                                          | the debounce was rewritten as one `arm()` closure. The album must be rate-limited **once**, not once per image                                                                                                                                                                                                                                                                                                   |
+| Video           | a video and a video note                                   | the catch used to pass `[]` and leak tool messages; that is the Batch 3 fix                                                                                                                                                                                                                                                                                                                                      |
+| Document        | a PDF, a text file, and **two archives uploaded together** | the two-archive case is the Batch 5 fix: extraction dirs used to collide within a millisecond and delete each other's files mid-read                                                                                                                                                                                                                                                                             |
+| Button          | an `ask_user` prompt, then tap an option                   | the keyboard is now built with `.text().primary().row()`; `isRunning` must be true during the query and false after. Also the first live exercise of the rewritten `ask_user` server — the tests prove it writes the right file, nothing proves `callback.ts` still finds it. `callback_data` now carries a whole UUID, 47 of the 64 bytes Telegram allows: if that were wrong the buttons would not work at all |
+| File            | ask Claude to send a file back, with and without a caption | the rewritten `send_file` server. Same gap: the tests cover the write, not `streaming.ts` reading it. Send one image and one non-media file, so both the `replyWithPhoto` and `replyWithDocument` branches run                                                                                                                                                                                                   |
+| `/new`, `/stop` | during a running query                                     | the stop → settle → clear sequence                                                                                                                                                                                                                                                                                                                                                                               |
+| `/resume`       | pick a saved session                                       | check what `/status` and `/stop` report **during the recap** — Batch 4 changed it                                                                                                                                                                                                                                                                                                                                |
+| `/restart`      | once                                                       | Batch 7 could not settle statically whether the 500 ms sleep is what stops a redelivered `/restart` looping. Watch for a restart loop                                                                                                                                                                                                                                                                            |
 
 ### 2. Batch 2 — already closed, not outstanding
 

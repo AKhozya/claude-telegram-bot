@@ -69,12 +69,7 @@ async function isPrivate(handle: fs.FileHandle): Promise<boolean> {
   const check = async () => {
     const stat = await handle.stat();
     const uid = process.getuid?.();
-    return (
-      stat.isFile() &&
-      stat.nlink === 1 &&
-      stat.uid === uid &&
-      (stat.mode & 0o077) === 0
-    );
+    return stat.isFile() && stat.nlink === 1 && stat.uid === uid && (stat.mode & 0o077) === 0;
   };
   if (await check()) return true;
   try {
@@ -95,9 +90,7 @@ async function writeAuditLog(event: AuditEvent): Promise<void> {
       // Nothing is written, not even the metadata. A record here would go to a file
       // someone else can read, and would still be missing from the log its operator
       // believes they have.
-      console.error(
-        `Audit log ${AUDIT_LOG_PATH} is not private - dropping this record`
-      );
+      console.error(`Audit log ${AUDIT_LOG_PATH} is not private - dropping this record`);
       return;
     }
 
@@ -108,10 +101,7 @@ async function writeAuditLog(event: AuditEvent): Promise<void> {
       const lines = ["\n" + "=".repeat(60)];
       for (const [key, value] of Object.entries(event)) {
         let displayValue = value;
-        if (
-          (key === "content" || key === "response") &&
-          String(value).length > 500
-        ) {
+        if ((key === "content" || key === "response") && String(value).length > 500) {
           displayValue = String(value).slice(0, 500) + "...";
         }
         lines.push(`${key}: ${displayValue}`);
@@ -127,9 +117,7 @@ async function writeAuditLog(event: AuditEvent): Promise<void> {
     console.error("Failed to write audit log:", error);
   } finally {
     // Deferred write errors surface here, so a swallowed close loses a record silently.
-    await handle
-      ?.close()
-      .catch((error) => console.error("Failed to close audit log:", error));
+    await handle?.close().catch((error) => console.error("Failed to close audit log:", error));
   }
 }
 
@@ -138,7 +126,7 @@ export async function auditLog(
   username: string,
   messageType: string,
   content: string,
-  response = ""
+  response = "",
 ): Promise<void> {
   const event: AuditEvent = {
     timestamp: new Date().toISOString(),
@@ -154,11 +142,10 @@ export async function auditLog(
   await writeAuditLog(event);
 }
 
-
 export async function auditLogRateLimit(
   userId: number,
   username: string,
-  retryAfter: number
+  retryAfter: number,
 ): Promise<void> {
   await writeAuditLog({
     timestamp: new Date().toISOString(),
@@ -217,7 +204,7 @@ export function uniqueTempDir(prefix: string): string {
 export async function reapTempDir(
   dir: string = TEMP_DIR,
   maxAgeMs: number = TEMP_RETENTION_MS,
-  now: number = Date.now()
+  now: number = Date.now(),
 ): Promise<number> {
   // Behind config validation, because the failure mode is deletion: a NaN age makes the
   // keep-if-young test false for every entry, sweeping the whole directory.
@@ -253,9 +240,7 @@ export async function reapTempDir(
   return removed;
 }
 
-export function startTempReaper(
-  intervalMs: number = TEMP_REAP_INTERVAL_MS
-): { stop: () => void } {
+export function startTempReaper(intervalMs: number = TEMP_REAP_INTERVAL_MS): { stop: () => void } {
   // Sweep once at boot too: a pod that restarts more often than the interval would
   // otherwise never reach a tick, and restarts are exactly when /tmp is already dirty.
   void reapTempDir();
@@ -263,4 +248,3 @@ export function startTempReaper(
   timer.unref?.(); // a pending sweep must never hold the process open on shutdown
   return { stop: () => clearInterval(timer) };
 }
-

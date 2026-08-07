@@ -39,7 +39,7 @@ const makeCtx = (rec: Recorded, caption?: string, failDeleteOf?: number): any =>
 
 const withRateLimit = async (
   result: [boolean, number?],
-  body: (checks: number[]) => Promise<void>
+  body: (checks: number[]) => Promise<void>,
 ): Promise<void> => {
   const r = rateLimiter as any;
   const checks: number[] = [];
@@ -107,9 +107,16 @@ describe("media group rate limiting", () => {
       const buffer = createMediaGroupBuffer(config);
       let seen: string | undefined = "unset";
 
-      await buffer.addToGroup("g3", "/tmp/a.jpg", makeCtx(rec), 1, "tester", async (_c, _i, cap) => {
-        seen = cap;
-      });
+      await buffer.addToGroup(
+        "g3",
+        "/tmp/a.jpg",
+        makeCtx(rec),
+        1,
+        "tester",
+        async (_c, _i, cap) => {
+          seen = cap;
+        },
+      );
       await buffer.addToGroup(
         "g3",
         "/tmp/b.jpg",
@@ -118,7 +125,7 @@ describe("media group rate limiting", () => {
         "tester",
         async (_c, _i, cap) => {
           seen = cap;
-        }
+        },
       );
 
       await Bun.sleep(MEDIA_GROUP_TIMEOUT + 150);

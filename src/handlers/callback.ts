@@ -111,7 +111,7 @@ export async function handleCallback(ctx: BotContext): Promise<void> {
       userId,
       statusCallback,
       chatId,
-      ctx
+      ctx,
     );
 
     await auditLog(userId, username, "CALLBACK", selectedOption, response);
@@ -124,10 +124,7 @@ export async function handleCallback(ctx: BotContext): Promise<void> {
 }
 
 /** resume:{session_id} */
-async function handleResumeCallback(
-  ctx: BotContext,
-  callbackData: string
-): Promise<void> {
+async function handleResumeCallback(ctx: BotContext, callbackData: string): Promise<void> {
   const userId = ctx.from?.id;
   const username = ctx.from?.username || "unknown";
   const chatId = ctx.chat?.id;
@@ -169,14 +166,7 @@ async function handleResumeCallback(
   const statusCallback = createStatusCallback(ctx, state);
 
   try {
-    await session.sendMessageStreaming(
-      recapPrompt,
-      username,
-      userId,
-      statusCallback,
-      chatId,
-      ctx
-    );
+    await session.sendMessageStreaming(recapPrompt, username, userId, statusCallback, chatId, ctx);
   } catch (error) {
     console.error("Error getting recap:", error);
     // Don't show error to user - session is still resumed, recap just failed

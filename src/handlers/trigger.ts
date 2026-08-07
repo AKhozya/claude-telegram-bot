@@ -34,9 +34,7 @@ export function secretMatches(provided: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function startTriggerServer(
-  bot: Bot<BotContext, BotApi>
-): { stop: () => void } | null {
+export function startTriggerServer(bot: Bot<BotContext, BotApi>): { stop: () => void } | null {
   if (!TRIGGER_ENABLED) {
     console.log("HTTP trigger disabled (TRIGGER_SECRET unset)");
     return null;
@@ -114,9 +112,7 @@ export function startTriggerServer(
     },
   });
 
-  console.log(
-    `HTTP trigger listening on http://${TRIGGER_HOST}:${TRIGGER_PORT}/trigger`
-  );
+  console.log(`HTTP trigger listening on http://${TRIGGER_HOST}:${TRIGGER_PORT}/trigger`);
 
   return {
     stop: () => {

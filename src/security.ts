@@ -51,10 +51,7 @@ class RateLimiter {
     }
 
     const elapsed = (now - bucket.lastUpdate) / 1000;
-    bucket.tokens = Math.min(
-      this.maxTokens,
-      bucket.tokens + elapsed * this.refillRate
-    );
+    bucket.tokens = Math.min(this.maxTokens, bucket.tokens + elapsed * this.refillRate);
     bucket.lastUpdate = now;
 
     if (bucket.tokens >= 1) {
@@ -65,7 +62,6 @@ class RateLimiter {
     const retryAfter = (1 - bucket.tokens) / this.refillRate;
     return [false, retryAfter];
   }
-
 }
 
 export const rateLimiter = new RateLimiter();
@@ -85,10 +81,7 @@ export function isPathAllowed(path: string): boolean {
 
     for (const allowed of ALLOWED_PATHS) {
       const allowedResolved = resolve(allowed);
-      if (
-        resolved === allowedResolved ||
-        resolved.startsWith(allowedResolved + "/")
-      ) {
+      if (resolved === allowedResolved || resolved.startsWith(allowedResolved + "/")) {
         return true;
       }
     }
@@ -114,9 +107,7 @@ export function isPathAllowed(path: string): boolean {
  * the unbounded write surface is #12.
  */
 function checkRedirectTargets(segment: string): string | null {
-  for (const red of segment.matchAll(
-    /[0-9]*&?>>?\s*((?:"[^"]*"|'[^']*'|\\.|[^\s<>])+)/g
-  )) {
+  for (const red of segment.matchAll(/[0-9]*&?>>?\s*((?:"[^"]*"|'[^']*'|\\.|[^\s<>])+)/g)) {
     const tgtRaw = red[1]!;
     if (/^&?[0-9]+$/.test(tgtRaw)) continue; // fd dup: 2>&1, >&2
     if (tgtRaw.startsWith("(")) continue; // process substitution >(cmd)
@@ -125,8 +116,7 @@ function checkRedirectTargets(segment: string): string | null {
     if (/[$`{}]/.test(tgt)) {
       return `redirect to unresolved target: ${tgtRaw}`;
     }
-    const target =
-      tgt.startsWith("/") || tgt.startsWith("~") ? tgt : resolve(WORKING_DIR, tgt);
+    const target = tgt.startsWith("/") || tgt.startsWith("~") ? tgt : resolve(WORKING_DIR, tgt);
     if (!isPathAllowed(target)) {
       return `redirect target outside allowed paths: ${tgt}`;
     }
@@ -134,9 +124,7 @@ function checkRedirectTargets(segment: string): string | null {
   return null;
 }
 
-export function checkCommandSafety(
-  command: string
-): [safe: boolean, reason: string] {
+export function checkCommandSafety(command: string): [safe: boolean, reason: string] {
   const lowerCommand = command.toLowerCase();
 
   for (const pattern of BLOCKED_PATTERNS) {
@@ -160,9 +148,9 @@ export function checkCommandSafety(
     // the output (`ls \`rm /etc/x\``, `x=$(echo p >/etc/x)`). Non-nested spans only
     // (deeper nesting is part of the documented ceiling). Then split everything on shell
     // operators so a chained/piped write (`rm ok; rm /etc/x`) is scanned too.
-    const substBodies = [
-      ...normalized.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g),
-    ].map((m) => m[1] ?? m[2] ?? "");
+    const substBodies = [...normalized.matchAll(/\$\(([^()]*)\)|`([^`]*)`/g)].map(
+      (m) => m[1] ?? m[2] ?? "",
+    );
     const segments = [normalized, ...substBodies].join("\n").split(/[;&|\n]+/);
     for (const segment of segments) {
       // /proc/<pid|self|thread-self>/environ exposes a process's secret env — `cat
@@ -183,10 +171,7 @@ export function checkCommandSafety(
 
       // rm reached via xargs takes its paths from stdin (`... | xargs rm`), which we
       // cannot see — fail closed rather than validate an empty arg list and pass.
-      if (
-        /^[\s({\\'"]*(?:\w+=\S*\s+)*xargs\b/i.test(segment) &&
-        /\brm\b/.test(segment)
-      ) {
+      if (/^[\s({\\'"]*(?:\w+=\S*\s+)*xargs\b/i.test(segment) && /\brm\b/.test(segment)) {
         return [false, "rm via xargs: stdin-fed targets cannot be verified"];
       }
       // Match rm as the segment's COMMAND WORD, after the shell-strippable leading
@@ -195,7 +180,7 @@ export function checkCommandSafety(
       // `rm\s`) so a glued redirect `rm>/dev/null` is still caught. Not a path
       // substring (`cat /tmp/rm x`).
       const rmMatch = segment.match(
-        /^[\s({\\'"]*(?:(?:\w+=\S*|env|command|builtin|exec|nice|nohup|setsid|stdbuf|time|ionice)\s+)*rm\b(.*)$/i
+        /^[\s({\\'"]*(?:(?:\w+=\S*|env|command|builtin|exec|nice|nohup|setsid|stdbuf|time|ionice)\s+)*rm\b(.*)$/i,
       );
       if (!rmMatch) continue;
 
@@ -229,9 +214,7 @@ export function checkCommandSafety(
           const prefix = arg.slice(0, globIdx);
           const dir = prefix.endsWith("/") ? prefix : dirname(prefix);
           const dirTarget =
-            dir.startsWith("/") || dir.startsWith("~")
-              ? dir
-              : resolve(WORKING_DIR, dir || ".");
+            dir.startsWith("/") || dir.startsWith("~") ? dir : resolve(WORKING_DIR, dir || ".");
           if (!isPathAllowed(dirTarget)) {
             return [false, `rm glob outside allowed paths: ${raw}`];
           }
@@ -239,10 +222,7 @@ export function checkCommandSafety(
         }
 
         // Plain path — resolve relative to WORKING_DIR (where Claude runs).
-        const target =
-          arg.startsWith("/") || arg.startsWith("~")
-            ? arg
-            : resolve(WORKING_DIR, arg);
+        const target = arg.startsWith("/") || arg.startsWith("~") ? arg : resolve(WORKING_DIR, arg);
         if (!isPathAllowed(target)) {
           return [false, `rm target outside allowed paths: ${target}`];
         }
@@ -257,10 +237,7 @@ export function checkCommandSafety(
 
 // ============== Authorization ==============
 
-export function isAuthorized(
-  userId: number | undefined,
-  allowedUsers: number[]
-): boolean {
+export function isAuthorized(userId: number | undefined, allowedUsers: number[]): boolean {
   if (!userId) return false;
   if (allowedUsers.length === 0) return false;
   return allowedUsers.includes(userId);
@@ -350,7 +327,10 @@ async function isBlockedFetchTarget(rawUrl: string): Promise<boolean> {
     if (u.protocol !== "http:" && u.protocol !== "https:") return true;
     // Strip IPv6 brackets and a trailing dot (`localhost.` / FQDN-root form).
     // The WHATWG URL parser already folds decimal/octal/hex IPv4 to dotted form.
-    host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+    host = u.hostname
+      .toLowerCase()
+      .replace(/^\[|\]$/g, "")
+      .replace(/\.$/, "");
   } catch {
     return true; // unparseable ⇒ block
   }
@@ -513,7 +493,7 @@ export function isCredentialPath(canonicalPath: string): boolean {
 // The bot's own runtime files live in /tmp (native-tool-accessible). Reading the audit log exfils past
 // conversation content; writing session/restart files is a DoS. Canonicalized once at load.
 const BOT_RUNTIME_FILES = new Set(
-  [AUDIT_LOG_PATH, SESSION_FILE, RESTART_FILE].map((p) => canonicalize(p))
+  [AUDIT_LOG_PATH, SESSION_FILE, RESTART_FILE].map((p) => canonicalize(p)),
 );
 
 /**
@@ -523,7 +503,7 @@ const BOT_RUNTIME_FILES = new Set(
  */
 export async function evaluateToolUse(
   toolName: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
 ): Promise<ToolVerdict> {
   // Dangerous exec/publish/scheduling tools — no place in this bot.
   if (DENIED_TOOLS.has(toolName)) {
@@ -553,8 +533,7 @@ export async function evaluateToolUse(
   }
 
   if (["Read", "Write", "Edit", "NotebookEdit"].includes(toolName)) {
-    const rawPath =
-      toolName === "NotebookEdit" ? input.notebook_path : input.file_path;
+    const rawPath = toolName === "NotebookEdit" ? input.notebook_path : input.file_path;
     if (rawPath !== undefined && typeof rawPath !== "string") {
       return { allowed: false, reason: "non-string file path" };
     }
@@ -569,7 +548,10 @@ export async function evaluateToolUse(
       // Writing a code-execution control file runs OUTSIDE the Bash sandbox on next load; the
       // sandbox denyWrite only binds Bash, so block the native write tools here regardless of path.
       if (toolName !== "Read" && isProtectedControlFile(canonical)) {
-        return { allowed: false, reason: `Write to code-execution control file blocked: ${filePath}` };
+        return {
+          allowed: false,
+          reason: `Write to code-execution control file blocked: ${filePath}`,
+        };
       }
       // Credential stores: deny native read AND write, even inside an ALLOWED_PATH (~/.claude is one).
       if (isCredentialPath(canonical)) {

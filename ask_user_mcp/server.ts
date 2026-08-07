@@ -91,9 +91,7 @@ server.registerTool(
         .array(z.string().min(1).regex(RENDERS_SOMETHING))
         .min(2)
         .max(10)
-        .describe(
-          "List of options for the user to choose from (2-6 options recommended)"
-        ),
+        .describe("List of options for the user to choose from (2-6 options recommended)"),
     },
   },
   async ({ question, options }) => {
@@ -118,8 +116,8 @@ server.registerTool(
           created_at: new Date().toISOString(),
         },
         null,
-        2
-      )
+        2,
+      ),
     );
 
     return {
@@ -130,7 +128,7 @@ server.registerTool(
         },
       ],
     };
-  }
+  },
 );
 
 async function main() {

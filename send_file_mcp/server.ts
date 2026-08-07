@@ -85,8 +85,8 @@ server.registerTool(
           created_at: new Date().toISOString(),
         },
         null,
-        2
-      )
+        2,
+      ),
     );
 
     return {
@@ -97,7 +97,7 @@ server.registerTool(
         },
       ],
     };
-  }
+  },
 );
 
 async function main() {

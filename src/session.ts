@@ -27,18 +27,10 @@ import {
 } from "./config";
 import { describeError, formatToolStatus } from "./formatting";
 import { buildSandboxSettings, sanitizeEnv, ensureScratchDir, bashSandboxEnabled } from "./sandbox";
-import {
-  checkPendingAskUserRequests,
-  checkPendingSendFileRequests,
-} from "./handlers/streaming";
+import { checkPendingAskUserRequests, checkPendingSendFileRequests } from "./handlers/streaming";
 import { runSafetyHook } from "./safety-hook";
 import { evaluateToolUse, DENIED_TOOLS } from "./security";
-import type {
-  SavedSession,
-  SessionHistory,
-  StatusCallback,
-  TokenUsage,
-} from "./types";
+import type { SavedSession, SessionHistory, StatusCallback, TokenUsage } from "./types";
 
 const deny = (reason: string): HookJSONOutput => ({
   hookSpecificOutput: {
@@ -56,7 +48,7 @@ export const preToolUseGate: HookCallback = async (input) => {
   if (input.hook_event_name !== "PreToolUse") return {};
   const verdict = await evaluateToolUse(
     input.tool_name,
-    (input.tool_input ?? {}) as Record<string, unknown>
+    (input.tool_input ?? {}) as Record<string, unknown>,
   );
   if (!verdict.allowed) {
     console.warn(`HOOK BLOCKED ${input.tool_name}: ${verdict.reason}`);
@@ -82,9 +74,7 @@ export const preToolUseGate: HookCallback = async (input) => {
  */
 export function getThinkingConfig(message: string): NonNullable<Options["thinking"]> {
   const budget = getThinkingLevel(message);
-  return budget === 0
-    ? { type: "adaptive" }
-    : { type: "enabled", budgetTokens: budget };
+  return budget === 0 ? { type: "adaptive" } : { type: "enabled", budgetTokens: budget };
 }
 
 function getThinkingLevel(message: string): number {
@@ -229,7 +219,7 @@ class ClaudeSession {
     userId: number,
     statusCallback: StatusCallback,
     chatId?: number,
-    ctx?: Context
+    ctx?: Context,
   ): Promise<string> {
     // Set chat context for ask_user MCP tool
     if (chatId) {
@@ -239,25 +229,21 @@ class ClaudeSession {
     const isNewSession = !this.isActive;
     const thinkingTokens = getThinkingLevel(message);
     const thinkingLabel =
-      { 0: "adaptive", 10000: "normal", 50000: "deep" }[thinkingTokens] ||
-      String(thinkingTokens);
+      { 0: "adaptive", 10000: "normal", 50000: "deep" }[thinkingTokens] || String(thinkingTokens);
 
     // Inject current date/time at session start so Claude doesn't need to call a tool for it
     let messageToSend = message;
     if (isNewSession) {
       const now = new Date();
-      const datePrefix = `[Current date/time: ${now.toLocaleDateString(
-        "en-US",
-        {
-          weekday: "long",
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          timeZoneName: "short",
-        }
-      )}]\n\n`;
+      const datePrefix = `[Current date/time: ${now.toLocaleDateString("en-US", {
+        weekday: "long",
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZoneName: "short",
+      })}]\n\n`;
       messageToSend = datePrefix + message;
     }
 
@@ -300,21 +286,14 @@ class ClaudeSession {
     }
 
     if (this.sessionId && !isNewSession) {
-      console.log(
-        `RESUMING session ${this.sessionId.slice(
-          0,
-          8
-        )}... (thinking=${thinkingLabel})`
-      );
+      console.log(`RESUMING session ${this.sessionId.slice(0, 8)}... (thinking=${thinkingLabel})`);
     } else {
       console.log(`STARTING new Claude session (thinking=${thinkingLabel})`);
       this.sessionId = null;
     }
 
     if (this.stopRequested) {
-      console.log(
-        "Query cancelled before starting (stop was requested during processing)"
-      );
+      console.log("Query cancelled before starting (stop was requested during processing)");
       this.stopRequested = false;
       throw new Error("Query cancelled");
     }
@@ -395,11 +374,7 @@ class ClaudeSession {
 
               // Segment ends when tool starts
               if (currentSegmentText) {
-                await statusCallback(
-                  "segment_end",
-                  currentSegmentText,
-                  currentSegmentId
-                );
+                await statusCallback("segment_end", currentSegmentText, currentSegmentId);
                 currentSegmentId++;
                 currentSegmentText = "";
               }
@@ -410,10 +385,7 @@ class ClaudeSession {
               console.log(`Tool: ${toolDisplay}`);
 
               // Don't show tool status for ask_user/send_file - they handle their own UI
-              if (
-                !toolName.startsWith("mcp__ask-user") &&
-                !toolName.startsWith("mcp__send-file")
-              ) {
+              if (!toolName.startsWith("mcp__ask-user") && !toolName.startsWith("mcp__send-file")) {
                 await statusCallback("tool", toolDisplay);
               }
 
@@ -434,20 +406,12 @@ class ClaudeSession {
               currentSegmentText += block.text;
 
               const now = Date.now();
-              if (
-                now - lastTextUpdate > STREAMING_THROTTLE_MS &&
-                currentSegmentText.length > 20
-              ) {
-                await statusCallback(
-                  "text",
-                  currentSegmentText,
-                  currentSegmentId
-                );
+              if (now - lastTextUpdate > STREAMING_THROTTLE_MS && currentSegmentText.length > 20) {
+                await statusCallback("text", currentSegmentText, currentSegmentId);
                 lastTextUpdate = now;
               }
             }
           }
-
         }
 
         /**
@@ -498,21 +462,16 @@ class ClaudeSession {
             console.log(
               `Usage: in=${u.input_tokens} out=${u.output_tokens} cache_read=${
                 u.cache_read_input_tokens || 0
-              } cache_create=${u.cache_creation_input_tokens || 0}`
+              } cache_create=${u.cache_creation_input_tokens || 0}`,
             );
           }
         }
       }
-
     } catch (error) {
       const errorStr = String(error).toLowerCase();
-      const isCleanupError =
-        errorStr.includes("cancel") || errorStr.includes("abort");
+      const isCleanupError = errorStr.includes("cancel") || errorStr.includes("abort");
 
-      if (
-        isCleanupError &&
-        (queryCompleted || askUserTriggered || this.stopRequested)
-      ) {
+      if (isCleanupError && (queryCompleted || askUserTriggered || this.stopRequested)) {
         console.warn(`Suppressed post-completion error: ${error}`);
       } else {
         console.error(`Error in query: ${error}`);
@@ -570,9 +529,7 @@ class ClaudeSession {
       // Update in place rather than re-prepend, so a re-save cannot duplicate an id.
       // Consequence: position is insertion order, NOT recency — an old entry that is
       // still being written to keeps its slot and the slice below can still evict it.
-      const existingIndex = history.sessions.findIndex(
-        (s) => s.session_id === this.sessionId
-      );
+      const existingIndex = history.sessions.findIndex((s) => s.session_id === this.sessionId);
       if (existingIndex !== -1) {
         history.sessions[existingIndex] = newSession;
       } else {
@@ -606,9 +563,7 @@ class ClaudeSession {
     const history = this.loadSessionHistory();
     // Entries written before working_dir existed have none; treat those as ours
     // rather than hiding them, or an upgrade silently empties /resume.
-    return history.sessions.filter(
-      (s) => !s.working_dir || s.working_dir === WORKING_DIR
-    );
+    return history.sessions.filter((s) => !s.working_dir || s.working_dir === WORKING_DIR);
   }
 
   resumeSession(sessionId: string): [success: boolean, message: string] {
@@ -620,10 +575,7 @@ class ClaudeSession {
     }
 
     if (sessionData.working_dir && sessionData.working_dir !== WORKING_DIR) {
-      return [
-        false,
-        `Session for a different directory: ${sessionData.working_dir}`,
-      ];
+      return [false, `Session for a different directory: ${sessionData.working_dir}`];
     }
 
     this.sessionId = sessionData.session_id;
@@ -631,15 +583,11 @@ class ClaudeSession {
     this.lastActivity = new Date();
 
     console.log(
-      `Resumed session ${sessionData.session_id.slice(0, 8)}... - "${sessionData.title}"`
+      `Resumed session ${sessionData.session_id.slice(0, 8)}... - "${sessionData.title}"`,
     );
 
-    return [
-      true,
-      `Resumed session: "${sessionData.title}"`,
-    ];
+    return [true, `Resumed session: "${sessionData.title}"`];
   }
-
 }
 
 // Process-wide singleton: one Claude conversation per bot, shared by all handlers.

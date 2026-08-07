@@ -51,9 +51,7 @@ test("a message with neither voice nor audio returns before spending a reaction"
 test("a clip past the duration cap is refused before it is downloaded", async () => {
   const r = rec();
   await handleAudio(makeCtx({ voice: { file_id: "v1", duration: 601 } }, r));
-  expect(r.replies).toEqual([
-    "❌ Too long to transcribe. Maximum is 600 seconds.",
-  ]);
+  expect(r.replies).toEqual(["❌ Too long to transcribe. Maximum is 600 seconds."]);
   expect(r.reactions).toEqual(["👀", "👎"]);
   expect(r.edits).toEqual([]);
 });
@@ -99,9 +97,7 @@ test("a rate-limited clip is refused before anything is downloaded or spawned", 
     throw new Error("must not spawn");
   };
   try {
-    await handleAudio(
-      makeDownloadableCtx({ voice: { file_id: "v13", duration: 8 } }, r)
-    );
+    await handleAudio(makeDownloadableCtx({ voice: { file_id: "v13", duration: 8 } }, r));
   } finally {
     delete limiter.check;
     runner.spawn = realSpawn;
@@ -127,7 +123,7 @@ const realSpawn = runner.spawn;
 async function withPipeline(
   whisperStdout: string,
   body: (sent: string[]) => Promise<void>,
-  lead: { code: number; stdout: string; stderr: string }[] = []
+  lead: { code: number; stdout: string; stderr: string }[] = [],
 ): Promise<void> {
   const sent: string[] = [];
   const limiter = rateLimiter as any;
@@ -182,9 +178,7 @@ test("the transcript is what gets sent to Claude, and is echoed back to the user
     // setTitleIfNew is a no-op once a session exists, so the title assertion below only
     // means anything against an inactive one. withPipeline puts the real value back.
     s.sessionId = null;
-    await handleAudio(
-      makeDownloadableCtx({ voice: { file_id: "v9", duration: 8 } }, r)
-    );
+    await handleAudio(makeDownloadableCtx({ voice: { file_id: "v9", duration: 8 } }, r));
     expect(sent).toEqual(["book me a flight to Rome"]);
     // Asserted before withPipeline restores them. /retry replays lastMessage, so dropping
     // it makes /retry after a voice note repeat whatever was typed before it.
@@ -207,9 +201,7 @@ test("a preview cut on an astral character keeps it whole", async () => {
   const r = rec();
   const spoken = `${"a".repeat(3999)}😀 and then some more`;
   await withPipeline(spoken, async (sent) => {
-    await handleAudio(
-      makeDownloadableCtx({ voice: { file_id: "v14", duration: 8 } }, r)
-    );
+    await handleAudio(makeDownloadableCtx({ voice: { file_id: "v14", duration: 8 } }, r));
     // Claude gets all of it regardless; only the preview is truncated.
     expect(sent).toEqual([spoken]);
   });
@@ -226,9 +218,7 @@ test("an all-astral transcript still fits Telegram's message limit", async () =>
   const r = rec();
   const spoken = "😀".repeat(10_000);
   await withPipeline(spoken, async (sent) => {
-    await handleAudio(
-      makeDownloadableCtx({ voice: { file_id: "v15", duration: 8 } }, r)
-    );
+    await handleAudio(makeDownloadableCtx({ voice: { file_id: "v15", duration: 8 } }, r));
     // Truncation is cosmetic — Claude still receives every character.
     expect(sent).toEqual([spoken]);
   });
@@ -239,7 +229,8 @@ test("an all-astral transcript still fits Telegram's message limit", async () =>
 // Telegram picks `audio` vs `document` from how the file was attached, not from what it is.
 // Before this, an mp3 attached as a file was refused as an unsupported type.
 test("audioSource accepts audio attached as a file", () => {
-  const doc = (mime?: string) => ({ message: { document: { file_id: "d", mime_type: mime } } }) as any;
+  const doc = (mime?: string) =>
+    ({ message: { document: { file_id: "d", mime_type: mime } } }) as any;
   expect(audioSource(doc("audio/mpeg"))?.file_id).toBe("d");
   expect(audioSource(doc("audio/ogg"))?.file_id).toBe("d");
   expect(audioSource(doc("application/pdf"))).toBeUndefined();
@@ -258,17 +249,14 @@ test("audio attached as a file is transcribed like a voice note", async () => {
     "book me a flight to Rome",
     async (sent) => {
       await handleAudio(
-        makeDownloadableCtx(
-          { document: { file_id: "a1", mime_type: "audio/mpeg" } },
-          r
-        )
+        makeDownloadableCtx({ document: { file_id: "a1", mime_type: "audio/mpeg" } }, r),
       );
       expect(sent).toEqual(["book me a flight to Rome"]);
     },
     [
       { code: 0, stdout: "42.0\n", stderr: "" }, // ffprobe: header
       { code: 0, stdout: "", stderr: "" }, // ffprobe: streams
-    ]
+    ],
   );
 });
 
@@ -286,8 +274,8 @@ test("an oversized audio file is refused before it is downloaded", async () => {
           file_size: 51 * 1024 * 1024,
         },
       },
-      r
-    )
+      r,
+    ),
   );
   expect(r.replies).toContain("❌ Audio too large. Maximum size is 50MB.");
   expect(r.reactions).toEqual(["👀", "👎"]);
@@ -301,10 +289,7 @@ test("a file-attached audio whose duration cannot be read is refused", async () 
     "should never be reached",
     async (sent) => {
       await handleAudio(
-        makeDownloadableCtx(
-          { document: { file_id: "a4", mime_type: "audio/mpeg" } },
-          r
-        )
+        makeDownloadableCtx({ document: { file_id: "a4", mime_type: "audio/mpeg" } }, r),
       );
       expect(sent).toEqual([]);
       expect(r.edits).toContain("❌ Couldn't read how long that audio is.");
@@ -313,7 +298,7 @@ test("a file-attached audio whose duration cannot be read is refused", async () 
     [
       { code: 1, stdout: "", stderr: "Invalid data found" },
       { code: 0, stdout: "N/A\n", stderr: "" },
-    ]
+    ],
   );
 });
 
@@ -327,17 +312,14 @@ test("a duration read from the stream rather than the header is accepted", async
     "recorded in a container with no header duration",
     async (sent) => {
       await handleAudio(
-        makeDownloadableCtx(
-          { document: { file_id: "a5", mime_type: "audio/ogg" } },
-          r
-        )
+        makeDownloadableCtx({ document: { file_id: "a5", mime_type: "audio/ogg" } }, r),
       );
       expect(sent).toEqual(["recorded in a container with no header duration"]);
     },
     [
       { code: 0, stdout: "N/A\n", stderr: "" }, // format=duration
       { code: 0, stdout: "37.5\n", stderr: "" }, // stream=duration
-    ]
+    ],
   );
 });
 
@@ -348,17 +330,12 @@ test("a file-attached audio over the cap is refused after the download", async (
     "should never be reached",
     async (sent) => {
       await handleAudio(
-        makeDownloadableCtx(
-          { document: { file_id: "a2", mime_type: "audio/mpeg" } },
-          r
-        )
+        makeDownloadableCtx({ document: { file_id: "a2", mime_type: "audio/mpeg" } }, r),
       );
       expect(sent).toEqual([]);
-      expect(r.edits).toContain(
-        "❌ Too long to transcribe. Maximum is 600 seconds."
-      );
+      expect(r.edits).toContain("❌ Too long to transcribe. Maximum is 600 seconds.");
     },
-    [{ code: 0, stdout: "601.0\n", stderr: "" }] // ffprobe: one second over
+    [{ code: 0, stdout: "601.0\n", stderr: "" }], // ffprobe: one second over
   );
 });
 
@@ -398,9 +375,7 @@ test("an odd-length mixed transcript still fits Telegram's message limit", async
   const r = rec();
   const spoken = `b${"😀".repeat(10_000)}`;
   await withPipeline(spoken, async (sent) => {
-    await handleAudio(
-      makeDownloadableCtx({ voice: { file_id: "v17", duration: 8 } }, r)
-    );
+    await handleAudio(makeDownloadableCtx({ voice: { file_id: "v17", duration: 8 } }, r));
     expect(sent).toEqual([spoken]);
   });
   expect(r.edits[0]!.length).toBeLessThanOrEqual(4096);
@@ -413,9 +388,7 @@ test("a plain transcript uses the full code-point cap", async () => {
   const r = rec();
   const spoken = "c".repeat(10_000);
   await withPipeline(spoken, async (sent) => {
-    await handleAudio(
-      makeDownloadableCtx({ voice: { file_id: "v16", duration: 8 } }, r)
-    );
+    await handleAudio(makeDownloadableCtx({ voice: { file_id: "v16", duration: 8 } }, r));
     expect(sent).toEqual([spoken]);
   });
   expect(r.edits).toEqual([`🎤 ${"c".repeat(4000)}…`]);
@@ -478,9 +451,7 @@ test("the session reads as busy while whisper is still running", async () => {
   };
   s.sendMessageStreaming = async () => "ok";
   try {
-    await handleAudio(
-      makeDownloadableCtx({ voice: { file_id: "v11", duration: 8 } }, r)
-    );
+    await handleAudio(makeDownloadableCtx({ voice: { file_id: "v11", duration: 8 } }, r));
   } finally {
     delete limiter.check;
     runner.spawn = realSpawn;
@@ -511,9 +482,7 @@ test("a host without the binaries says so, and sends nothing to Claude", async (
     return "";
   };
   try {
-    await handleAudio(
-      makeDownloadableCtx({ voice: { file_id: "v10", duration: 8 } }, r)
-    );
+    await handleAudio(makeDownloadableCtx({ voice: { file_id: "v10", duration: 8 } }, r));
   } finally {
     delete limiter.check;
     runner.spawn = realSpawn;

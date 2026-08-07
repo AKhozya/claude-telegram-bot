@@ -18,10 +18,7 @@ import type { Api, Transformer } from "grammy";
  * The probe reads mtime, so freshness survives a restart-in-place of the
  * kubelet; file content is debugging convenience only.
  */
-export function installPollHeartbeat(
-  api: Pick<Api, "config">,
-  path: string
-): void {
+export function installPollHeartbeat(api: Pick<Api, "config">, path: string): void {
   const heartbeat: Transformer = async (prev, method, payload, signal) => {
     const res = await prev(method, payload, signal);
     if (method === "getUpdates" && res.ok) {

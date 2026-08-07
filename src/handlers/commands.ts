@@ -29,7 +29,7 @@ export async function handleStart(ctx: Context): Promise<void> {
       `• Prefix with <code>!</code> to interrupt current query\n` +
       `• Use "think" keyword for extended reasoning\n` +
       `• Send photos or documents`,
-    { parse_mode: "HTML" }
+    { parse_mode: "HTML" },
   );
 }
 
@@ -93,9 +93,7 @@ export async function handleStatus(ctx: Context): Promise<void> {
 
   // Last activity
   if (session.lastActivity) {
-    const ago = Math.floor(
-      (Date.now() - session.lastActivity.getTime()) / 1000
-    );
+    const ago = Math.floor((Date.now() - session.lastActivity.getTime()) / 1000);
     lines.push(`\n⏱️ Last activity: ${ago}s ago`);
   }
 
@@ -105,12 +103,10 @@ export async function handleStatus(ctx: Context): Promise<void> {
     lines.push(
       `\n📈 Last query usage:`,
       `   Input: ${usage.input_tokens?.toLocaleString() || "?"} tokens`,
-      `   Output: ${usage.output_tokens?.toLocaleString() || "?"} tokens`
+      `   Output: ${usage.output_tokens?.toLocaleString() || "?"} tokens`,
     );
     if (usage.cache_read_input_tokens) {
-      lines.push(
-        `   Cache read: ${usage.cache_read_input_tokens.toLocaleString()}`
-      );
+      lines.push(`   Cache read: ${usage.cache_read_input_tokens.toLocaleString()}`);
     }
   }
 
@@ -154,8 +150,7 @@ export async function handleResume(ctx: Context): Promise<void> {
     });
 
     // Telegram clips button labels, so trim here to keep the date prefix visible.
-    const titlePreview =
-      s.title.length > 35 ? s.title.slice(0, 32) + "..." : s.title;
+    const titlePreview = s.title.length > 35 ? s.title.slice(0, 32) + "..." : s.title;
 
     return [
       {
@@ -188,7 +183,7 @@ export async function handleRestart(ctx: Context): Promise<void> {
           chat_id: chatId,
           message_id: msg.message_id,
           timestamp: Date.now(),
-        })
+        }),
       );
     } catch (e) {
       console.warn("Failed to save restart info:", e);
@@ -232,9 +227,7 @@ export async function handleRetry(ctx: Context): Promise<void> {
  * the text. Exported for the retry regression test.
  */
 export function withMessageText(ctx: BotContext, text: string): BotContext {
-  return Object.assign(
-    Object.create(Object.getPrototypeOf(ctx)),
-    ctx,
-    { update: { ...ctx.update, message: { ...ctx.message, text } } }
-  ) as BotContext;
+  return Object.assign(Object.create(Object.getPrototypeOf(ctx)), ctx, {
+    update: { ...ctx.update, message: { ...ctx.message, text } },
+  }) as BotContext;
 }

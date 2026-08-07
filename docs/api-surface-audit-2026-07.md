@@ -13,15 +13,15 @@ core.telegram.org/bots/api-changelog.
 
 Read from `bun.lock` at each merge commit and confirmed against `node_modules`.
 
-| Package | 2026-07-06 (#24) | HEAD (0c38081) | Note |
-|---|---|---|---|
-| `grammy` | 1.44.0 | **1.45.1** | minor, in-range for `^1.44.0` |
-| `@grammyjs/types` | 3.28.0 | **4.0.0** | **major** — Bot API 10.1 → 10.2 |
-| `@anthropic-ai/claude-agent-sdk` | 0.3.195 | 0.3.220 | 25 patch releases |
-| `@modelcontextprotocol/sdk` | 1.29.0 | 1.29.0 | unchanged |
-| `zod` | 4.4.3 | 4.4.3 | unchanged |
-| `typescript` | 6.0.3 | 6.0.3 | unchanged |
-| `@grammyjs/{runner,files,auto-retry}` | 2.0.3 / 1.2.0 / 2.0.2 | unchanged | unchanged |
+| Package                               | 2026-07-06 (#24)      | HEAD (0c38081) | Note                            |
+| ------------------------------------- | --------------------- | -------------- | ------------------------------- |
+| `grammy`                              | 1.44.0                | **1.45.1**     | minor, in-range for `^1.44.0`   |
+| `@grammyjs/types`                     | 3.28.0                | **4.0.0**      | **major** — Bot API 10.1 → 10.2 |
+| `@anthropic-ai/claude-agent-sdk`      | 0.3.195               | 0.3.220        | 25 patch releases               |
+| `@modelcontextprotocol/sdk`           | 1.29.0                | 1.29.0         | unchanged                       |
+| `zod`                                 | 4.4.3                 | 4.4.3          | unchanged                       |
+| `typescript`                          | 6.0.3                 | 6.0.3          | unchanged                       |
+| `@grammyjs/{runner,files,auto-retry}` | 2.0.3 / 1.2.0 / 2.0.2 | unchanged      | unchanged                       |
 
 TypeScript stays on 6.0.3 by decision — 7.x waits for 7.1, when the linter
 ecosystem catches up. Out of scope here.
@@ -29,10 +29,10 @@ ecosystem catches up. Out of scope here.
 ### How a Bot API major arrived through an automerged lockfile PR
 
 `grammy@1.45.1` pins `"@grammyjs/types": "4.0.0"` **exactly**, so the types major
-is carried inside a grammy *minor*. `renovate.json`'s `grammy` group covers
+is carried inside a grammy _minor_. `renovate.json`'s `grammy` group covers
 `grammy` + the three plugins but not `@grammyjs/types`, and the `major` rule
 (3-day soak, `automerge: false`) never sees it — a transitive exact pin is not a
-major *update* in its own right. `lockFileMaintenance` has `automerge: true`, so
+major _update_ in its own right. `lockFileMaintenance` has `automerge: true`, so
 PR #47 landed Bot API 10.2 unreviewed.
 
 This is not a misconfiguration to fix — pinning `@grammyjs/types` separately
@@ -81,11 +81,11 @@ until measured.
 The bot already sends rich messages (`src/handlers/streaming.ts:238`, `:277`)
 using the 10.1 shape. What 10.2 added to `InputRichMessage`:
 
-| Field | 3.28.0 (API 10.1) | 4.0.0 (API 10.2) |
-|---|---|---|
-| `html`, `markdown`, `is_rtl`, `skip_entity_detection` | yes | yes |
-| `blocks?: InputRichBlock<F>[]` | — | **new** |
-| `media?: InputRichMessageMedia<F>[]` | — | **new** |
+| Field                                                 | 3.28.0 (API 10.1) | 4.0.0 (API 10.2) |
+| ----------------------------------------------------- | ----------------- | ---------------- |
+| `html`, `markdown`, `is_rtl`, `skip_entity_detection` | yes               | yes              |
+| `blocks?: InputRichBlock<F>[]`                        | —                 | **new**          |
+| `media?: InputRichMessageMedia<F>[]`                  | —                 | **new**          |
 
 `blocks` brings 21 block types, including:
 
@@ -176,12 +176,12 @@ declares `new_conversation_id`. Confirm before writing a handler.
 `session.ts` stores `String(error).slice(0, 100)` on failure. The SDK now exports
 four prefix tables for exactly this classification:
 
-| Constant | Use |
-|---|---|
-| `USAGE_LIMIT_ERROR_PREFIXES` | 12 hard-limit strings; these *do* arrive as API errors |
-| `USAGE_WARNING_PREFIXES` | approaching-limit; toast/footer only, never an error |
-| `USAGE_TRANSITION_PREFIXES` | "now drawing from credits"; toast only, never an error |
-| `ORG_POLICY_LIMIT_PREFIXES` | `"This service is disabled for your org"` |
+| Constant                     | Use                                                    |
+| ---------------------------- | ------------------------------------------------------ |
+| `USAGE_LIMIT_ERROR_PREFIXES` | 12 hard-limit strings; these _do_ arrive as API errors |
+| `USAGE_WARNING_PREFIXES`     | approaching-limit; toast/footer only, never an error   |
+| `USAGE_TRANSITION_PREFIXES`  | "now drawing from credits"; toast only, never an error |
+| `ORG_POLICY_LIMIT_PREFIXES`  | `"This service is disabled for your org"`              |
 
 Only the first and last can reach the bot's `catch`. Matching them turns a
 mangled 100-char fragment into a clear phone message. Small, self-contained.
@@ -193,12 +193,12 @@ mangled 100-char fragment into a clear phone message. Small, self-contained.
 gate in the bot consults the SDK's runtime directory list — every one of them
 resolves against the static `ALLOWED_PATHS` constant:
 
-| Surface | Gate | Source |
-|---|---|---|
-| Bash writes | `sandbox.filesystem.allowWrite`, strict allowlist | `src/sandbox.ts` |
-| Native `Read`, `Write`, `Edit`, `NotebookEdit` | `isPathAllowed(canonical)` | `src/security.ts` |
-| `Grep`, `Glob` search dir | `isPathAllowed(searchPath)` | `src/security.ts` |
-| Bash reads | fail-open by design; `denyRead` blocklist only | `src/sandbox.ts` |
+| Surface                                        | Gate                                              | Source            |
+| ---------------------------------------------- | ------------------------------------------------- | ----------------- |
+| Bash writes                                    | `sandbox.filesystem.allowWrite`, strict allowlist | `src/sandbox.ts`  |
+| Native `Read`, `Write`, `Edit`, `NotebookEdit` | `isPathAllowed(canonical)`                        | `src/security.ts` |
+| `Grep`, `Glob` search dir                      | `isPathAllowed(searchPath)`                       | `src/security.ts` |
+| Bash reads                                     | fail-open by design; `denyRead` blocklist only    | `src/sandbox.ts`  |
 
 The last row is the pre-existing documented ceiling, and `DirectoryAdded` neither
 widens nor narrows it. The bot also never sends a `register_repo_root` control
@@ -217,14 +217,14 @@ request. Audit-logging the event is optional.
 
 ## Recommended order
 
-| # | Item | Effort | Payoff | Status |
-|---|---|---|---|---|
-| 1 | `sendMessageDraft` streaming (private chats; keep edit-loop for groups) | medium | purpose-built streaming; drops the edit/delete churn | open — gated on the rate-limit probe |
-| 2 | `USAGE_*_PREFIXES` error classification | small | readable limit messages on the phone | **done** — `describeError()` in `src/formatting.ts` |
-| 3 | Extend the tripwire to `sdk.d.ts` (Options fields, `HookEvent`, `SDKMessage` union) | small | closes the gap that hid findings 6–8 | open |
-| 4 | Handle `conversation_reset` | small | correct `/resume` | **done** — `src/session.ts` stream loop; `new_conversation_id` still unused |
-| 4b | Handle `background_tasks_changed` | small | background-task visibility in `/status` | open — a gap, not a bug; nothing is broken today |
-| 5 | Rich `blocks` incl. `thinking` | large | native thinking rendering | open |
+| #   | Item                                                                                | Effort | Payoff                                               | Status                                                                      |
+| --- | ----------------------------------------------------------------------------------- | ------ | ---------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1   | `sendMessageDraft` streaming (private chats; keep edit-loop for groups)             | medium | purpose-built streaming; drops the edit/delete churn | open — gated on the rate-limit probe                                        |
+| 2   | `USAGE_*_PREFIXES` error classification                                             | small  | readable limit messages on the phone                 | **done** — `describeError()` in `src/formatting.ts`                         |
+| 3   | Extend the tripwire to `sdk.d.ts` (Options fields, `HookEvent`, `SDKMessage` union) | small  | closes the gap that hid findings 6–8                 | open                                                                        |
+| 4   | Handle `conversation_reset`                                                         | small  | correct `/resume`                                    | **done** — `src/session.ts` stream loop; `new_conversation_id` still unused |
+| 4b  | Handle `background_tasks_changed`                                                   | small  | background-task visibility in `/status`              | open — a gap, not a bug; nothing is broken today                            |
+| 5   | Rich `blocks` incl. `thinking`                                                      | large  | native thinking rendering                            | open                                                                        |
 
 **Shipped for 2 and 4.** `describeError(error, max)` replaces four copies of
 `String(error).slice(0, N)` — one in `session.ts` (`lastError`, surfaced by `/status`) and
@@ -242,7 +242,7 @@ the next event that carries one, and the only degraded case is a reset arriving 
 event of a turn, which starts fresh rather than wrong.
 
 `src/session-reset.test.ts` drives the real stream loop with a faked `query()` rather than
-asserting on a pure helper, because the defect is an *ordering* one. Mutation-checked:
+asserting on a pure helper, because the defect is an _ordering_ one. Mutation-checked:
 deleting the `continue` fails two of its three cases.
 
 **Two Bun facts that test cost an hour to learn.** `mock.module` is process-global, and Bun's
@@ -268,7 +268,7 @@ disabled on this model. Use effort 'high' or below, or enable thinking.
 Two independently reasonable changes collided:
 
 - Homelab `cdce0adf` pinned the deployment to `claude-opus-5` at `effortLevel:
-  "xhigh"` — written into `~/.claude/settings.json` on the PVC *and* set as
+"xhigh"` — written into `~/.claude/settings.json` on the PVC _and_ set as
   `CLAUDE_CODE_EFFORT_LEVEL`. The bot loads it via `settingSources: ["user", …]`.
 - `session.ts` sent `thinking: { type: "disabled" }` for any message without a
   thinking keyword — the default path, so nearly every message.
@@ -278,12 +278,12 @@ still worked, which is why it read as a total outage.
 
 Reproduced and fixed by probe, `model=claude-opus-5`:
 
-| effort | thinking | result |
-|---|---|---|
-| `xhigh` | `disabled` | **400** — exact production error |
-| `xhigh` | `adaptive` | OK |
-| `xhigh` | `enabled` (budget) | OK |
-| `high` | `disabled` | OK |
+| effort  | thinking           | result                           |
+| ------- | ------------------ | -------------------------------- |
+| `xhigh` | `disabled`         | **400** — exact production error |
+| `xhigh` | `adaptive`         | OK                               |
+| `xhigh` | `enabled` (budget) | OK                               |
+| `high`  | `disabled`         | OK                               |
 
 Fix: the keyword-free default became `{ type: "adaptive" }` — "Claude decides when
 and how much to think (Opus 4.6+)", accepted at every effort level. `disabled` was
@@ -293,7 +293,7 @@ The invariant is **never emit `disabled`**, not "the default is adaptive" — so
 `getThinkingConfig()` is exported and `src/session.test.ts` asserts it directly.
 Mutation-checked: restoring `disabled` fails the test.
 
-`effortLevel` is a *settings* field, not an `Options` field, so the bot cannot
+`effortLevel` is a _settings_ field, not an `Options` field, so the bot cannot
 override it from `query()`. That asymmetry is the durable lesson — deployment-level
 settings reach into the SDK by a path the bot's own options cannot correct.
 
@@ -361,16 +361,16 @@ it was measured. Each row ran the same command —
 and only `network` varied. A 90s timeout made a blocking prompt observable as a
 distinct outcome.
 
-| `allowedDomains` | `strictAllowlist` | `deniedDomains` | `permissionMode` | Result |
-|---|---|---|---|---|
-| unset (**current bot config**) | unset | `[]` | bypass | HTTP 200 — open |
-| `api.anthropic.com` | **true** | `[]` | bypass | **denied** (curl 56, CONNECT 403) |
-| `api.anthropic.com` | unset | `[]` | bypass | HTTP 200 — **allowlist inert** (ran twice) |
-| `api.anthropic.com` | unset | `[]` | `default` | **denied** |
-| `api.anthropic.com` | unset | `[]` | `acceptEdits` | **denied** |
-| `example.com` | true | `[]` | bypass | HTTP 200 — deny is selective |
-| `example.com` | true | `example.com` | bypass | **denied** — `deniedDomains` wins |
-| unset | unset | `example.com` | bypass | **denied** — no pairing needed |
+| `allowedDomains`               | `strictAllowlist` | `deniedDomains` | `permissionMode` | Result                                     |
+| ------------------------------ | ----------------- | --------------- | ---------------- | ------------------------------------------ |
+| unset (**current bot config**) | unset             | `[]`            | bypass           | HTTP 200 — open                            |
+| `api.anthropic.com`            | **true**          | `[]`            | bypass           | **denied** (curl 56, CONNECT 403)          |
+| `api.anthropic.com`            | unset             | `[]`            | bypass           | HTTP 200 — **allowlist inert** (ran twice) |
+| `api.anthropic.com`            | unset             | `[]`            | `default`        | **denied**                                 |
+| `api.anthropic.com`            | unset             | `[]`            | `acceptEdits`    | **denied**                                 |
+| `example.com`                  | true              | `[]`            | bypass           | HTTP 200 — deny is selective               |
+| `example.com`                  | true              | `example.com`   | bypass           | **denied** — `deniedDomains` wins          |
+| unset                          | unset             | `example.com`   | bypass           | **denied** — no pairing needed             |
 
 Three conclusions:
 
@@ -378,13 +378,13 @@ Three conclusions:
    the Layer-2 NetworkPolicy design intends. The earlier concern was wrong.
 2. **`strictAllowlist` is honored through the `query()` option.** Worth stating
    because `sandbox.ts` documents the opposite for `allowManagedReadPathsOnly` —
-   the "user/managed/CLI settings only" caveat in the SDK docs does *not* apply
+   the "user/managed/CLI settings only" caveat in the SDK docs does _not_ apply
    uniformly, so per-field probing is the only reliable read.
 3. **A bare `allowedDomains` is a no-op here** — the trap, and rows 3–5 isolate
    why. Holding the network config fixed and changing only the permission mode
    flips the outcome: `bypassPermissions` allows, `default` and `acceptEdits` deny.
    That matches the SDK's own wording — without `strictAllowlist` the runtime
-   *prompts* rather than denies, and bypass auto-approves the prompt. So an
+   _prompts_ rather than denies, and bypass auto-approves the prompt. So an
    allowlist added here without `strictAllowlist: true` looks like egress control
    and enforces nothing. Recorded at the `network` field in `src/sandbox.ts` so the
    next person to add a domain rule hits it.
@@ -397,15 +397,15 @@ and an allowlist would break the registries and docs sites Claude legitimately n
 
 ## Is the types major actually breaking?
 
-Everything above studies what was *added*. A major version demands the opposite
+Everything above studies what was _added_. A major version demands the opposite
 question, so it was checked separately across all 19 `.d.ts` files:
 
-| Backward-compat check, 3.28.0 → 4.0.0 | Result |
-|---|---|
+| Backward-compat check, 3.28.0 → 4.0.0        | Result                             |
+| -------------------------------------------- | ---------------------------------- |
 | Exported types/interfaces/namespaces removed | **none** (483 → 512, all additive) |
-| Fields removed from any interface | **none** |
-| Fields that went optional → required | **none** |
-| Bot API methods removed | **none** (180 → 185) |
+| Fields removed from any interface            | **none**                           |
+| Fields that went optional → required         | **none**                           |
+| Bot API methods removed                      | **none** (180 → 185)               |
 
 One genuine breaking change, and it is why the major was cut:
 `InputRichMessage` gained a type parameter. Naming it bare now fails —
@@ -422,22 +422,22 @@ Verified green on HEAD: `bun run typecheck` exits 0, and `bun test` gives
 
 ## Confidence
 
-| Claim | Tier | Evidence |
-|---|---|---|
-| Version deltas across the window | ✅ | `bun.lock` per merge commit + `node_modules` |
-| Bot API method/type additions | ✅ | `.d.ts` set-diff + core.telegram.org changelog |
-| Streaming/rich/ephemeral signatures | ✅ | clean `bun run typecheck` probe |
-| SDK tool surface fully classified | ✅ | 43 `*Input` schemas vs 43 `REVIEWED`, both directions |
-| `@grammyjs/types` 4.0.0 is additive-only | ✅ | removal/optionality sweep over all 19 `.d.ts` |
-| Nothing in the window breaks the bot | ✅ | `bun run typecheck` 0; `bun test` 179 pass / 0 fail |
-| New `SDKMessage` types unhandled | ✅ | union diff + `session.ts:351` read |
-| `session_id` changes across `conversation_reset` | ✅ | event stream logged from a triggered reset — three distinct ids |
-| `/clear` from Telegram reaches Claude unfiltered | ✅ | 7 registered commands; `message:text` catches the rest, no slash filter |
-| Current sandbox config cannot hang on egress | ✅ | runtime probe, 8-case matrix |
-| `allowedDomains` is inert without `strictAllowlist` | ✅ | same probe, repeated to rule out flake |
-| …and `bypassPermissions` is *why* | ✅ | network config held fixed, permission mode varied |
-| Drafts are metered more loosely than edits | ⚠ | **claim withdrawn** — undocumented, unmeasured; `scripts/probe-draft-rate-limit.sh` measures it, not yet run |
-| Draft/rich/ephemeral methods exist on the live server | ✅ | `scripts/probe-bot-api-methods.sh`, run 2026-07-28 — all four 400 (implemented), fake method 404 |
+| Claim                                                 | Tier | Evidence                                                                                                     |
+| ----------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------ |
+| Version deltas across the window                      | ✅   | `bun.lock` per merge commit + `node_modules`                                                                 |
+| Bot API method/type additions                         | ✅   | `.d.ts` set-diff + core.telegram.org changelog                                                               |
+| Streaming/rich/ephemeral signatures                   | ✅   | clean `bun run typecheck` probe                                                                              |
+| SDK tool surface fully classified                     | ✅   | 43 `*Input` schemas vs 43 `REVIEWED`, both directions                                                        |
+| `@grammyjs/types` 4.0.0 is additive-only              | ✅   | removal/optionality sweep over all 19 `.d.ts`                                                                |
+| Nothing in the window breaks the bot                  | ✅   | `bun run typecheck` 0; `bun test` 179 pass / 0 fail                                                          |
+| New `SDKMessage` types unhandled                      | ✅   | union diff + `session.ts:351` read                                                                           |
+| `session_id` changes across `conversation_reset`      | ✅   | event stream logged from a triggered reset — three distinct ids                                              |
+| `/clear` from Telegram reaches Claude unfiltered      | ✅   | 7 registered commands; `message:text` catches the rest, no slash filter                                      |
+| Current sandbox config cannot hang on egress          | ✅   | runtime probe, 8-case matrix                                                                                 |
+| `allowedDomains` is inert without `strictAllowlist`   | ✅   | same probe, repeated to rule out flake                                                                       |
+| …and `bypassPermissions` is _why_                     | ✅   | network config held fixed, permission mode varied                                                            |
+| Drafts are metered more loosely than edits            | ⚠    | **claim withdrawn** — undocumented, unmeasured; `scripts/probe-draft-rate-limit.sh` measures it, not yet run |
+| Draft/rich/ephemeral methods exist on the live server | ✅   | `scripts/probe-bot-api-methods.sh`, run 2026-07-28 — all four 400 (implemented), fake method 404             |
 
 ## Live server check — all four methods confirmed
 
@@ -461,7 +461,7 @@ All four are **implemented server-side**. The controls make that readable: a met
 this server does not have returns 404 "Not Found", and none of the four did.
 
 The error text carries more than existence. "chat not found" means each call parsed
-its parameters and got as far as resolving the chat — so the request *shapes* are
+its parameters and got as far as resolving the chat — so the request _shapes_ are
 accepted too, not just the method names. `editEphemeralMessageText` got further
 still, into per-field validation of `receiver_user_id`, which independently confirms
 the ephemeral-message signature from finding 3.
@@ -554,12 +554,12 @@ backgrounded task is invisible from the phone.
 
 ## Recommended order
 
-| # | Item | Size | Why this rank |
-|---|---|---|---|
-| 1 | `rate_limit_event` warning | S | Completes `b1cf270`; the only gap where the user currently gets *no* signal at all |
-| 2 | `api_retry` + `compact_boundary` status | S | Removes two classes of unexplained silence |
-| 3 | `background_tasks_changed` | M | Finding 4b |
-| 4 | SDK session store | L | Real win on `/resume` labels, but needs its own design pass on the cwd/cap problem |
+| #   | Item                                    | Size | Why this rank                                                                      |
+| --- | --------------------------------------- | ---- | ---------------------------------------------------------------------------------- |
+| 1   | `rate_limit_event` warning              | S    | Completes `b1cf270`; the only gap where the user currently gets _no_ signal at all |
+| 2   | `api_retry` + `compact_boundary` status | S    | Removes two classes of unexplained silence                                         |
+| 3   | `background_tasks_changed`              | M    | Finding 4b                                                                         |
+| 4   | SDK session store                       | L    | Real win on `/resume` labels, but needs its own design pass on the cwd/cap problem |
 
 Deliberately not adopted: `includePartialMessages` (finding 1 already covers native
 drafts and is gated on the unrun rate-limit probe), and the remaining 30-odd union

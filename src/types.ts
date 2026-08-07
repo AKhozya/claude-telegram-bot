@@ -8,7 +8,7 @@ import type { FileFlavor, FileApiFlavor } from "@grammyjs/files";
 export type StatusCallback = (
   type: "thinking" | "tool" | "text" | "segment_end" | "done",
   content: string,
-  segmentId?: number
+  segmentId?: number,
 ) => Promise<void>;
 
 // Session persistence

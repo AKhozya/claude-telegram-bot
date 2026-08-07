@@ -11,10 +11,7 @@ import type { BotContext } from "../types";
 import { ALLOWED_USERS } from "../config";
 import { isAuthorized } from "../security";
 
-export async function authGate(
-  ctx: BotContext,
-  next: NextFunction
-): Promise<void> {
+export async function authGate(ctx: BotContext, next: NextFunction): Promise<void> {
   if (!isAuthorized(ctx.from?.id, ALLOWED_USERS)) {
     // Ack callback queries so Telegram clears the button's loading spinner without
     // revealing anything; everything else is dropped with no reply.

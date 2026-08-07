@@ -135,12 +135,16 @@ export async function probeDuration(inputPath: string): Promise<number | null> {
     try {
       probe = await run(
         [
-          FFPROBE_BIN, "-v", "error",
-          "-show_entries", entries,
-          "-of", "default=noprint_wrappers=1:nokey=1",
+          FFPROBE_BIN,
+          "-v",
+          "error",
+          "-show_entries",
+          entries,
+          "-of",
+          "default=noprint_wrappers=1:nokey=1",
           inputPath,
         ],
-        FFPROBE_TIMEOUT_MS
+        FFPROBE_TIMEOUT_MS,
       );
     } catch {
       // A throw here is all but always a missing ffprobe, which the second form would hit
@@ -159,7 +163,7 @@ export async function probeDuration(inputPath: string): Promise<number | null> {
       ...probe.stdout
         .split("\n")
         .map((line) => Number(line.trim()))
-        .filter((value) => Number.isFinite(value) && value > 0)
+        .filter((value) => Number.isFinite(value) && value > 0),
     );
   }
 
@@ -207,20 +211,25 @@ function spread<T>(values: T[], count: number): T[] {
  */
 export async function extractSceneFrames(
   inputPath: string,
-  durationSeconds: number | null
+  durationSeconds: number | null,
 ): Promise<string[]> {
   let times: number[] = [];
   try {
     const detect = await run(
       [
-        FFMPEG_BIN, "-hide_banner", "-nostdin",
-        "-i", inputPath,
+        FFMPEG_BIN,
+        "-hide_banner",
+        "-nostdin",
+        "-i",
+        inputPath,
         "-an",
         "-vf",
         `scale=320:-2,fps=${DETECT_FPS},select='gt(scene,${SCENE_THRESHOLD})',showinfo`,
-        "-f", "null", "-",
+        "-f",
+        "null",
+        "-",
       ],
-      DETECT_TIMEOUT_MS
+      DETECT_TIMEOUT_MS,
     );
     // showinfo writes one line per selected frame to stderr; the timestamp is what matters.
     times = [...detect.stderr.matchAll(/pts_time:([0-9.]+)/g)]
@@ -244,7 +253,7 @@ export async function extractSceneFrames(
     // Interior points only: the first frame of a video is often black or a title card.
     times = Array.from(
       { length: STATIC_FRAMES },
-      (_, i) => (durationSeconds * (i + 1)) / (STATIC_FRAMES + 1)
+      (_, i) => (durationSeconds * (i + 1)) / (STATIC_FRAMES + 1),
     );
   }
 
@@ -257,15 +266,25 @@ export async function extractSceneFrames(
       // this cheap enough to run once per frame rather than in one pass over the whole file.
       const shot = await run(
         [
-          FFMPEG_BIN, "-hide_banner", "-loglevel", "error", "-nostdin",
-          "-ss", String(time),
-          "-i", inputPath,
-          "-frames:v", "1",
-          "-vf", "scale='min(768,iw)':-2",
-          "-q:v", "4",
-          "-y", framePath,
+          FFMPEG_BIN,
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-nostdin",
+          "-ss",
+          String(time),
+          "-i",
+          inputPath,
+          "-frames:v",
+          "1",
+          "-vf",
+          "scale='min(768,iw)':-2",
+          "-q:v",
+          "4",
+          "-y",
+          framePath,
         ],
-        EXTRACT_TIMEOUT_MS
+        EXTRACT_TIMEOUT_MS,
       );
       // Exit 0 does not mean a file was written: a seek past the end leaves ffmpeg reporting
       // success with no output, and listing that path would hand Claude something to fail on.
@@ -292,13 +311,25 @@ export async function transcribeMedia(inputPath: string): Promise<string> {
     // being parsed — the phrase the no-audio check looks for is still present at info.
     const extract = await run(
       [
-        FFMPEG_BIN, "-hide_banner", "-loglevel", "info",
-        "-i", inputPath,
-        "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le",
-        "-af", "volumedetect",
-        "-y", wavPath,
+        FFMPEG_BIN,
+        "-hide_banner",
+        "-loglevel",
+        "info",
+        "-i",
+        inputPath,
+        "-vn",
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        "-c:a",
+        "pcm_s16le",
+        "-af",
+        "volumedetect",
+        "-y",
+        wavPath,
       ],
-      FFMPEG_TIMEOUT_MS
+      FFMPEG_TIMEOUT_MS,
     );
 
     if (extract.code !== 0) {
@@ -321,15 +352,19 @@ export async function transcribeMedia(inputPath: string): Promise<string> {
     const whisper = await run(
       [
         WHISPER_BIN,
-        "-m", WHISPER_MODEL,
-        "-f", wavPath,
-        "-t", String(WHISPER_THREADS),
+        "-m",
+        WHISPER_MODEL,
+        "-f",
+        wavPath,
+        "-t",
+        String(WHISPER_THREADS),
         "-nt",
         // Without this whisper-cli forces English: `--language` defaults to `en`, and a
         // multilingual model obeys it. English-only models ignore `auto` harmlessly.
-        "-l", "auto",
+        "-l",
+        "auto",
       ],
-      WHISPER_TIMEOUT_MS
+      WHISPER_TIMEOUT_MS,
     );
 
     // A model that will not load is a deployment problem, and the user-facing message
@@ -347,7 +382,7 @@ export async function transcribeMedia(inputPath: string): Promise<string> {
       // Exit 0 with nothing on stdout is what an unreadable input looks like. The exit
       // code cannot be the failure signal here.
       throw new Error(
-        `whisper produced no transcript: ${firstLine(whisper.stderr) || "empty output"}`
+        `whisper produced no transcript: ${firstLine(whisper.stderr) || "empty output"}`,
       );
     }
     return text;

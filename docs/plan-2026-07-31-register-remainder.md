@@ -37,16 +37,16 @@ Flux like any other bump.
 Every item below was verified against the code or the running system before being scheduled.
 Four of the eight turned out to differ from the register.
 
-| # | Register said | Investigation found | Verdict |
-|---|---|---|---|
-| 14 | `send_file` MCP validates no paths | True, **but the bot enforces** at `src/handlers/streaming.ts:276` (`if (!isPathAllowed(filePath))`) | Defense-in-depth only — **don't duplicate** |
-| 15 | Astral ignorables "cannot be" covered — no `u` flag | **Wrong.** A surrogate-pair + lookbehind pattern rejects U+E0100-U+E01EF while still accepting emoji, U+1F100, U+1F1E6 | Correct the comment, **don't ship the pattern** |
-| 16 | Reopen only if the archive feature is used | **3 `ARCHIVE` audit events** in 13,377 lines on the live pod | Keep the feature, evidence recorded |
-| 18 | `net.BlockList` rejected, needs differential fuzz | Unchanged | Stays rejected — the fuzz harness is YAGNI |
-| 19 | "Real gap **when** `BASH_SANDBOX_ENABLED=false`" | That **is** the production configuration — homelab `deployment.yaml` sets `BASH_SANDBOX_ENABLED=false` because bubblewrap needs user namespaces the pod's `seccompProfile: RuntimeDefault` blocks | Register understates it; see decision D2 |
-| 20 | `photo.ts`/`video.ts` untested; item 8 added `run-prompt.ts`, `commands.ts` | `video.ts` is **absent from the coverage table entirely** — no test loads it. `document.ts` is 16.63 % of lines, worse than `commands.ts` at 13.23 % but far larger | Test `video.ts`; record the real numbers |
-| 23 | `mcp-config.example.ts` hides the repo's own servers | Unchanged | Owner's call — **decided D1 2026-07-31: both enabled** |
-| 25 | `/var/folders/` can never match | **Confirmed by spike:** `isPathAllowed(TMPDIR)` is `false`; `realpath` gives `/private/var/folders/…` | Fix |
+| #   | Register said                                                               | Investigation found                                                                                                                                                                               | Verdict                                                |
+| --- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| 14  | `send_file` MCP validates no paths                                          | True, **but the bot enforces** at `src/handlers/streaming.ts:276` (`if (!isPathAllowed(filePath))`)                                                                                               | Defense-in-depth only — **don't duplicate**            |
+| 15  | Astral ignorables "cannot be" covered — no `u` flag                         | **Wrong.** A surrogate-pair + lookbehind pattern rejects U+E0100-U+E01EF while still accepting emoji, U+1F100, U+1F1E6                                                                            | Correct the comment, **don't ship the pattern**        |
+| 16  | Reopen only if the archive feature is used                                  | **3 `ARCHIVE` audit events** in 13,377 lines on the live pod                                                                                                                                      | Keep the feature, evidence recorded                    |
+| 18  | `net.BlockList` rejected, needs differential fuzz                           | Unchanged                                                                                                                                                                                         | Stays rejected — the fuzz harness is YAGNI             |
+| 19  | "Real gap **when** `BASH_SANDBOX_ENABLED=false`"                            | That **is** the production configuration — homelab `deployment.yaml` sets `BASH_SANDBOX_ENABLED=false` because bubblewrap needs user namespaces the pod's `seccompProfile: RuntimeDefault` blocks | Register understates it; see decision D2               |
+| 20  | `photo.ts`/`video.ts` untested; item 8 added `run-prompt.ts`, `commands.ts` | `video.ts` is **absent from the coverage table entirely** — no test loads it. `document.ts` is 16.63 % of lines, worse than `commands.ts` at 13.23 % but far larger                               | Test `video.ts`; record the real numbers               |
+| 23  | `mcp-config.example.ts` hides the repo's own servers                        | Unchanged                                                                                                                                                                                         | Owner's call — **decided D1 2026-07-31: both enabled** |
+| 25  | `/var/folders/` can never match                                             | **Confirmed by spike:** `isPathAllowed(TMPDIR)` is `false`; `realpath` gives `/private/var/folders/…`                                                                                             | Fix                                                    |
 
 ### Spike record
 
@@ -67,28 +67,30 @@ Four of the eight turned out to differ from the register.
 
 ### Assumptions and cut corners
 
-| Confidence | Claim |
-|---|---|
-| ✅ | Every row in the two tables above was read from source or run against the live system this session. |
-| ✅ | The `!video` and oversized guards at `src/handlers/video.ts:42-54` return before any module-level dependency that would need stubbing. The rate-limit branch at `:56` does not, and is out of scope — see task 2. |
-| 🟡 | JSON Schema `pattern` is ECMA-262, so lookbehind is *specified*, but MCP clients validate with assorted libraries (Python `jsonschema` on `re`, Go) that do not implement it. Not tested against a real third-party client — this is the reason task 3 corrects the comment instead of shipping the pattern. |
-| ⚠ | Task 2 covers the two size/presence guards **and** the download-failure path, which a `ctx` without `getFile` reaches for free. It does **not** cover the rate-limit branch or the happy path — the latter needs `session.sendMessageStreaming` stubbed, and `text.test.ts:7-9` warns `mock.module` leaks across files in Bun 1.3.14 (though `session-mcp-ui.test.ts` uses it successfully with an `afterAll` restore). Deliberately out of scope — stated, not hidden. |
+| Confidence | Claim                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ✅         | Every row in the two tables above was read from source or run against the live system this session.                                                                                                                                                                                                                                                                                                                                                                     |
+| ✅         | The `!video` and oversized guards at `src/handlers/video.ts:42-54` return before any module-level dependency that would need stubbing. The rate-limit branch at `:56` does not, and is out of scope — see task 2.                                                                                                                                                                                                                                                       |
+| 🟡         | JSON Schema `pattern` is ECMA-262, so lookbehind is _specified_, but MCP clients validate with assorted libraries (Python `jsonschema` on `re`, Go) that do not implement it. Not tested against a real third-party client — this is the reason task 3 corrects the comment instead of shipping the pattern.                                                                                                                                                            |
+| ⚠          | Task 2 covers the two size/presence guards **and** the download-failure path, which a `ctx` without `getFile` reaches for free. It does **not** cover the rate-limit branch or the happy path — the latter needs `session.sendMessageStreaming` stubbed, and `text.test.ts:7-9` warns `mock.module` leaks across files in Bun 1.3.14 (though `session-mcp-ui.test.ts` uses it successfully with an `afterAll` restore). Deliberately out of scope — stated, not hidden. |
 
 ---
 
 ## Task 1: Item 25 — macOS `TMPDIR` can never be allowed
 
 **Files:**
+
 - Modify: `src/config.ts:227`
 - Test: `src/security.test.ts`
 
 **Interfaces:**
+
 - Consumes: `isPathAllowed` from `src/security.ts`, `TEMP_PATHS` from `src/config.ts`
 - Produces: nothing new — `TEMP_PATHS` gains one entry
 
 `canonicalize()` resolves every path before matching. On macOS `/var/folders/…` resolves to
 `/private/var/folders/…`, so the `/var/folders/` entry matches nothing and the platform's own
-`TMPDIR` is rejected. This is the same reason `/tmp/` and `/private/tmp/` are *both* listed.
+`TMPDIR` is rejected. This is the same reason `/tmp/` and `/private/tmp/` are _both_ listed.
 Fail-closed, so an over-block rather than a hole — but it silently breaks any deployment that
 points `TEMP_DIR` at `$TMPDIR` on macOS.
 
@@ -104,8 +106,13 @@ not — extend the existing `fs` import at line 2 rather than adding a second on
 import { symlinkSync, mkdirSync, rmSync, realpathSync } from "fs";
 
 // line 15 becomes:
-const { evaluateToolUse, checkCommandSafety, isProtectedControlFile, isCredentialPath, isPathAllowed } =
-  await import("./security");
+const {
+  evaluateToolUse,
+  checkCommandSafety,
+  isProtectedControlFile,
+  isCredentialPath,
+  isPathAllowed,
+} = await import("./security");
 ```
 
 Then add the tests:
@@ -135,12 +142,7 @@ In `src/config.ts:227`:
 ```ts
 // Both spellings of each: canonicalize() resolves before isPathAllowed matches, so on
 // macOS /tmp and /var/folders arrive under /private and the bare forms never match.
-export const TEMP_PATHS = [
-  "/tmp/",
-  "/private/tmp/",
-  "/var/folders/",
-  "/private/var/folders/",
-];
+export const TEMP_PATHS = ["/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/"];
 ```
 
 - [ ] **Step 4: Run the test and the full gate**
@@ -173,10 +175,12 @@ git commit -m "Allow the canonical spelling of the platform temp dir" -- src/con
 ## Task 2: Item 20 — `video.ts` is the one handler no test loads
 
 **Files:**
+
 - Create: `src/handlers/video.test.ts`
 - Test: itself
 
 **Interfaces:**
+
 - Consumes: `handleVideo` from `src/handlers/video.ts`
 - Produces: nothing — test-only
 
@@ -302,6 +306,7 @@ git commit -m "Cover the video handler's guard clauses" -- src/handlers/video.te
 ## Task 3: Correct the register and the one wrong comment
 
 **Files:**
+
 - Modify: `ask_user_mcp/server.ts:42-45`
 - Modify: `docs/open-questions-2026-07-31.md`, the "Tier 3 — remaining" table
 
@@ -340,18 +345,18 @@ git commit -m "Say why astral ignorables are uncovered, not that they cannot be"
 - [ ] **Step 4: Rewrite the "Tier 3 — remaining" table**
 
 The table is stale, and omits 25 entirely — 25 lives in the "Found while working tier 3"
-table, not in this one. Replace rows 14-23 with the verdicts from *Findings
-that changed the plan* above, carrying each item's evidence (file:line, or the command and its
+table, not in this one. Replace rows 14-23 with the verdicts from _Findings
+that changed the plan_ above, carrying each item's evidence (file:line, or the command and its
 output). Keep every "Why it was left" note that is still true; do not delete the section
 banners.
 
 The three already-done rows are **not** in that findings table — take them from here:
 
-| # | Disposition | Evidence |
-|---|---|---|
-| 17 | Done, no code change | Settled by the live pass; two unacknowledged `/restart` messages produced exactly two restarts, then flat 45 s. Already written up under "Also settled by the live pass" |
-| 21 | Done | `ce60a64` — "Write an audit record only through a descriptor proved private" |
-| 22 | Done | Merged 2026-07-31. Not one SHA: `main` was fast-forwarded to the branch tip `214ab9a`, then merged with `origin/main` twice as Renovate landed lockfile PRs #52-#54 mid-push. `git merge-base --is-ancestor 214ab9a` is true for both merge commits; the pushed tip is `3d11819`. Cite the branch tip and the pushed tip, not a single merge |
+| #   | Disposition          | Evidence                                                                                                                                                                                                                                                                                                                                     |
+| --- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 17  | Done, no code change | Settled by the live pass; two unacknowledged `/restart` messages produced exactly two restarts, then flat 45 s. Already written up under "Also settled by the live pass"                                                                                                                                                                     |
+| 21  | Done                 | `ce60a64` — "Write an audit record only through a descriptor proved private"                                                                                                                                                                                                                                                                 |
+| 22  | Done                 | Merged 2026-07-31. Not one SHA: `main` was fast-forwarded to the branch tip `214ab9a`, then merged with `origin/main` twice as Renovate landed lockfile PRs #52-#54 mid-push. `git merge-base --is-ancestor 214ab9a` is true for both merge commits; the pushed tip is `3d11819`. Cite the branch tip and the pushed tip, not a single merge |
 
 - [ ] **Step 5: Update the gate line**
 
@@ -369,6 +374,7 @@ git commit -m "Record what the tier-3 remainder turned out to be" -- docs/open-q
 ## Task 4: Codex auth rots silently in the pod
 
 **Files:**
+
 - Modify: `~/source-code/homelab/apps/claude-telegram/deployment.yaml` (the restart-card block near line 152)
 
 Codex auth was dead from ~Jul 6 to Jul 31 and nothing said so — it surfaced only when the bot
@@ -394,7 +400,7 @@ CODEX_AUTH=$(codex login status 2>/dev/null | head -1)
 [ -n "$CODEX_AUTH" ] || CODEX_AUTH="NOT LOGGED IN"
 ```
 
-Add a `| Codex auth | \`%s\` |` row to the `printf` format and pass `"$CODEX_AUTH"`.
+Add a `| Codex auth | \`%s\` |`row to the`printf`format and pass`"$CODEX_AUTH"`.
 
 - [ ] **Step 2b: Prove the fallback actually fires**
 
@@ -405,6 +411,7 @@ first place:
 CODEX_AUTH=$(codex login status 2>/dev/null | head -1); [ -n "$CODEX_AUTH" ] || CODEX_AUTH="NOT LOGGED IN"; echo "[$CODEX_AUTH]"
 CODEX_AUTH=$(nonexistent-command 2>/dev/null | head -1); [ -n "$CODEX_AUTH" ] || CODEX_AUTH="NOT LOGGED IN"; echo "[$CODEX_AUTH]"
 ```
+
 Expected: `[NOT LOGGED IN]` from the second. The first prints `[Logged in using ChatGPT]`
 only where `codex` is on `PATH` — it is in the pod, and was **not** in the shell this was
 verified in, which is why both lines returned the fallback there. For contrast, the broken
@@ -413,6 +420,7 @@ form returns `[]`:
 ```bash
 BAD=$(nonexistent-command 2>/dev/null | head -1 || echo "NOT LOGGED IN"); echo "[$BAD]"   # -> []
 ```
+
 Both forms were run; the empty result above is observed output, not a prediction.
 
 - [ ] **Step 3: Validate before committing**
@@ -426,6 +434,7 @@ yq eval 'del(.sops)' "$out" | kubeconform -strict -ignore-missing-schemas \
   -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' -summary
 rm -f "$out"
 ```
+
 Expected: yamllint exit 0 (four pre-existing line-length warnings at lines 91-159 are not
 yours), kubeconform `Valid: 215, Invalid: 0`.
 
@@ -438,6 +447,7 @@ git push origin main
 flux reconcile kustomization apps --with-source --timeout=4m
 kubectl -n claude-telegram rollout status deploy/claude-telegram --timeout=300s
 ```
+
 Then confirm the new row appears in the Telegram restart card, and that it reads
 `Logged in using ChatGPT` rather than the fallback.
 
@@ -446,11 +456,12 @@ Then confirm the new row appears in the Telegram restart card, and that it reads
 ## Task 5: Dockerfile ARG drift
 
 **Files:**
+
 - Modify: `Dockerfile:30` (`KUBECTL_VERSION`)
 
 Renovate does not manage `ARG`s, so these drift silently. `KUBECTL_VERSION` is `v1.36.1`
 against a `v1.36.2+k3s1` cluster. `FLUX_VERSION` is `2.9.2` against cluster `2.9.0` — the
-client is *ahead*, which is the supported direction. Both are minor-matched, so this is
+client is _ahead_, which is the supported direction. Both are minor-matched, so this is
 within the stated policy; it is hygiene, not a fix.
 
 - [ ] **Step 1: Confirm the live cluster versions rather than trusting this document**
@@ -500,7 +511,7 @@ homelab `deployment.yaml` sets `BASH_SANDBOX_ENABLED=false` because bubblewrap n
 unparsed in the deployed configuration.
 
 **Recommendation: leave it, and correct the register's wording — but keep it open as a
-standing ceiling, not closed.** For *this* deployment the compensating control is real and
+standing ceiling, not closed.** For _this_ deployment the compensating control is real and
 deliberate: `readOnlyRootFilesystem` confines writes to mounted paths, caps are dropped, egress
 is policed, and the only writable surfaces (the home PVC and `/tmp`) are already inside
 `ALLOWED_PATHS` and `TEMP_PATHS`. `rbac.yaml`'s own header states the bot is
@@ -550,12 +561,12 @@ should be planned separately — mixing it in would make every task above wait o
 - **musl is the binding constraint, exactly as you said.** Spiked against
   `oven/bun:1.3-alpine`:
 
-  | Package | Result |
-  |---|---|
-  | `ffmpeg` | **`6.1.2-r2`, packaged** — one `apk add`, no build |
-  | `whisper` | **not packaged** |
-  | `py3-torch` | **absent** — so `openai-whisper` and `faster-whisper` are both out; their wheels are manylinux and neither publishes musllinux |
-  | `cmake` / `g++` / `make` | `3.31.7-r1` / `14.2.0-r6` / `4.4.1-r3` — present |
+  | Package                  | Result                                                                                                                         |
+  | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+  | `ffmpeg`                 | **`6.1.2-r2`, packaged** — one `apk add`, no build                                                                             |
+  | `whisper`                | **not packaged**                                                                                                               |
+  | `py3-torch`              | **absent** — so `openai-whisper` and `faster-whisper` are both out; their wheels are manylinux and neither publishes musllinux |
+  | `cmake` / `g++` / `make` | `3.31.7-r1` / `14.2.0-r6` / `4.4.1-r3` — present                                                                               |
 
   **whisper.cpp is the only musl-native option**: C/C++, no Python, builds in a stage that
   the runtime image does not keep.
@@ -586,13 +597,13 @@ library at all. The dynamic build would have pulled `libgomp`, `libstdc++` and `
 default `-t 4` oversubscribes: 2.94 s against 2.05 s for `-t 2` on the same 30 s clip — 44 %
 slower for asking for more.
 
-| Model | Audio | Wall (`-t 2`) | Peak RSS |
-|---|---|---|---|
-| `base.en` | 30 s | 2.0 s | 290 MB |
-| `base.en` | 5 min | 23.2 s | 408 MB |
-| `base.en` | 20 min | 97.1 s | 493 MB |
-| `small.en` | 30 s | 6.1 s | 766 MB |
-| `small.en` | 5 min | 68.7 s | 886 MB |
+| Model      | Audio  | Wall (`-t 2`) | Peak RSS |
+| ---------- | ------ | ------------- | -------- |
+| `base.en`  | 30 s   | 2.0 s         | 290 MB   |
+| `base.en`  | 5 min  | 23.2 s        | 408 MB   |
+| `base.en`  | 20 min | 97.1 s        | 493 MB   |
+| `small.en` | 30 s   | 6.1 s         | 766 MB   |
+| `small.en` | 5 min  | 68.7 s        | 886 MB   |
 
 `base.en` costs 4.0 s per audio-minute on the 30 s clip and climbs to **4.86 s** by 20 min,
 so budget ~4.9 s/min (about 12× realtime) for anything long. Memory goes the other way and
@@ -619,11 +630,11 @@ figures. Against 23 s of transcription for the same clip it is noise either way.
 delta measured two ways, 124,456 KB and 124,536 KB). The split `ffmpeg-libav*` packages are
 libraries, not a lighter CLI. Image arithmetic from today's 616 MB:
 
-| Add | Cost |
-|---|---|
-| ffmpeg closure | +122 MB |
+| Add                  | Cost    |
+| -------------------- | ------- |
+| ffmpeg closure       | +122 MB |
 | static `whisper-cli` | +5.4 MB |
-| `base.en` baked in | +141 MB |
+| `base.en` baked in   | +141 MB |
 
 All three lands at **~884 MB**; ffmpeg and the binary alone still land at ~743 MB. Both are
 at or above the 742 MB image that drew the 28-minute pull throttle, so the model is not what
@@ -637,20 +648,21 @@ startup delay.
 
 **Two constraints the investigation missed.**
 
-- The `claude-telegram` namespace has a **ResourceQuota**. It leaves room to *raise* the
+- The `claude-telegram` namespace has a **ResourceQuota**. It leaves room to _raise_ the
   bot's own limits — the deployment is `Recreate`, so the old pod is gone before the new one
   is admitted, and the ceiling is 3300m/3968Mi once the `sync` sidecar's 200m/128Mi is
-  subtracted. What it does not leave room for is a *second* pod: 2 CPU beside the running
+  subtracted. What it does not leave room for is a _second_ pod: 2 CPU beside the running
   bot exceeds `limits.cpu`, which is why the spike ran in `default`. The tighter axis is
   **requests**, not limits — `requests.cpu` is capped at 200m with 110m used, so a raised
   request has only 90m of slack.
 
-  | | hard | used |
-  |---|---|---|
-  | `limits.cpu` | 3500m | 2200m |
-  | `limits.memory` | 4Gi | 2176Mi |
-  | `requests.cpu` | 200m | 110m |
-  | `requests.memory` | 512Mi | 288Mi |
+  |                   | hard  | used   |
+  | ----------------- | ----- | ------ |
+  | `limits.cpu`      | 3500m | 2200m  |
+  | `limits.memory`   | 4Gi   | 2176Mi |
+  | `requests.cpu`    | 200m  | 110m   |
+  | `requests.memory` | 512Mi | 288Mi  |
+
 - No `TELEGRAM_API_ROOT` is set in production, so the standard 20 MB Bot API download cap
   applies. 20 MB of opus is roughly **two hours** of speech — about 10 minutes of
   transcription. `video.ts` meanwhile caps at 50 MB, which that API can never deliver. A
@@ -683,13 +695,13 @@ startup delay.
 
 Written after executing tasks 1-5 on 2026-07-31. Four steps did not survive contact.
 
-| Task | Plan said | What shipped, and why |
-|---|---|---|
-| 1 | Add `"/private/var/folders/"` beside the bare entry | **Rejected in review, correctly.** That prefix also opens `/private/var/folders/<hash>/C`, the user's cache directory, which is not temp. The per-user hash makes a narrow static prefix impossible, so `TEMP_PATHS` now carries the canonical `tmpdir()` computed once at module eval, and the dead `/var/folders/` entry is gone rather than completed. Two tests, one per direction: TMPDIR allowed, the `C` sibling denied |
-| 1 | — | The catch-branch comment was wrong twice before it was right. "Matches nothing" is false: `resolvePhysical` preserves a missing tail, so `TMPDIR=/nonexistent/foo` **does** match its own descendants. "Agree until it becomes a symlink" is also too narrow: a missing path under macOS's symlinked `/var` disagrees immediately. Both spiked, not reasoned |
-| 2 | The at-cap test proves the size guard was passed | **False, and proven false.** Deleting the guard outright by exact-string match leaves that test passing — it discriminates `>` from `>=`, nothing more. The oversized test is the one that covers deletion. Comments and test names now say which is which |
-| 4 | `codex login status 2>/dev/null \| head -1` | **Would have shipped a card that always read `NOT LOGGED IN`.** `codex login status` writes its answer to **stderr**; stdout is empty. Verified in-pod both ways before committing: `2>&1` yields `Logged in using ChatGPT`, `2>/dev/null` yields nothing. The plan's own warning about untested fallbacks applied to the plan |
-| 5 | Bump kubectl only — flux client 2.9.2 is *ahead* of cluster 2.9.0 | **Premise was stale.** Live `flux version --client=false` is **2.9.3**, so the pinned client was *behind*. Both pins bumped: `KUBECTL_VERSION=v1.36.2`, `FLUX_VERSION=2.9.3`. All four upstream artifacts (binary, sha256, tarball, checksums) confirmed reachable before committing |
+| Task | Plan said                                                         | What shipped, and why                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ---- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1    | Add `"/private/var/folders/"` beside the bare entry               | **Rejected in review, correctly.** That prefix also opens `/private/var/folders/<hash>/C`, the user's cache directory, which is not temp. The per-user hash makes a narrow static prefix impossible, so `TEMP_PATHS` now carries the canonical `tmpdir()` computed once at module eval, and the dead `/var/folders/` entry is gone rather than completed. Two tests, one per direction: TMPDIR allowed, the `C` sibling denied |
+| 1    | —                                                                 | The catch-branch comment was wrong twice before it was right. "Matches nothing" is false: `resolvePhysical` preserves a missing tail, so `TMPDIR=/nonexistent/foo` **does** match its own descendants. "Agree until it becomes a symlink" is also too narrow: a missing path under macOS's symlinked `/var` disagrees immediately. Both spiked, not reasoned                                                                   |
+| 2    | The at-cap test proves the size guard was passed                  | **False, and proven false.** Deleting the guard outright by exact-string match leaves that test passing — it discriminates `>` from `>=`, nothing more. The oversized test is the one that covers deletion. Comments and test names now say which is which                                                                                                                                                                     |
+| 4    | `codex login status 2>/dev/null \| head -1`                       | **Would have shipped a card that always read `NOT LOGGED IN`.** `codex login status` writes its answer to **stderr**; stdout is empty. Verified in-pod both ways before committing: `2>&1` yields `Logged in using ChatGPT`, `2>/dev/null` yields nothing. The plan's own warning about untested fallbacks applied to the plan                                                                                                 |
+| 5    | Bump kubectl only — flux client 2.9.2 is _ahead_ of cluster 2.9.0 | **Premise was stale.** Live `flux version --client=false` is **2.9.3**, so the pinned client was _behind_. Both pins bumped: `KUBECTL_VERSION=v1.36.2`, `FLUX_VERSION=2.9.3`. All four upstream artifacts (binary, sha256, tarball, checksums) confirmed reachable before committing                                                                                                                                           |
 
 ## Execution order
 

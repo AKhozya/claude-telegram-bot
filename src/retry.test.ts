@@ -31,11 +31,8 @@ function fakePrev(...outcomes: Outcome[]) {
 // Untyped only because `Transformer` declares this parameter as the `abort-controller`
 // shim's `AbortSignal`, which the global one is not assignable to. The value handed over at
 // run time is whatever the caller passed.
-const run = (
-  transform: ReturnType<typeof retryHttpErrors>,
-  prev: any,
-  signal?: any
-) => transform(prev, "sendDocument" as any, { chat_id: 1 } as any, signal);
+const run = (transform: ReturnType<typeof retryHttpErrors>, prev: any, signal?: any) =>
+  transform(prev, "sendDocument" as any, { chat_id: 1 } as any, signal);
 
 describe("retryHttpErrors", () => {
   test("a call that succeeds is passed through untouched", async () => {
@@ -76,7 +73,7 @@ describe("retryHttpErrors", () => {
     const { prev, calls } = fakePrev(
       { throws: httpError() },
       { throws: httpError() },
-      { returns: OK }
+      { returns: OK },
     );
     expect(await run(retryHttpErrors(3, 0), prev)).toBe(OK);
     expect(calls).toHaveLength(3);
@@ -94,7 +91,7 @@ describe("retryHttpErrors", () => {
         "Call to 'sendDocument' failed!",
         { ok: false, error_code: 400, description: "Bad Request" },
         "sendDocument",
-        {}
+        {},
       ),
       new Error("plain"),
       // A rejection that is not an Error at all must not be retried either.
@@ -125,9 +122,7 @@ describe("retryHttpErrors", () => {
       return real(fn, ms);
     }) as typeof setTimeout;
     try {
-      await expect(
-        run(retryHttpErrors(3, 5000), prev, AbortSignal.abort())
-      ).rejects.toBe(error);
+      await expect(run(retryHttpErrors(3, 5000), prev, AbortSignal.abort())).rejects.toBe(error);
     } finally {
       globalThis.setTimeout = real;
     }
@@ -239,7 +234,7 @@ describe("installRetry", () => {
     installRetry({ config: { use: (...t: any[]) => installed.push(...t) } } as any, 3, 0);
     const call = installed.reduce(
       (prev, trans) => (m: any, p: any, s: any) => trans(prev, m, p, s),
-      raw
+      raw,
     );
 
     const real = globalThis.setTimeout;
@@ -270,7 +265,7 @@ describe("installRetry", () => {
     const { api, fetches } = failingApi();
     installRetry(api, 3, 0);
     await expect(
-      api.sendMessage(1, "hi", undefined, AbortSignal.abort() as any)
+      api.sendMessage(1, "hi", undefined, AbortSignal.abort() as any),
     ).rejects.toBeInstanceOf(HttpError);
     expect(fetches()).toBe(1);
   });
@@ -286,9 +281,7 @@ describe("installRetry", () => {
  * rechecking against the new shape. It does not mean the assertion should be relaxed.
  */
 test("autoRetry retries an HttpError without consulting its attempt counter", async () => {
-  const source = await Bun.file(
-    "node_modules/@grammyjs/auto-retry/out/mod.js"
-  ).text();
+  const source = await Bun.file("node_modules/@grammyjs/auto-retry/out/mod.js").text();
 
   const start = source.indexOf("async function call()");
   expect(start).toBeGreaterThan(-1);

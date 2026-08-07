@@ -24,7 +24,7 @@ async function connect(env: Record<string, string>): Promise<Client> {
       command: "bun",
       args: [SERVER],
       env: { PATH: process.env.PATH ?? "", ...env },
-    })
+    }),
   );
   return c;
 }
@@ -33,7 +33,9 @@ async function connect(env: Record<string, string>): Promise<Client> {
 async function writtenRequests(): Promise<Record<string, unknown>[]> {
   const out: Record<string, unknown>[] = [];
   for await (const name of new Bun.Glob("send-file-*.json").scan("/tmp")) {
-    const data = await Bun.file(`/tmp/${name}`).json().catch(() => null);
+    const data = await Bun.file(`/tmp/${name}`)
+      .json()
+      .catch(() => null);
     if (data && String(data.chat_id) === CHAT_ID) out.push(data);
   }
   return out;
@@ -68,7 +70,7 @@ async function expectNothingQueued(before: Map<string, string>): Promise<void> {
 /** A refusal is one text item and nothing else — an extra item is a mixed message. */
 function expectRefusal(
   result: { isError?: boolean; content: { type: string; text: string }[] },
-  text: string
+  text: string,
 ): void {
   expect(result.isError).toBe(true);
   expect(result.content).toEqual([{ type: "text", text }]);
@@ -76,7 +78,9 @@ function expectRefusal(
 
 async function cleanup(): Promise<void> {
   for await (const name of new Bun.Glob("send-file-*.json").scan("/tmp")) {
-    const data = await Bun.file(`/tmp/${name}`).json().catch(() => null);
+    const data = await Bun.file(`/tmp/${name}`)
+      .json()
+      .catch(() => null);
     if (data && String(data.chat_id) === CHAT_ID) await Bun.file(`/tmp/${name}`).delete();
   }
 }
@@ -126,16 +130,15 @@ describe("send_file advertised schema", () => {
     // Exact, not a substring: "This is not fire-and-forget" contains the keyword and
     // reverses the contract. Changing this text should mean changing this line too.
     expect(tools[0]!.description).toBe(
-      "Send a file to the user via Telegram. Supports images (png, jpg, gif, webp), videos (mp4, mov, avi, webm, mkv), audio (mp3, wav, ogg, flac, m4a), and any other file type. The file is delivered automatically based on its extension. This is fire-and-forget — you can continue generating after calling this tool."
+      "Send a file to the user via Telegram. Supports images (png, jpg, gif, webp), videos (mp4, mov, avi, webm, mkv), audio (mp3, wav, ogg, flac, m4a), and any other file type. The file is delivered automatically based on its extension. This is fire-and-forget — you can continue generating after calling this tool.",
     );
   });
 
   test("the argument schema is exactly what it was before zod generated it", async () => {
     const { tools } = await client.listTools();
-    const { $schema, required, ...schema } = tools[0]!.inputSchema as Record<
-      string,
-      unknown
-    > & { required?: string[] };
+    const { $schema, required, ...schema } = tools[0]!.inputSchema as Record<string, unknown> & {
+      required?: string[];
+    };
 
     // Held loosely: the draft URI is the SDK's choice, not this tool's contract.
     expect(String($schema)).toMatch(/^https?:\/\/json-schema\.org\//);
@@ -179,7 +182,9 @@ describe("send_file request file", () => {
     expect(req.chat_id).toBe(CHAT_ID);
     // A whole UUID, not a prefix: `callback.ts` resolves a tap by this id alone, so a
     // collision answers an old prompt with a newer one's option.
-    expect(String(req.request_id)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(String(req.request_id)).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
     // Bounded on both sides: a hardcoded 1970 passes a parse check, and a hardcoded 2099
     // passes an upper bound alone.
     const age = Date.now() - Date.parse(String(req.created_at));
@@ -206,9 +211,7 @@ describe("send_file request file", () => {
     ]);
     try {
       await Promise.all(
-        fresh.map((c) =>
-          c.callTool({ name: "send_file", arguments: { file_path: FIXTURE } })
-        )
+        fresh.map((c) => c.callTool({ name: "send_file", arguments: { file_path: FIXTURE } })),
       );
     } finally {
       await Promise.all(fresh.map((c) => c.close()));

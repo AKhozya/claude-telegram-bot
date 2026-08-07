@@ -98,9 +98,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
 
   if (video.file_size && video.file_size > MAX_VIDEO_SIZE) {
     await markFailed(ctx);
-    await ctx.reply(
-      `❌ Video too large. Maximum size is ${MAX_VIDEO_SIZE / 1024 / 1024}MB.`
-    );
+    await ctx.reply(`❌ Video too large. Maximum size is ${MAX_VIDEO_SIZE / 1024 / 1024}MB.`);
     return;
   }
 
@@ -111,9 +109,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     await markFailed(ctx);
     // Seconds, not minutes, matching the audio handler: the cap is configurable, and
     // flooring it reports "1 minutes" for a 90-second setting that allows 90 seconds.
-    await ctx.reply(
-      `❌ Too long to transcribe. Maximum is ${TRANSCRIBE_MAX_DURATION_S} seconds.`
-    );
+    await ctx.reply(`❌ Too long to transcribe. Maximum is ${TRANSCRIBE_MAX_DURATION_S} seconds.`);
     return;
   }
 
@@ -129,11 +125,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
   } catch (error) {
     console.error("Failed to download video:", error);
     await markFailed(ctx);
-    await ctx.api.editMessageText(
-      chatId,
-      statusMsg.message_id,
-      "❌ Failed to download video."
-    );
+    await ctx.api.editMessageText(chatId, statusMsg.message_id, "❌ Failed to download video.");
     return;
   }
 
@@ -155,7 +147,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
         statusMsg.message_id,
         seconds === null
           ? "❌ Couldn't read how long that video is."
-          : `❌ Too long to transcribe. Maximum is ${TRANSCRIBE_MAX_DURATION_S} seconds.`
+          : `❌ Too long to transcribe. Maximum is ${TRANSCRIBE_MAX_DURATION_S} seconds.`,
       );
       return;
     }
@@ -169,11 +161,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
   const state = new StreamingState();
 
   try {
-    await ctx.api.editMessageText(
-      chatId,
-      statusMsg.message_id,
-      "📹 Processing video..."
-    );
+    await ctx.api.editMessageText(chatId, statusMsg.message_id, "📹 Processing video...");
 
     // A video with no audio track is normal, not an error — a screen recording, say. Any
     // other failure is reported in the prompt rather than aborting, because the file path
@@ -222,7 +210,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
       userId,
       statusCallback,
       chatId,
-      ctx
+      ctx,
     );
 
     await auditLog(userId, username, "VIDEO", caption || "[video]", response);

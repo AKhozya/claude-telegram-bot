@@ -7,10 +7,7 @@ const { handleCallback } = await import("./callback");
 // `isRunning` is what /status and /stop read. A button-initiated query that never sets it
 // is invisible to both — the drift `session.ts` documents and Batch 3 fixed one function
 // up, in handleCallback's askuser branch.
-const makeCtx = (
-  data: string,
-  rec?: { replies: string[]; reactions: string[] }
-): any => ({
+const makeCtx = (data: string, rec?: { replies: string[]; reactions: string[] }): any => ({
   from: { id: 1, username: "tester" },
   chat: { id: 100 },
   msg: { message_id: 5 },
@@ -84,7 +81,7 @@ describe("ask_user button", () => {
   test("isRunning is true while the selected option runs and false after", async () => {
     writeFileSync(
       requestFile,
-      JSON.stringify({ question: "Pick one", options: ["Yes", "No"], status: "pending" })
+      JSON.stringify({ question: "Pick one", options: ["Yes", "No"], status: "pending" }),
     );
     s.sessionId = "live-session";
 

@@ -30,7 +30,7 @@ const runInSubprocess = async (body: string): Promise<string> => {
       env: { ...process.env, AUDIT_LOG_PATH: AUDIT_PATH },
       stdout: "ignore",
       stderr: "inherit",
-    }
+    },
   );
   expect(await proc.exited).toBe(0);
   return readFileSync(AUDIT_PATH, "utf8");
@@ -50,7 +50,7 @@ describe("what reaches the audit log", () => {
       `session.sessionId = "live";
        session.sendMessageStreaming = async () => "the response";
        const { processPhotos } = await import("${import.meta.dir}/photo.ts");
-       await processPhotos(ctx, ["/tmp/telegram-bot/p1.jpg"], "describe it", 7, "tester", 100);`
+       await processPhotos(ctx, ["/tmp/telegram-bot/p1.jpg"], "describe it", 7, "tester", 100);`,
     );
 
     expect(log).toContain("[Photo: /tmp/telegram-bot/p1.jpg]");
@@ -75,7 +75,7 @@ describe("what reaches the audit log", () => {
          auditInput: "[1 docs] a caption",
        });
        // Or the assertions below would pass on a helper that sent nothing at all.
-       if (sent[0] !== "SECRET-DOCUMENT-BODY") process.exit(3);`
+       if (sent[0] !== "SECRET-DOCUMENT-BODY") process.exit(3);`,
     );
 
     expect(log).toContain("[1 docs] a caption");

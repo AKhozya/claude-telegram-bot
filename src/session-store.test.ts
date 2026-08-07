@@ -12,7 +12,7 @@ describe("writeJsonAtomic", () => {
     const residue = await Array.fromAsync(
       new Bun.Glob(`atomic-test-${process.pid}.json.*.tmp`).scan({
         cwd: process.env.TMPDIR || "/tmp",
-      })
+      }),
     );
     expect(residue.length).toBe(0);
   });

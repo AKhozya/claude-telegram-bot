@@ -15,7 +15,7 @@ import { describeError } from "../formatting";
 export async function handleProcessingError(
   ctx: BotContext,
   error: unknown,
-  state: StreamingState
+  state: StreamingState,
 ): Promise<void> {
   console.error("Error processing update:", error);
   await markFailed(ctx);

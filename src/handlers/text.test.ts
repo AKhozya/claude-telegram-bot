@@ -41,7 +41,7 @@ const makeCtx = (text: string, rec: Recorded, failDeleteOf?: number): any => ({
 /** Restores every field it touched, including the ones the handler itself writes. */
 const withSession = async (
   stubs: Record<string, unknown>,
-  body: () => Promise<void>
+  body: () => Promise<void>,
 ): Promise<void> => {
   const s = session as any;
   const saved = {
@@ -60,7 +60,7 @@ const withSession = async (
 
 const withRateLimit = async (
   result: [boolean, number?],
-  body: () => Promise<void>
+  body: () => Promise<void>,
 ): Promise<void> => {
   const r = rateLimiter as any;
   r.check = () => result;
@@ -85,8 +85,8 @@ describe("handleText rate limiting", () => {
         },
         async () => {
           await handleText(makeCtx("hello", rec));
-        }
-      )
+        },
+      ),
     );
 
     expect(queried).toBe(false);
@@ -96,7 +96,11 @@ describe("handleText rate limiting", () => {
 });
 
 describe("handleText conversation title", () => {
-  const failingQuery = { sendMessageStreaming: async () => { throw new Error("boom"); } };
+  const failingQuery = {
+    sendMessageStreaming: async () => {
+      throw new Error("boom");
+    },
+  };
 
   test("a first message over 50 characters is truncated to 47 plus an ellipsis", async () => {
     const long = "x".repeat(80);
@@ -104,7 +108,7 @@ describe("handleText conversation title", () => {
       withSession({ ...failingQuery, sessionId: null }, async () => {
         await handleText(makeCtx(long, record()));
         expect(session.conversationTitle).toBe("x".repeat(47) + "...");
-      })
+      }),
     );
   });
 
@@ -114,7 +118,7 @@ describe("handleText conversation title", () => {
       withSession({ ...failingQuery, sessionId: null }, async () => {
         await handleText(makeCtx(exact, record()));
         expect(session.conversationTitle).toBe(exact);
-      })
+      }),
     );
   });
 
@@ -125,8 +129,8 @@ describe("handleText conversation title", () => {
         async () => {
           await handleText(makeCtx("a totally different follow-up", record()));
           expect(session.conversationTitle).toBe("first prompt");
-        }
-      )
+        },
+      ),
     );
   });
 });
@@ -144,7 +148,7 @@ describe("handleText tool-message cleanup", () => {
             _m: string,
             _u: string,
             _i: number,
-            statusCallback: (t: string, c: string) => Promise<void>
+            statusCallback: (t: string, c: string) => Promise<void>,
           ) => {
             await statusCallback("tool", "🔧 Read");
             await statusCallback("tool", "🔧 Bash");
@@ -155,8 +159,8 @@ describe("handleText tool-message cleanup", () => {
         async () => {
           // 902 is the second tool message: replies are 901, 902, 903.
           await handleText(makeCtx("go", rec, 902));
-        }
-      )
+        },
+      ),
     );
 
     expect(rec.deleted).toEqual([901, 902, 903]);
@@ -169,7 +173,6 @@ describe("handleText tool-message cleanup", () => {
 // text.ts routes every incoming message through this before doing anything else, so its
 // three outcomes (passthrough, strip-and-forward, swallow) decide what Claude ever sees.
 
-
 /**
  * Assign over the singleton's own methods and delete the assignment afterwards. No
  * mock.module: it survives mock.restore() in Bun 1.3.14 and leaks into whichever files
@@ -178,13 +181,15 @@ describe("handleText tool-message cleanup", () => {
  */
 const withRunningSession = async (
   isRunning: boolean,
-  body: (interrupts: number[]) => Promise<void>
+  body: (interrupts: number[]) => Promise<void>,
 ): Promise<void> => {
   const s = session as any;
   const interrupts: number[] = [];
   const savedIsRunning = Object.getOwnPropertyDescriptor(s, "isRunning");
   Object.defineProperty(s, "isRunning", { value: isRunning, configurable: true });
-  s.interruptForNewMessage = async () => { interrupts.push(1); };
+  s.interruptForNewMessage = async () => {
+    interrupts.push(1);
+  };
   try {
     await body(interrupts);
   } finally {
@@ -224,7 +229,7 @@ describe("checkInterrupt", () => {
         expect(await checkInterrupt(input)).toBe("");
         expect(interrupts).toEqual([1]);
       });
-    }
+    },
   );
 
   // The strip still happens with nothing running — only the interrupt is conditional.

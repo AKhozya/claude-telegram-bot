@@ -36,7 +36,7 @@ export async function runPrompt(
   userId: number,
   username: string,
   chatId: number,
-  { prompt, titleSeed, auditAction, auditInput }: RunPromptOptions
+  { prompt, titleSeed, auditAction, auditInput }: RunPromptOptions,
 ): Promise<void> {
   const stopProcessing = session.startProcessing();
   session.setTitleIfNew(titleSeed);
@@ -53,7 +53,7 @@ export async function runPrompt(
       userId,
       statusCallback,
       chatId,
-      ctx
+      ctx,
     );
 
     await auditLog(userId, username, auditAction, auditInput, response);

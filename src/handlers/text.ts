@@ -78,7 +78,7 @@ export async function handleText(ctx: BotContext): Promise<void> {
         userId,
         statusCallback,
         chatId,
-        ctx
+        ctx,
       );
 
       await auditLog(userId, username, "TEXT", message, response);
@@ -87,9 +87,7 @@ export async function handleText(ctx: BotContext): Promise<void> {
     } catch (error) {
       // Crash only — a user cancellation must not be retried behind their back.
       if (String(error).includes("exited with code") && attempt < MAX_RETRIES) {
-        console.log(
-          `Claude Code crashed, retrying (attempt ${attempt + 2}/${MAX_RETRIES + 1})...`
-        );
+        console.log(`Claude Code crashed, retrying (attempt ${attempt + 2}/${MAX_RETRIES + 1})...`);
         await state.deleteToolMessages(ctx);
         await session.kill(); // Clear corrupted session
         await ctx.reply(`⚠️ Claude crashed, retrying...`);

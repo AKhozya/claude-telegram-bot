@@ -23,13 +23,13 @@ export const MCP_SERVERS: Record<string, McpServerConfig> = {
   // Ask User - present options as Telegram inline keyboard buttons
   "ask-user": {
     command: "bun",
-    args: ["run", `${REPO_ROOT}/ask_user_mcp/server.ts`]
+    args: ["run", `${REPO_ROOT}/ask_user_mcp/server.ts`],
   },
 
   // Send File - send files (images, videos, audio, documents) back to the user
   "send-file": {
     command: "bun",
-    args: ["run", `${REPO_ROOT}/send_file_mcp/server.ts`]
+    args: ["run", `${REPO_ROOT}/send_file_mcp/server.ts`],
   },
 
   // Example: Typefully - draft and schedule social posts

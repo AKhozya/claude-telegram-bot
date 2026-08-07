@@ -113,9 +113,7 @@ test("a video exactly at the duration cap is not treated as too long", async () 
 // silently passes every other test in this file.
 test("a video breaking both caps is refused on size, the cheaper guard", async () => {
   const r = rec();
-  await handleVideo(
-    makeCtx({ file_id: "v4", file_size: 51 * 1024 * 1024, duration: 601 }, r)
-  );
+  await handleVideo(makeCtx({ file_id: "v4", file_size: 51 * 1024 * 1024, duration: 601 }, r));
   expect(r.replies).toEqual(["❌ Video too large. Maximum size is 50MB."]);
 });
 
@@ -144,7 +142,7 @@ interface Run {
  */
 async function withVideoPipeline(
   runs: Run[],
-  body: (sent: string[]) => Promise<void>
+  body: (sent: string[]) => Promise<void>,
 ): Promise<void> {
   const sent: string[] = [];
   const limiter = rateLimiter as any;
@@ -186,9 +184,7 @@ test("the video prompt carries the transcript and the file path", async () => {
   await withVideoPipeline(
     [OK, { code: 0, stdout: "the meeting is at noon", stderr: "" }],
     async (sent) => {
-      await handleVideo(
-        makeDownloadableCtx({ file_id: "v5", file_size: 1024, duration: 30 }, r)
-      );
+      await handleVideo(makeDownloadableCtx({ file_id: "v5", file_size: 1024, duration: 30 }, r));
       expect(sent).toHaveLength(1);
       expect(sent[0]).toContain("the meeting is at noon");
       // The random suffix, not just the timestamp: a bare Date.now() name collides on
@@ -197,7 +193,7 @@ test("the video prompt carries the transcript and the file path", async () => {
       // name that still collides, and asserting two paths merely differ would not catch
       // it either, since two sequential calls usually land in different milliseconds.
       expect(sent[0]).toMatch(/video_\d+_[a-z0-9]+\.mp4/);
-    }
+    },
   );
 });
 
@@ -209,16 +205,13 @@ test("a captioned video carries both the caption and the transcript", async () =
   await withVideoPipeline(
     [OK, { code: 0, stdout: "the meeting is at noon", stderr: "" }],
     async (sent) => {
-      const ctx = makeDownloadableCtx(
-        { file_id: "v6", file_size: 1024, duration: 30 },
-        r
-      );
+      const ctx = makeDownloadableCtx({ file_id: "v6", file_size: 1024, duration: 30 }, r);
       ctx.message.caption = "what did he say?";
       await handleVideo(ctx);
       expect(sent).toHaveLength(1);
       expect(sent[0]).toContain("what did he say?");
       expect(sent[0]).toContain("the meeting is at noon");
-    }
+    },
   );
 });
 
@@ -235,12 +228,10 @@ test("a video with no audio track still reaches Claude, marked as silent", async
       OK,
     ],
     async (sent) => {
-      await handleVideo(
-        makeDownloadableCtx({ file_id: "v7", file_size: 1024, duration: 30 }, r)
-      );
+      await handleVideo(makeDownloadableCtx({ file_id: "v7", file_size: 1024, duration: 30 }, r));
       expect(sent).toHaveLength(1);
       expect(sent[0]).toContain("[no audio track]");
-    }
+    },
   );
 });
 
@@ -257,15 +248,13 @@ test("scene frames are listed in the prompt alongside the transcript", async () 
       OK, // frame 2
     ],
     async (sent) => {
-      await handleVideo(
-        makeDownloadableCtx({ file_id: "v20", file_size: 1024, duration: 20 }, r)
-      );
+      await handleVideo(makeDownloadableCtx({ file_id: "v20", file_size: 1024, duration: 20 }, r));
       expect(sent).toHaveLength(1);
       expect(sent[0]).toContain("what the speaker said");
       expect(sent[0]).toContain("Frames from the video, in order:");
       expect(sent[0]).toMatch(/1\. .*\.frame-1\.jpg/);
       expect(sent[0]).toMatch(/2\. .*\.frame-2\.jpg/);
-    }
+    },
   );
 });
 
@@ -283,14 +272,12 @@ test("a video whose frames cannot be extracted still reaches Claude", async () =
       { code: 1, stdout: "", stderr: "" },
     ],
     async (sent) => {
-      await handleVideo(
-        makeDownloadableCtx({ file_id: "v21", file_size: 1024, duration: 20 }, r)
-      );
+      await handleVideo(makeDownloadableCtx({ file_id: "v21", file_size: 1024, duration: 20 }, r));
       expect(sent).toHaveLength(1);
       expect(sent[0]).toContain("still worth hearing");
       expect(sent[0]).not.toContain("Frames from the video");
       expect(r.reactions).toEqual(["👀", "👌"]);
-    }
+    },
   );
 });
 
@@ -299,7 +286,8 @@ test("a video whose frames cannot be extracted still reaches Claude", async () =
 // sends as a video. Before this, that shape reached the document handler and was refused as an
 // unsupported type.
 test("videoSource accepts a video attached as a file", () => {
-  const doc = (mime?: string) => ({ message: { document: { file_id: "d", mime_type: mime } } }) as any;
+  const doc = (mime?: string) =>
+    ({ message: { document: { file_id: "d", mime_type: mime } } }) as any;
   expect(videoSource(doc("video/mp4"))?.file_id).toBe("d");
   expect(videoSource(doc("video/quicktime"))?.file_id).toBe("d");
   // Not media: still the document handler's business.
@@ -335,15 +323,15 @@ test("a video attached as a file is transcribed like any other video", async () 
       await handleVideo(
         makeDocumentCtx(
           { file_id: "d1", file_size: 1024, mime_type: "video/mp4", file_name: "clip.mkv" },
-          r
-        )
+          r,
+        ),
       );
       expect(sent).toHaveLength(1);
       expect(sent[0]).toContain("spoken words here");
       // The file's own extension is kept: ffmpeg reads by content, but a .mkv named .mp4
       // misleads anyone reading the path in the prompt.
       expect(sent[0]).toMatch(/video_\d+_[a-z0-9]+\.mkv/);
-    }
+    },
   );
 });
 
@@ -355,18 +343,13 @@ test("a file-attached video over the cap is refused after the download", async (
     [{ code: 0, stdout: "605.0\n", stderr: "" }, OK, OK], // ffprobe over the 600s cap
     async (sent) => {
       await handleVideo(
-        makeDocumentCtx(
-          { file_id: "d2", file_size: 1024, mime_type: "video/mp4" },
-          r
-        )
+        makeDocumentCtx({ file_id: "d2", file_size: 1024, mime_type: "video/mp4" }, r),
       );
       // Never reached Claude.
       expect(sent).toEqual([]);
-      expect(r.edits).toContain(
-        "❌ Too long to transcribe. Maximum is 600 seconds."
-      );
+      expect(r.edits).toContain("❌ Too long to transcribe. Maximum is 600 seconds.");
       expect(r.reactions).toEqual(["👀", "👎"]);
-    }
+    },
   );
 });
 
@@ -386,14 +369,14 @@ test("a hostile file name does not reach the download path", async () => {
             mime_type: "video/mp4",
             file_name: `clip.${"z".repeat(250)}`,
           },
-          r
-        )
+          r,
+        ),
       );
       expect(sent).toHaveLength(1);
       // Fell back to the default rather than carrying the 250-character suffix.
       expect(sent[0]).toMatch(/video_\d+_[a-z0-9]+\.mp4/);
       expect(sent[0]).not.toContain("zzz");
-    }
+    },
   );
 });
 
@@ -407,12 +390,12 @@ test("a file name with a separator in its extension falls back", async () => {
       await handleVideo(
         makeDocumentCtx(
           { file_id: "d4", file_size: 1024, mime_type: "video/mp4", file_name: "a.b/c" },
-          r
-        )
+          r,
+        ),
       );
       expect(sent[0]).toMatch(/video_\d+_[a-z0-9]+\.mp4/);
       expect(sent[0]).not.toContain("b/c");
-    }
+    },
   );
 });
 
@@ -435,14 +418,11 @@ test("a silent video attached as a file is measured by its video stream", async 
     ],
     async (sent) => {
       await handleVideo(
-        makeDocumentCtx(
-          { file_id: "d6", file_size: 1024, mime_type: "video/mp4" },
-          r
-        )
+        makeDocumentCtx({ file_id: "d6", file_size: 1024, mime_type: "video/mp4" }, r),
       );
       expect(sent).toHaveLength(1);
       expect(sent[0]).toContain("[no audio track]");
-    }
+    },
   );
 });
 
@@ -458,16 +438,11 @@ test("the longest stream decides the measured duration", async () => {
     ],
     async (sent) => {
       await handleVideo(
-        makeDocumentCtx(
-          { file_id: "d7", file_size: 1024, mime_type: "video/mp4" },
-          r
-        )
+        makeDocumentCtx({ file_id: "d7", file_size: 1024, mime_type: "video/mp4" }, r),
       );
       expect(sent).toEqual([]);
-      expect(r.edits).toContain(
-        "❌ Too long to transcribe. Maximum is 600 seconds."
-      );
-    }
+      expect(r.edits).toContain("❌ Too long to transcribe. Maximum is 600 seconds.");
+    },
   );
 });
 
@@ -482,14 +457,11 @@ test("a file-attached video whose duration cannot be read is refused", async () 
     ],
     async (sent) => {
       await handleVideo(
-        makeDocumentCtx(
-          { file_id: "d5", file_size: 1024, mime_type: "video/mp4" },
-          r
-        )
+        makeDocumentCtx({ file_id: "d5", file_size: 1024, mime_type: "video/mp4" }, r),
       );
       expect(sent).toEqual([]);
       expect(r.edits).toContain("❌ Couldn't read how long that video is.");
-    }
+    },
   );
 });
 
@@ -501,13 +473,11 @@ test("a transcription failure still reaches Claude, marked as such", async () =>
   await withVideoPipeline(
     [{ code: 1, stdout: "", stderr: "Invalid data found when processing input\n" }, OK],
     async (sent) => {
-      await handleVideo(
-        makeDownloadableCtx({ file_id: "v8", file_size: 1024, duration: 30 }, r)
-      );
+      await handleVideo(makeDownloadableCtx({ file_id: "v8", file_size: 1024, duration: 30 }, r));
       expect(sent).toHaveLength(1);
       expect(sent[0]).toContain("[audio could not be transcribed]");
       // Marked done, not failed: the query ran.
       expect(r.reactions).toEqual(["👀", "👌"]);
-    }
+    },
   );
 });

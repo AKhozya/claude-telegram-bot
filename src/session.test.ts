@@ -74,7 +74,10 @@ test("thinking keywords still pin a fixed budget, plain messages stay adaptive",
   const { getThinkingConfig } = await import("./session");
   expect(getThinkingConfig("list the pods")).toEqual({ type: "adaptive" });
   expect(getThinkingConfig("think about it")).toEqual({ type: "enabled", budgetTokens: 10000 });
-  expect(getThinkingConfig("ultrathink about it")).toEqual({ type: "enabled", budgetTokens: 50000 });
+  expect(getThinkingConfig("ultrathink about it")).toEqual({
+    type: "enabled",
+    budgetTokens: 50000,
+  });
 });
 
 // The second layer used to live inline in the options object, where deleting it left
@@ -92,7 +95,7 @@ test("preToolUseGate runs the external safety hook for Bash and denies on exit 2
     const out: any = await preToolUseGate(
       { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "ls" } } as any,
       undefined,
-      {} as any
+      {} as any,
     );
     expect(out.hookSpecificOutput?.permissionDecision).toBe("deny");
     expect(out.hookSpecificOutput?.permissionDecisionReason).toBe("BLOCKED: nope");
@@ -123,7 +126,7 @@ test("preToolUseGate does not run the external safety hook for non-Bash tools", 
         tool_input: { file_path: `${process.env.HOME}/notes.txt` },
       } as any,
       undefined,
-      {} as any
+      {} as any,
     );
     expect(spawned).toBe(0);
     expect(out.hookSpecificOutput).toBeUndefined();

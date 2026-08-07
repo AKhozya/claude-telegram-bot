@@ -108,7 +108,7 @@ export function bashSandboxEnabled(env: NodeJS.ProcessEnv = process.env): boolea
 }
 
 export function buildSandboxSettings(
-  allowedPaths: readonly string[] = ALLOWED_PATHS
+  allowedPaths: readonly string[] = ALLOWED_PATHS,
 ): NonNullable<Options["sandbox"]> {
   return {
     enabled: true,

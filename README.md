@@ -127,6 +127,7 @@ cp mcp-config.example.ts mcp-config.ts
 ```
 
 The bot includes two built-in MCP servers, both enabled by the copy above:
+
 - **`ask_user`** — Lets Claude present options as tappable inline keyboard buttons
 - **`send_file`** — Lets Claude send files (images, videos, audio, documents) back to the chat
 
@@ -136,15 +137,15 @@ Add your own MCP servers (Things, Notion, Typefully, etc.) to give Claude access
 
 ## Bot Commands
 
-| Command    | Description                       |
-| ---------- | --------------------------------- |
+| Command    | Description                                                                                                       |
+| ---------- | ----------------------------------------------------------------------------------------------------------------- |
 | `/start`   | Show session status, working directory, and the command list (works, but not listed in the Telegram command menu) |
-| `/new`     | Start a fresh session             |
-| `/resume`  | Pick from last 5 sessions to resume (with recap) |
-| `/stop`    | Interrupt current query           |
-| `/status`  | Check what Claude is doing        |
-| `/retry`   | Re-run the last message           |
-| `/restart` | Restart the bot                   |
+| `/new`     | Start a fresh session                                                                                             |
+| `/resume`  | Pick from last 5 sessions to resume (with recap)                                                                  |
+| `/stop`    | Interrupt current query                                                                                           |
+| `/status`  | Check what Claude is doing                                                                                        |
+| `/retry`   | Re-run the last message                                                                                           |
+| `/restart` | Restart the bot                                                                                                   |
 
 ## Running as a Service (macOS)
 
@@ -197,7 +198,7 @@ bun run --bun tsc --noEmit
 Multiple layers protect against misuse:
 
 1. **User allowlist** - Only your Telegram IDs can use the bot
-2. **Pre-execution tool gate** - A `PreToolUse` SDK hook validates every Bash/file tool call *before* it runs (denies under `bypassPermissions`), restricting file access to `ALLOWED_PATHS` plus `/tmp`, `/private/tmp` and `/var/folders`, with a read-only exemption for `~/.claude`
+2. **Pre-execution tool gate** - A `PreToolUse` SDK hook validates every Bash/file tool call _before_ it runs (denies under `bypassPermissions`), restricting file access to `ALLOWED_PATHS` plus `/tmp`, `/private/tmp` and `/var/folders`, with a read-only exemption for `~/.claude`
 3. **OS Bash sandbox** - Bash runs under Seatbelt (macOS) or bubblewrap (Linux), fail-closed and on by default; `BASH_SANDBOX_ENABLED=false` only for environments that block unprivileged user namespaces
 4. **Command safety** - Destructive patterns like `rm -rf /` are blocked. This denylist is **best-effort only** — it is trivially bypassable by construction; real containment comes from the pre-execution gate, the OS sandbox, the path allowlist, and running the bot in a container
 5. **Rate limiting** - Prevents runaway usage

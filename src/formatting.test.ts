@@ -41,9 +41,7 @@ test("a usage-limit error surfaces the sentence, not the API envelope", () => {
     'Error: API Error: 429 {"type":"error","error":{"type":"rate_limit_error",' +
     '"message":"You\'ve hit your monthly spend limit. Run /usage-credits to manage it."}}';
   const out = describeError(wrapped);
-  expect(out).toBe(
-    "You've hit your monthly spend limit. Run /usage-credits to manage it."
-  );
+  expect(out).toBe("You've hit your monthly spend limit. Run /usage-credits to manage it.");
 });
 
 test("an org-policy limit is matched too — both tables can reach a catch", () => {
@@ -65,7 +63,7 @@ test("a quoted phrase inside the limit sentence does not cut it short", () => {
   const wrapped =
     'Error: 429 {"message":"You\'ve hit your monthly spend limit. Run \\"/usage-credits\\" to raise it."}';
   expect(describeError(wrapped)).toBe(
-    'You\'ve hit your monthly spend limit. Run \\"/usage-credits\\" to raise it.'
+    'You\'ve hit your monthly spend limit. Run \\"/usage-credits\\" to raise it.',
   );
 });
 
@@ -73,11 +71,8 @@ test("a quoted phrase inside the limit sentence does not cut it short", () => {
 // real closing quote. Checking only the single preceding character reads that as an
 // escaped quote, finds no terminator, and leaks the JSON envelope (`...C:\\"}}`).
 test("a literal backslash before the closing quote does not swallow the envelope", () => {
-  const wrapped =
-    'Error: 429 {"message":"You\'ve hit your monthly spend limit. Check C:\\\\"}}';
-  expect(describeError(wrapped)).toBe(
-    "You've hit your monthly spend limit. Check C:\\\\"
-  );
+  const wrapped = 'Error: 429 {"message":"You\'ve hit your monthly spend limit. Check C:\\\\"}}';
+  expect(describeError(wrapped)).toBe("You've hit your monthly spend limit. Check C:\\\\");
 });
 
 // Reading an image is reported as "👀 Viewing" with no path, because the image itself is
@@ -86,11 +81,12 @@ test("a literal backslash before the closing quote does not swallow the envelope
 describe("formatToolStatus image detection", () => {
   const viewing = (p: string) => formatToolStatus("Read", { file_path: p });
 
-  test.each([
-    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".ico",
-  ])("%s is an image", (ext) => {
-    expect(viewing(`/tmp/shot${ext}`)).toBe("👀 Viewing");
-  });
+  test.each([".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".ico"])(
+    "%s is an image",
+    (ext) => {
+      expect(viewing(`/tmp/shot${ext}`)).toBe("👀 Viewing");
+    },
+  );
 
   test("the match is case-insensitive", () => {
     expect(viewing("/tmp/SHOT.PNG")).toBe("👀 Viewing");

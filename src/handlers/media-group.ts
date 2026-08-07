@@ -33,7 +33,7 @@ export type ProcessGroupCallback = (
   caption: string | undefined,
   userId: number,
   username: string,
-  chatId: number
+  chatId: number,
 ) => Promise<void>;
 
 // Each call owns its own pendingGroups map, so photo and document albums
@@ -43,7 +43,7 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
 
   async function processGroup(
     groupId: string,
-    processCallback: ProcessGroupCallback
+    processCallback: ProcessGroupCallback,
   ): Promise<void> {
     const group = pendingGroups.get(groupId);
     if (!group) return;
@@ -56,37 +56,25 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
 
     if (!userId || !chatId) return;
 
-    console.log(
-      `Processing ${group.items.length} ${config.itemLabelPlural} from @${username}`
-    );
+    console.log(`Processing ${group.items.length} ${config.itemLabelPlural} from @${username}`);
 
     if (group.statusMsg) {
       try {
         await group.ctx.api.editMessageText(
           group.statusMsg.chat.id,
           group.statusMsg.message_id,
-          `${config.emoji} Processing ${group.items.length} ${config.itemLabelPlural}...`
+          `${config.emoji} Processing ${group.items.length} ${config.itemLabelPlural}...`,
         );
       } catch (error) {
         console.debug("Failed to update status message:", error);
       }
     }
 
-    await processCallback(
-      group.ctx,
-      group.items,
-      group.caption,
-      userId,
-      username,
-      chatId
-    );
+    await processCallback(group.ctx, group.items, group.caption, userId, username, chatId);
 
     if (group.statusMsg) {
       try {
-        await group.ctx.api.deleteMessage(
-          group.statusMsg.chat.id,
-          group.statusMsg.message_id
-        );
+        await group.ctx.api.deleteMessage(group.statusMsg.chat.id, group.statusMsg.message_id);
       } catch (error) {
         console.debug("Failed to delete status message:", error);
       }
@@ -99,7 +87,7 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
     ctx: BotContext,
     userId: number,
     username: string,
-    processCallback: ProcessGroupCallback
+    processCallback: ProcessGroupCallback,
   ): Promise<void> {
     // The album is only complete once MEDIA_GROUP_TIMEOUT passes with no further parts,
     // since Telegram delivers them as separate updates.
@@ -111,9 +99,7 @@ export function createMediaGroupBuffer(config: MediaGroupConfig) {
       if (await rateLimitOrReply(ctx, userId, username)) return;
 
       console.log(`Receiving ${config.itemLabel} album from @${username}`);
-      const statusMsg = await ctx.reply(
-        `${config.emoji} Receiving ${config.itemLabelPlural}...`
-      );
+      const statusMsg = await ctx.reply(`${config.emoji} Receiving ${config.itemLabelPlural}...`);
 
       pendingGroups.set(mediaGroupId, {
         items: [itemPath],

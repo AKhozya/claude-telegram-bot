@@ -21,7 +21,7 @@ async function connect(env: Record<string, string>): Promise<Client> {
       command: "bun",
       args: [SERVER],
       env: { PATH: process.env.PATH ?? "", ...env },
-    })
+    }),
   );
   return c;
 }
@@ -30,7 +30,9 @@ async function connect(env: Record<string, string>): Promise<Client> {
 async function writtenRequests(): Promise<Record<string, unknown>[]> {
   const out: Record<string, unknown>[] = [];
   for await (const name of new Bun.Glob("ask-user-*.json").scan("/tmp")) {
-    const data = await Bun.file(`/tmp/${name}`).json().catch(() => null);
+    const data = await Bun.file(`/tmp/${name}`)
+      .json()
+      .catch(() => null);
     if (data && String(data.chat_id) === CHAT_ID) out.push(data);
   }
   return out;
@@ -64,7 +66,9 @@ async function expectNothingQueued(before: Map<string, string>): Promise<void> {
 
 async function cleanup(): Promise<void> {
   for await (const name of new Bun.Glob("ask-user-*.json").scan("/tmp")) {
-    const data = await Bun.file(`/tmp/${name}`).json().catch(() => null);
+    const data = await Bun.file(`/tmp/${name}`)
+      .json()
+      .catch(() => null);
     if (data && String(data.chat_id) === CHAT_ID) await Bun.file(`/tmp/${name}`).delete();
   }
 }
@@ -99,16 +103,15 @@ describe("ask_user advertised schema", () => {
     // in Telegram; do not STOP and wait" contains every keyword worth grepping for and
     // means the opposite. Changing it should mean changing this line too.
     expect(tools[0]!.description).toBe(
-      "Present options to the user as tappable inline buttons in Telegram. IMPORTANT: After calling this tool, STOP and wait. Do NOT add any text after calling this tool - the user will tap a button and their choice becomes their next message. Just call the tool and end your turn."
+      "Present options to the user as tappable inline buttons in Telegram. IMPORTANT: After calling this tool, STOP and wait. Do NOT add any text after calling this tool - the user will tap a button and their choice becomes their next message. Just call the tool and end your turn.",
     );
   });
 
   test("the argument schema is exactly what it was before zod generated it", async () => {
     const { tools } = await client.listTools();
-    const { $schema, required, ...schema } = tools[0]!.inputSchema as Record<
-      string,
-      unknown
-    > & { required?: string[] };
+    const { $schema, required, ...schema } = tools[0]!.inputSchema as Record<string, unknown> & {
+      required?: string[];
+    };
 
     // Held loosely: the draft URI is the SDK's choice, not this tool's contract, and an
     // SDK bump that moves it would otherwise fail a test about our own arguments.
@@ -134,17 +137,16 @@ describe("ask_user advertised schema", () => {
             minLength: 1,
             // The character class the server publishes, verbatim. Asserted here so a
             // narrowing or a widening of it has to be a deliberate edit in two places.
-            pattern: "[^\\s\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F-\\u1160\\u17B4-\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0F\\uFFA0\\uFFF0-\\uFFF8\\uFFFC]"
+            pattern:
+              "[^\\s\\u0000-\\u001F\\u007F-\\u009F\\u00AD\\u034F\\u061C\\u115F-\\u1160\\u17B4-\\u17B5\\u180B-\\u180F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\u2800\\u3164\\uFE00-\\uFE0F\\uFFA0\\uFFF0-\\uFFF8\\uFFFC]",
           },
           minItems: 2,
           maxItems: 10,
-          description:
-            "List of options for the user to choose from (2-6 options recommended)",
+          description: "List of options for the user to choose from (2-6 options recommended)",
         },
       },
     });
   });
-
 });
 
 describe("ask_user against Unicode's own default-ignorable list", () => {
@@ -160,11 +162,24 @@ describe("ask_user against Unicode's own default-ignorable list", () => {
    * dropping the last half of the word-joiner range passes every other test here.
    */
   const BMP_DEFAULT_IGNORABLE: [number, number][] = [
-    [0x00ad, 0x00ad], [0x034f, 0x034f], [0x061c, 0x061c], [0x115f, 0x1160],
-    [0x17b4, 0x17b5], [0x180b, 0x180d], [0x180e, 0x180e], [0x180f, 0x180f],
-    [0x200b, 0x200f], [0x202a, 0x202e], [0x2060, 0x2064], [0x2065, 0x2065],
-    [0x2066, 0x206f], [0x3164, 0x3164], [0xfe00, 0xfe0f], [0xfeff, 0xfeff],
-    [0xffa0, 0xffa0], [0xfff0, 0xfff8],
+    [0x00ad, 0x00ad],
+    [0x034f, 0x034f],
+    [0x061c, 0x061c],
+    [0x115f, 0x1160],
+    [0x17b4, 0x17b5],
+    [0x180b, 0x180d],
+    [0x180e, 0x180e],
+    [0x180f, 0x180f],
+    [0x200b, 0x200f],
+    [0x202a, 0x202e],
+    [0x2060, 0x2064],
+    [0x2065, 0x2065],
+    [0x2066, 0x206f],
+    [0x3164, 0x3164],
+    [0xfe00, 0xfe0f],
+    [0xfeff, 0xfeff],
+    [0xffa0, 0xffa0],
+    [0xfff0, 0xfff8],
   ];
 
   // Against the published `pattern`, not a copy of the class. This is the advertised half
@@ -198,7 +213,7 @@ describe("ask_user against Unicode's own default-ignorable list", () => {
   // that has stopped accepting anything — would refuse the visible label too.
   test("a label of nothing but those 66 is refused on the call path", async () => {
     const blank = BMP_DEFAULT_IGNORABLE.flatMap(([lo, hi]) =>
-      Array.from({ length: hi - lo + 1 }, (_, i) => String.fromCharCode(lo + i))
+      Array.from({ length: hi - lo + 1 }, (_, i) => String.fromCharCode(lo + i)),
     ).join("");
     expect(blank).toHaveLength(66);
 
@@ -240,7 +255,9 @@ describe("ask_user request file", () => {
     expect(req.chat_id).toBe(CHAT_ID);
     // A whole UUID, not a prefix: `callback.ts` resolves a tap by this id alone, so a
     // collision answers an old prompt with a newer one's option.
-    expect(String(req.request_id)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(String(req.request_id)).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+    );
     // Bounded on both sides: a hardcoded 1970 passes a parse check, and a hardcoded 2099
     // passes an upper bound alone.
     const age = Date.now() - Date.parse(String(req.created_at));
@@ -300,8 +317,8 @@ describe("ask_user request file", () => {
           c.callTool({
             name: "ask_user",
             arguments: { question: "fresh", options: ["a", "b"] },
-          })
-        )
+          }),
+        ),
       );
     } finally {
       await Promise.all(fresh.map((c) => c.close()));
@@ -348,11 +365,17 @@ describe("ask_user rejects what it cannot render", () => {
     ["a Hangul filler as a label", { question: "q", options: ["\u3164", "Cancel"] }],
     ["a C1 control as a label", { question: "q", options: ["\u0085", "Cancel"] }],
     ["a braille blank as a label", { question: "q", options: ["\u2800", "Cancel"] }],
-    ["an object replacement character as a label", { question: "q", options: ["\uFFFC", "Cancel"] }],
-    ["more options than the schema allows", {
-      question: "q",
-      options: Array.from({ length: 11 }, (_, i) => `o${i}`),
-    }],
+    [
+      "an object replacement character as a label",
+      { question: "q", options: ["\uFFFC", "Cancel"] },
+    ],
+    [
+      "more options than the schema allows",
+      {
+        question: "q",
+        options: Array.from({ length: 11 }, (_, i) => `o${i}`),
+      },
+    ],
   ])("%s is refused", async (_name, args) => {
     const before = await requestFileState();
     const result = await call(args as Record<string, unknown>);

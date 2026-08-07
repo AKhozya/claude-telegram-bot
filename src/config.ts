@@ -35,9 +35,7 @@ process.env.PATH = pathParts.join(":");
 // ============== Core Configuration ==============
 
 export const TELEGRAM_TOKEN = process.env.TELEGRAM_BOT_TOKEN || "";
-export const ALLOWED_USERS: number[] = (
-  process.env.TELEGRAM_ALLOWED_USERS || ""
-)
+export const ALLOWED_USERS: number[] = (process.env.TELEGRAM_ALLOWED_USERS || "")
   .split(",")
   .filter((x) => x.trim())
   .map((x) => parseInt(x.trim(), 10))
@@ -58,9 +56,7 @@ export const WORKING_DIR = process.env.CLAUDE_WORKING_DIR || HOME;
  * a bot with no MCP servers and printed nothing at all. The bot still runs without them;
  * that is a valid degraded mode, not a reason to exit.
  */
-export async function loadMcpServers(
-  path: string
-): Promise<Record<string, McpServerConfig>> {
+export async function loadMcpServers(path: string): Promise<Record<string, McpServerConfig>> {
   if (!existsSync(path)) {
     console.log("No mcp-config.ts found - running without MCPs");
     return {};
@@ -72,7 +68,7 @@ export async function loadMcpServers(
       return {};
     }
     console.log(
-      `Loaded ${Object.keys(mcpModule.MCP_SERVERS).length} MCP servers from mcp-config.ts`
+      `Loaded ${Object.keys(mcpModule.MCP_SERVERS).length} MCP servers from mcp-config.ts`,
     );
     return mcpModule.MCP_SERVERS;
   } catch (error) {
@@ -81,9 +77,7 @@ export async function loadMcpServers(
   }
 }
 
-const MCP_SERVERS = await loadMcpServers(
-  resolve(dirname(import.meta.dir), "mcp-config.ts")
-);
+const MCP_SERVERS = await loadMcpServers(resolve(dirname(import.meta.dir), "mcp-config.ts"));
 
 export { MCP_SERVERS };
 
@@ -106,9 +100,7 @@ export const ALLOWED_PATHS: string[] = allowedPathsStr
   : defaultAllowedPaths;
 
 function buildSafetyPrompt(allowedPaths: string[]): string {
-  const pathsList = allowedPaths
-    .map((p) => `   - ${p} (and subdirectories)`)
-    .join("\n");
+  const pathsList = allowedPaths.map((p) => `   - ${p} (and subdirectories)`).join("\n");
 
   return `
 CRITICAL SAFETY RULES FOR TELEGRAM BOT:
@@ -157,14 +149,11 @@ export const BLOCKED_PATTERNS = [
 
 // ============== Thinking Keywords ==============
 
-const thinkingKeywordsStr =
-  process.env.THINKING_KEYWORDS || "think,pensa,ragiona";
+const thinkingKeywordsStr = process.env.THINKING_KEYWORDS || "think,pensa,ragiona";
 const thinkingDeepKeywordsStr =
   process.env.THINKING_DEEP_KEYWORDS || "ultrathink,think hard,pensa bene";
 
-export const THINKING_KEYWORDS = thinkingKeywordsStr
-  .split(",")
-  .map((k) => k.trim().toLowerCase());
+export const THINKING_KEYWORDS = thinkingKeywordsStr.split(",").map((k) => k.trim().toLowerCase());
 export const THINKING_DEEP_KEYWORDS = thinkingDeepKeywordsStr
   .split(",")
   .map((k) => k.trim().toLowerCase());
@@ -189,23 +178,15 @@ export const TELEGRAM_RICH_LIMIT = 32768;
 
 // ============== Audit Logging ==============
 
-export const AUDIT_LOG_PATH =
-  process.env.AUDIT_LOG_PATH || "/tmp/claude-telegram-audit.log";
-export const AUDIT_LOG_JSON =
-  (process.env.AUDIT_LOG_JSON || "false").toLowerCase() === "true";
+export const AUDIT_LOG_PATH = process.env.AUDIT_LOG_PATH || "/tmp/claude-telegram-audit.log";
+export const AUDIT_LOG_JSON = (process.env.AUDIT_LOG_JSON || "false").toLowerCase() === "true";
 
 // ============== Rate Limiting ==============
 
 export const RATE_LIMIT_ENABLED =
   (process.env.RATE_LIMIT_ENABLED || "true").toLowerCase() === "true";
-export const RATE_LIMIT_REQUESTS = parseInt(
-  process.env.RATE_LIMIT_REQUESTS || "20",
-  10
-);
-export const RATE_LIMIT_WINDOW = parseInt(
-  process.env.RATE_LIMIT_WINDOW || "60",
-  10
-);
+export const RATE_LIMIT_REQUESTS = parseInt(process.env.RATE_LIMIT_REQUESTS || "20", 10);
+export const RATE_LIMIT_WINDOW = parseInt(process.env.RATE_LIMIT_WINDOW || "60", 10);
 
 // ============== HTTP Trigger ==============
 
@@ -218,10 +199,8 @@ export const TRIGGER_ENABLED = !!TRIGGER_SECRET;
 
 // ============== File Paths ==============
 
-export const SESSION_FILE =
-  process.env.SESSION_FILE_PATH || "/tmp/claude-telegram-session.json";
-export const RESTART_FILE =
-  process.env.RESTART_FILE_PATH || "/tmp/claude-telegram-restart.json";
+export const SESSION_FILE = process.env.SESSION_FILE_PATH || "/tmp/claude-telegram-session.json";
+export const RESTART_FILE = process.env.RESTART_FILE_PATH || "/tmp/claude-telegram-restart.json";
 // mtime is the deployment livenessProbe's poll-liveness signal — the probe
 // command in deployment.yaml must name the same path this resolves to.
 export const POLL_HEARTBEAT_FILE =
@@ -260,14 +239,10 @@ export function positiveNumberEnv(name: string, fallback: number): number {
 
 // Nothing else clears TEMP_DIR. In-cluster /tmp is an emptyDir that lives as long as
 // the pod, so media accumulates for the pod's whole lifetime without this sweep.
-export const TEMP_REAP_INTERVAL_MS = positiveNumberEnv(
-  "TEMP_REAP_INTERVAL_MS",
-  60 * 60 * 1000
-);
+export const TEMP_REAP_INTERVAL_MS = positiveNumberEnv("TEMP_REAP_INTERVAL_MS", 60 * 60 * 1000);
 // An ask_user pause holds a downloaded file open until the user taps a button, and
 // Claude re-reads it then. A pause outlasting this window loses the file.
-export const TEMP_RETENTION_MS =
-  positiveNumberEnv("TEMP_RETENTION_HOURS", 24) * 60 * 60 * 1000;
+export const TEMP_RETENTION_MS = positiveNumberEnv("TEMP_RETENTION_HOURS", 24) * 60 * 60 * 1000;
 
 // How long an MCP request file may sit `pending` before the bot treats it as orphaned.
 // Only pending files are judged by it. A request reaches `sent` once its buttons are up, so
@@ -285,8 +260,7 @@ export const IPC_PENDING_TTL_MS = 5 * 60 * 1000;
 
 // Baked into the image at this path; on macOS the binary comes from `brew install
 // whisper-cpp` and the model has to be fetched by hand, so the path is configurable.
-export const WHISPER_MODEL =
-  process.env.WHISPER_MODEL || "/usr/local/share/whisper/ggml-small.bin";
+export const WHISPER_MODEL = process.env.WHISPER_MODEL || "/usr/local/share/whisper/ggml-small.bin";
 
 // Peak level at or below which a track is treated as having nothing to transcribe, in dBFS.
 //
@@ -307,9 +281,7 @@ function silenceDbEnv(): number {
   // false, so silence would never be detected; an empty or zero value yields 0, and since
   // dBFS peaks are negative, every recording would be refused as silent.
   if (!Number.isFinite(value) || value >= 0) {
-    console.warn(
-      `WHISPER_SILENCE_DB="${raw}" is not a negative number; using ${fallback}`
-    );
+    console.warn(`WHISPER_SILENCE_DB="${raw}" is not a negative number; using ${fallback}`);
     return fallback;
   }
   return value;
@@ -319,17 +291,11 @@ function silenceDbEnv(): number {
 // reports the node's 16, and asking for 4 threads measured 44% slower than asking for 2.
 // Floored to an integer: positiveNumberEnv admits fractions, which is right for the hour
 // and millisecond settings above but would hand whisper-cli `-t 0.5`, which it reads as 0.
-export const WHISPER_THREADS = Math.max(
-  1,
-  Math.floor(positiveNumberEnv("WHISPER_THREADS", 2))
-);
+export const WHISPER_THREADS = Math.max(1, Math.floor(positiveNumberEnv("WHISPER_THREADS", 2)));
 
 // Transcription costs ~4.9s per minute of audio at 2 CPU, so this cap is what bounds how
 // long the bot can be busy with one clip.
-export const TRANSCRIBE_MAX_DURATION_S = positiveNumberEnv(
-  "TRANSCRIBE_MAX_DURATION_SECONDS",
-  600
-);
+export const TRANSCRIBE_MAX_DURATION_S = positiveNumberEnv("TRANSCRIBE_MAX_DURATION_SECONDS", 600);
 
 // Bun.write creates missing parent dirs, so this is how TEMP_DIR gets made.
 await Bun.write(`${TEMP_DIR}/.keep`, "");
@@ -342,12 +308,8 @@ if (!TELEGRAM_TOKEN) {
 }
 
 if (ALLOWED_USERS.length === 0) {
-  console.error(
-    "ERROR: TELEGRAM_ALLOWED_USERS environment variable is required"
-  );
+  console.error("ERROR: TELEGRAM_ALLOWED_USERS environment variable is required");
   process.exit(1);
 }
 
-console.log(
-  `Config loaded: ${ALLOWED_USERS.length} allowed users, working dir: ${WORKING_DIR}`
-);
+console.log(`Config loaded: ${ALLOWED_USERS.length} allowed users, working dir: ${WORKING_DIR}`);

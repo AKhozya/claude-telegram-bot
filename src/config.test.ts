@@ -3,8 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const { positiveNumberEnv, loadMcpServers, TELEGRAM_CAPTION_LIMIT } =
-  await import("./config");
+const { positiveNumberEnv, loadMcpServers, TELEGRAM_CAPTION_LIMIT } = await import("./config");
 
 const KEY = "TEST_POSITIVE_NUMBER_ENV";
 
@@ -82,7 +81,7 @@ describe("loadMcpServers", () => {
 
   test("a valid config is loaded and counted", async () => {
     const path = await write(
-      `export const MCP_SERVERS = { "ask-user": { command: "bun", args: ["x"] } };`
+      `export const MCP_SERVERS = { "ask-user": { command: "bun", args: ["x"] } };`,
     );
     const { servers, said } = await capture(path);
     expect(Object.keys(servers)).toEqual(["ask-user"]);
@@ -112,9 +111,7 @@ describe("loadMcpServers", () => {
   // artifact rather than documentation: if it stops loading, the deployed bot loses
   // ask_user and send_file and says nothing louder than one startup line.
   test("the shipped example config loads and enables both bundled servers", async () => {
-    const { servers, said } = await capture(
-      join(import.meta.dir, "..", "mcp-config.example.ts")
-    );
+    const { servers, said } = await capture(join(import.meta.dir, "..", "mcp-config.example.ts"));
     expect(Object.keys(servers).sort()).toEqual(["ask-user", "send-file"]);
     expect(said).toContain("Loaded 2 MCP servers");
     // The keys alone would still pass with a typo'd path or a moved server directory.
@@ -122,9 +119,7 @@ describe("loadMcpServers", () => {
     // only symptom is a tool that never appears.
     for (const [name, server] of Object.entries(servers)) {
       const script = "args" in server ? (server.args?.at(-1) ?? "") : "";
-      expect(existsSync(script), `${name} points at a missing script: ${script}`).toBe(
-        true
-      );
+      expect(existsSync(script), `${name} points at a missing script: ${script}`).toBe(true);
     }
   });
 
@@ -154,9 +149,7 @@ describe("TELEGRAM_CAPTION_LIMIT against the installed Bot API types", () => {
   const METHODS = ["sendPhoto", "sendVideo", "sendAudio", "sendDocument"];
 
   test.each(METHODS)("%s documents the same caption cap", async (method) => {
-    const lines = (
-      await Bun.file("node_modules/@grammyjs/types/methods.d.ts").text()
-    ).split("\n");
+    const lines = (await Bun.file("node_modules/@grammyjs/types/methods.d.ts").text()).split("\n");
 
     // Anchored on the signature and its closing brace rather than on a fixed indent, so
     // a reformat upstream does not read as a missing method.

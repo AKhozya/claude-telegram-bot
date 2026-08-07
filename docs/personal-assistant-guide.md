@@ -39,7 +39,7 @@ Since Claude runs by default with prompt permissions bypassed (more on this in [
 
 Here's a template based on my own setup:
 
-````
+```
 # CLAUDE.md
 
 This file provides guidance to Claude Code so it can act as [Your Name]'s personal assistant.
@@ -128,7 +128,7 @@ Use the `gmail` skill for email and email-to-task workflows.
     bun run cli/integrations/slack.ts channels|messages|recent
     bun run cli/integrations/notion.ts search|page|databases
 
-````
+```
 
 The _"keeping context fresh"_ instruction creates a sort of **file-based memory system**, since Claude automatically reads and updates context files (notes) as it learns new things about me.
 

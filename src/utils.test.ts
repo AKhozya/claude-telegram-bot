@@ -40,7 +40,7 @@ const age = (path: string, hoursAgo: number) => {
 // otherwise need a file belonging to another user: the subprocess can lie about its own uid.
 const writeTwoAuditLines = async (
   prelude = "",
-  env: Record<string, string> = {}
+  env: Record<string, string> = {},
 ): Promise<number> => {
   const proc = Bun.spawn(
     [
@@ -55,7 +55,7 @@ const writeTwoAuditLines = async (
       env: { ...process.env, AUDIT_LOG_PATH: AUDIT_PATH, ...env },
       stdout: "ignore",
       stderr: "inherit",
-    }
+    },
   );
   return await proc.exited;
 };
@@ -197,9 +197,13 @@ describe("audit log permissions", () => {
     rmSync(AUDIT_PATH, { force: true });
     expect(Bun.spawnSync(["mkfifo", AUDIT_PATH]).exitCode).toBe(0);
     const proc = Bun.spawn(
-      ["bun", "-e", `const { auditLog } = await import("${import.meta.dir}/utils.ts");
-       await auditLog(1, "tester", "TEXT", "hunter2", "ok");`],
-      { env: { ...process.env, AUDIT_LOG_PATH: AUDIT_PATH }, stdout: "ignore", stderr: "ignore" }
+      [
+        "bun",
+        "-e",
+        `const { auditLog } = await import("${import.meta.dir}/utils.ts");
+       await auditLog(1, "tester", "TEXT", "hunter2", "ok");`,
+      ],
+      { env: { ...process.env, AUDIT_LOG_PATH: AUDIT_PATH }, stdout: "ignore", stderr: "ignore" },
     );
     try {
       const outcome = await Promise.race([

@@ -57,7 +57,7 @@ test("withMessageText does not mutate the original context", () => {
 // that this sequence has already been dropped once by a hand-copy, in callback.ts.
 const withStoppedSession = async (
   stopResult: "stopped" | "pending" | false,
-  body: (calls: string[]) => Promise<void>
+  body: (calls: string[]) => Promise<void>,
 ): Promise<void> => {
   const s = session as any;
   const calls: string[] = [];

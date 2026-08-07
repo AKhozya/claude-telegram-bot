@@ -11,10 +11,7 @@ import {
 
 // Only these two tables can reach a `catch`. USAGE_WARNING_PREFIXES and
 // USAGE_TRANSITION_PREFIXES are toast-only in the CLI and are never thrown.
-const LIMIT_PREFIXES = [
-  ...USAGE_LIMIT_ERROR_PREFIXES,
-  ...ORG_POLICY_LIMIT_PREFIXES,
-];
+const LIMIT_PREFIXES = [...USAGE_LIMIT_ERROR_PREFIXES, ...ORG_POLICY_LIMIT_PREFIXES];
 
 /**
  * Trim an error down to the part worth reading on a phone.
@@ -102,10 +99,7 @@ export function convertMarkdownToHtml(text: string): string {
   // Restore inline code (same `$`-in-replacement hazard — use a function).
   for (let i = 0; i < inlineCodes.length; i++) {
     const escapedCode = escapeHtml(inlineCodes[i]!);
-    text = text.replace(
-      `\x00INLINECODE${i}\x00`,
-      () => `<code>${escapedCode}</code>`
-    );
+    text = text.replace(`\x00INLINECODE${i}\x00`, () => `<code>${escapedCode}</code>`);
   }
 
   text = text.replace(/\n{3,}/g, "\n\n");
@@ -131,9 +125,7 @@ function convertBlockquotes(text: string): string {
       inBlockquote = true;
     } else {
       if (inBlockquote) {
-        result.push(
-          "<blockquote>" + blockquoteLines.join("\n") + "</blockquote>"
-        );
+        result.push("<blockquote>" + blockquoteLines.join("\n") + "</blockquote>");
         blockquoteLines.length = 0;
         inBlockquote = false;
       }
@@ -176,10 +168,7 @@ function code(text: string): string {
 // so this stays equivalent to the endsWith list it replaced. Never add the `m` flag.
 const IMAGE_EXTENSIONS = /\.(jpe?g|png|gif|webp|bmp|svg|ico)$/i;
 
-export function formatToolStatus(
-  toolName: string,
-  toolInput: Record<string, unknown>
-): string {
+export function formatToolStatus(toolName: string, toolInput: Record<string, unknown>): string {
   const emojiMap: Record<string, string> = {
     Read: "📖",
     Write: "📝",
@@ -235,9 +224,7 @@ export function formatToolStatus(
     const pattern = String(toolInput.pattern || "");
     const path = String(toolInput.path || "");
     if (path) {
-      return `${emoji} Searching ${code(truncate(pattern, 30))} in ${code(
-        shortenPath(path)
-      )}`;
+      return `${emoji} Searching ${code(truncate(pattern, 30))} in ${code(shortenPath(path))}`;
     }
     return `${emoji} Searching ${code(truncate(pattern, 40))}`;
   }
@@ -293,9 +280,7 @@ export function formatToolStatus(
         "";
 
       if (summary) {
-        return `🔧 ${server} ${action}: ${escapeHtml(
-          truncate(String(summary), 40)
-        )}`;
+        return `🔧 ${server} ${action}: ${escapeHtml(truncate(String(summary), 40))}`;
       }
       return `🔧 ${server}: ${action}`;
     }

@@ -92,9 +92,7 @@ export function sortPdfPagePaths(names: string[]): string[] {
  * Rendered images on the success path are NOT deleted here — like downloaded
  * photos they must outlive an ask_user pause that resumes the session later.
  */
-async function renderPdfToImages(
-  filePath: string
-): Promise<{ dir: string; images: string[] }> {
+async function renderPdfToImages(filePath: string): Promise<{ dir: string; images: string[] }> {
   const dir = uniqueTempDir("pdf");
   await Bun.$`mkdir -p ${dir}`.quiet();
   try {
@@ -133,10 +131,7 @@ async function downloadDocument(ctx: BotContext): Promise<string> {
   return await downloadTelegramFile(ctx, docPath);
 }
 
-async function extractText(
-  filePath: string,
-  mimeType?: string
-): Promise<string> {
+async function extractText(filePath: string, mimeType?: string): Promise<string> {
   const fileName = filePath.split("/").pop() || "";
   const extension = "." + (fileName.split(".").pop() || "").toLowerCase();
 
@@ -187,10 +182,7 @@ export function isUnsafeMemberName(name: string): boolean {
  * way `-l` column parsing would be). BusyBox's unzip lacks `-Z`, so zip fails closed
  * in the container image (which ships no full unzip); tar works everywhere.
  */
-export async function listArchiveMembers(
-  archivePath: string,
-  ext: string
-): Promise<string[]> {
+export async function listArchiveMembers(archivePath: string, ext: string): Promise<string[]> {
   const out =
     ext === ".zip"
       ? await Bun.$`unzip -Z1 ${archivePath}`.quiet().text()
@@ -221,10 +213,7 @@ export function stripLinks(root: string): void {
   }
 }
 
-async function extractArchive(
-  archivePath: string,
-  fileName: string
-): Promise<string> {
+async function extractArchive(archivePath: string, fileName: string): Promise<string> {
   const ext = getArchiveExtension(fileName);
   const extractDir = uniqueTempDir("archive");
   await Bun.$`mkdir -p ${extractDir}`;
@@ -251,16 +240,12 @@ async function extractArchive(
 }
 
 async function buildFileTree(dir: string): Promise<string[]> {
-  const entries = await Array.fromAsync(
-    new Bun.Glob("**/*").scan({ cwd: dir, dot: false })
-  );
+  const entries = await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: dir, dot: false }));
   entries.sort();
   return entries.slice(0, 100); // Limit to 100 files
 }
 
-async function extractArchiveContent(
-  extractDir: string
-): Promise<{
+async function extractArchiveContent(extractDir: string): Promise<{
   tree: string[];
   contents: Array<{ name: string; content: string }>;
 }> {
@@ -307,7 +292,7 @@ async function processArchive(
   caption: string | undefined,
   userId: number,
   username: string,
-  chatId: number
+  chatId: number,
 ): Promise<void> {
   const stopProcessing = session.startProcessing();
   const typing = startTypingIndicator(ctx);
@@ -330,7 +315,7 @@ async function processArchive(
       statusMsg.chat.id,
       statusMsg.message_id,
       `📦 Extracted <b>${fileName}</b>: ${tree.length} files, ${contents.length} readable`,
-      { parse_mode: "HTML" }
+      { parse_mode: "HTML" },
     );
 
     const treeStr = tree.length > 0 ? tree.join("\n") : "(empty)";
@@ -353,16 +338,10 @@ async function processArchive(
       userId,
       statusCallback,
       chatId,
-      ctx
+      ctx,
     );
 
-    await auditLog(
-      userId,
-      username,
-      "ARCHIVE",
-      `[${fileName}] ${caption || ""}`,
-      response
-    );
+    await auditLog(userId, username, "ARCHIVE", `[${fileName}] ${caption || ""}`, response);
     await markDone(ctx);
 
     await Bun.$`rm -rf ${extractDir}`.quiet();
@@ -381,9 +360,7 @@ async function processArchive(
       // Ignore
     }
     await state.deleteToolMessages(ctx);
-    await ctx.reply(
-      `❌ Failed to process archive: ${String(error).slice(0, 100)}`
-    );
+    await ctx.reply(`❌ Failed to process archive: ${String(error).slice(0, 100)}`);
   } finally {
     stopProcessing();
     typing.stop();
@@ -396,7 +373,7 @@ async function processDocuments(
   caption: string | undefined,
   userId: number,
   username: string,
-  chatId: number
+  chatId: number,
 ): Promise<void> {
   let prompt: string;
   if (documents.length === 1) {
@@ -430,7 +407,7 @@ async function processDocumentPaths(
   caption: string | undefined,
   userId: number,
   username: string,
-  chatId: number
+  chatId: number,
 ): Promise<void> {
   const documents: Array<{ path: string; name: string; content: string }> = [];
 
@@ -475,8 +452,7 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
   const fileName = doc.file_name || "";
   const extension = "." + (fileName.split(".").pop() || "").toLowerCase();
   const isPdf = doc.mime_type === "application/pdf" || extension === ".pdf";
-  const isText =
-    TEXT_EXTENSIONS.includes(extension) || doc.mime_type?.startsWith("text/");
+  const isText = TEXT_EXTENSIONS.includes(extension) || doc.mime_type?.startsWith("text/");
   const isArchiveFile = isArchive(fileName);
 
   if (!isPdf && !isText && !isArchiveFile) {
@@ -484,8 +460,8 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
     await ctx.reply(
       `❌ Unsupported file type: ${extension || doc.mime_type}\n\n` +
         `Supported: PDF, archives (${ARCHIVE_EXTENSIONS.join(
-          ", "
-        )}), ${TEXT_EXTENSIONS.join(", ")}`
+          ", ",
+        )}), ${TEXT_EXTENSIONS.join(", ")}`,
     );
     return;
   }
@@ -505,15 +481,7 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
     console.log(`Received archive: ${fileName} from @${username}`);
     if (await rateLimitOrReply(ctx, userId, username)) return;
 
-    await processArchive(
-      ctx,
-      docPath,
-      fileName,
-      ctx.message?.caption,
-      userId,
-      username,
-      chatId
-    );
+    await processArchive(ctx, docPath, fileName, ctx.message?.caption, userId, username, chatId);
     return;
   }
 
@@ -539,15 +507,13 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
             ctx.message?.caption,
             userId,
             username,
-            chatId
+            chatId,
           );
         } else {
           const { images } = await renderPdfToImages(docPath);
           if (images.length === 0) {
             await markFailed(ctx);
-            await ctx.reply(
-              "❌ Could not read this PDF (no text layer and rendering failed)."
-            );
+            await ctx.reply("❌ Could not read this PDF (no text layer and rendering failed).");
             return;
           }
           const cap = ctx.message?.caption;
@@ -566,15 +532,13 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
           ctx.message?.caption,
           userId,
           username,
-          chatId
+          chatId,
         );
       }
     } catch (error) {
       console.error("Failed to extract document:", error);
       await markFailed(ctx);
-      await ctx.reply(
-        `❌ Failed to process document: ${String(error).slice(0, 100)}`
-      );
+      await ctx.reply(`❌ Failed to process document: ${String(error).slice(0, 100)}`);
     }
     return;
   }
@@ -585,6 +549,6 @@ export async function handleDocument(ctx: BotContext): Promise<void> {
     ctx,
     userId,
     username,
-    processDocumentPaths
+    processDocumentPaths,
   );
 }

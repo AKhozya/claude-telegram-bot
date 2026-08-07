@@ -5,10 +5,7 @@
 
 import type { BotContext } from "../types";
 
-export async function downloadTelegramFile(
-  ctx: BotContext,
-  destPath: string
-): Promise<string> {
+export async function downloadTelegramFile(ctx: BotContext, destPath: string): Promise<string> {
   const file = await ctx.getFile();
   return await file.download(destPath);
 }

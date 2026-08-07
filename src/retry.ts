@@ -21,10 +21,7 @@ import { autoRetry } from "@grammyjs/auto-retry";
  * `autoRetry` is therefore configured with `rethrowHttpErrors: true` and the retry happens
  * here, where it stops. A transient failure still recovers; a permanent one surfaces.
  */
-export function retryHttpErrors(
-  attempts = 3,
-  baseDelayMs = 1000
-): Transformer {
+export function retryHttpErrors(attempts = 3, baseDelayMs = 1000): Transformer {
   return async (prev, method, payload, signal) => {
     for (let attempt = 0; ; attempt++) {
       try {
@@ -54,11 +51,7 @@ export function retryHttpErrors(
  * `addEventListener` would not fire for an abort that has happened, leaving the caller to
  * sit out a delay it has no use for.
  */
-function wait(
-  ms: number,
-  signal: Parameters<Transformer>[3],
-  reason: unknown
-): Promise<void> {
+function wait(ms: number, signal: Parameters<Transformer>[3], reason: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(reason);
     const handle = setTimeout(finish, ms);
@@ -95,7 +88,7 @@ function wait(
 export function installRetry(
   api: Pick<Api, "config">,
   attempts?: number,
-  baseDelayMs?: number
+  baseDelayMs?: number,
 ): void {
   api.config.use(retryHttpErrors(attempts, baseDelayMs));
   api.config.use(
@@ -103,6 +96,6 @@ export function installRetry(
       maxRetryAttempts: 3,
       maxDelaySeconds: 30,
       rethrowHttpErrors: true,
-    })
+    }),
   );
 }

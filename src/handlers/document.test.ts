@@ -183,7 +183,7 @@ test.skipIf(!hasInfoZip)(
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
-  }
+  },
 );
 
 // ── archive extension detection ───────────────────────────────────────────────
@@ -218,7 +218,7 @@ test.each(["notes.txt", "a.gz", "a.zipx", "zip", "a.tar.bz2"])(
   (name) => {
     expect(isArchive(name)).toBe(false);
     expect(getArchiveExtension(name)).toBe("");
-  }
+  },
 );
 
 // The extraction dir was `archive_${Date.now()}` with no random part, so two archives

@@ -24,12 +24,8 @@ const {
   fileAgeMs,
   reapIfOlderThan,
 } = await import("./streaming");
-const {
-  TEMP_RETENTION_MS,
-  IPC_PENDING_TTL_MS,
-  TELEGRAM_CAPTION_LIMIT,
-  TELEGRAM_MESSAGE_LIMIT,
-} = await import("../config");
+const { TEMP_RETENTION_MS, IPC_PENDING_TTL_MS, TELEGRAM_CAPTION_LIMIT, TELEGRAM_MESSAGE_LIMIT } =
+  await import("../config");
 const { convertMarkdownToHtml } = await import("../formatting");
 
 describe("send-file path gate (isPathAllowed)", () => {
@@ -47,7 +43,9 @@ describe("send-file path gate (isPathAllowed)", () => {
     const dir = "/tmp/telegram-bot-test";
     mkdirSync(dir, { recursive: true });
     const link = `${dir}/evil-link`;
-    try { rmSync(link, { force: true }); } catch {}
+    try {
+      rmSync(link, { force: true });
+    } catch {}
     symlinkSync("/etc/passwd", link);
     try {
       expect(isPathAllowed(link)).toBe(false);
@@ -62,8 +60,15 @@ describe("rich message send via typed grammy api", () => {
     const calls: any[] = [];
     const ctx: any = {
       chatId: 42,
-      api: { sendRichMessage: (...a: any[]) => { calls.push(a); return { chat: { id: 42 }, message_id: 1 }; } },
-      reply: () => { throw new Error("should not fall back"); },
+      api: {
+        sendRichMessage: (...a: any[]) => {
+          calls.push(a);
+          return { chat: { id: 42 }, message_id: 1 };
+        },
+      },
+      reply: () => {
+        throw new Error("should not fall back");
+      },
     };
     const cb = createStatusCallback(ctx, new StreamingState());
     await cb("text", "# Title\n\nbody", 0);
@@ -77,9 +82,13 @@ describe("rich message send via typed grammy api", () => {
       chatId: 42,
       api: {
         sendRichMessage: () => ({ chat: { id: 42 }, message_id: 7 }),
-        editMessageText: (...a: any[]) => { editCalls.push(a); },
+        editMessageText: (...a: any[]) => {
+          editCalls.push(a);
+        },
       },
-      reply: () => { throw new Error("should not fall back"); },
+      reply: () => {
+        throw new Error("should not fall back");
+      },
     };
     const cb = createStatusCallback(ctx, new StreamingState());
     await cb("text", "initial", 0); // creates the segment message via sendRichMessage
@@ -95,12 +104,22 @@ describe("link preview suppression", () => {
     const opts: any[] = [];
     const ctx: any = {
       chatId: 7,
-      api: { sendRichMessage: async () => { throw new Error("force fallback"); } },
-      reply: async (_t: string, o: any) => { opts.push(o); return { chat: { id: 7 }, message_id: 1 }; },
+      api: {
+        sendRichMessage: async () => {
+          throw new Error("force fallback");
+        },
+      },
+      reply: async (_t: string, o: any) => {
+        opts.push(o);
+        return { chat: { id: 7 }, message_id: 1 };
+      },
     };
     const cb = createStatusCallback(ctx, new StreamingState());
     await cb("text", "see https://example.com and more text over twenty chars", 0);
-    expect(opts[0]).toMatchObject({ parse_mode: "HTML", link_preview_options: { is_disabled: true } });
+    expect(opts[0]).toMatchObject({
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
   });
 });
 
@@ -118,14 +137,17 @@ describe("splitMarkdownForTelegram", () => {
   const tagsBalanced = (html: string) => {
     const stack: string[] = [];
     for (const m of html.matchAll(/<(\/?)(\w+)[^>]*>/g)) {
-      if (m[1]) { if (stack.pop() !== m[2]) return false; }
-      else stack.push(m[2]!);
+      if (m[1]) {
+        if (stack.pop() !== m[2]) return false;
+      } else stack.push(m[2]!);
     }
     return stack.length === 0;
   };
 
   test("every chunk converts to balanced HTML, unlike slicing converted HTML", () => {
-    const md = Array.from({ length: 200 }, (_, i) => `**bold line ${i}** and _italic ${i}_`).join("\n");
+    const md = Array.from({ length: 200 }, (_, i) => `**bold line ${i}** and _italic ${i}_`).join(
+      "\n",
+    );
     const chunks = splitMarkdownForTelegram(md, 200);
     expect(chunks.length).toBeGreaterThan(1);
     for (const c of chunks) expect(tagsBalanced(convertMarkdownToHtml(c))).toBe(true);
@@ -133,7 +155,7 @@ describe("splitMarkdownForTelegram", () => {
     // The old approach for comparison: slice the converted HTML at fixed offsets.
     const html = convertMarkdownToHtml(md);
     const sliced = Array.from({ length: Math.ceil(html.length / 200) }, (_, i) =>
-      html.slice(i * 200, (i + 1) * 200)
+      html.slice(i * 200, (i + 1) * 200),
     );
     expect(sliced.some((c) => !tagsBalanced(c))).toBe(true);
   });
@@ -144,7 +166,8 @@ describe("splitMarkdownForTelegram", () => {
   });
 
   test("a fence spanning a boundary is closed and reopened", () => {
-    const md = "```ts\n" + Array.from({ length: 40 }, (_, i) => `const x${i} = ${i};`).join("\n") + "\n```";
+    const md =
+      "```ts\n" + Array.from({ length: 40 }, (_, i) => `const x${i} = ${i};`).join("\n") + "\n```";
     const chunks = splitMarkdownForTelegram(md, 120);
     expect(chunks.length).toBeGreaterThan(1);
     for (const c of chunks) {
@@ -175,8 +198,7 @@ describe("splitMarkdownForTelegram limit accounting inside fences", () => {
   // empty output.
   // Size and marker assertions alone pass on output that lost every payload character,
   // so anything asserting a split also counts what survived.
-  const countChar = (chunks: string[], ch: string) =>
-    chunks.join("").split(ch).length - 1;
+  const countChar = (chunks: string[], ch: string) => chunks.join("").split(ch).length - 1;
 
   const expectWithinLimit = (chunks: string[], limit = LIMIT) => {
     expect(chunks.length).toBeGreaterThan(0);
@@ -217,9 +239,7 @@ describe("splitMarkdownForTelegram limit accounting inside fences", () => {
 
   test("a fence opening near the end of a full chunk does not overflow it", () => {
     for (let pad = LIMIT - 20; pad <= LIMIT; pad++) {
-      expectWithinLimit(
-        splitMarkdownForTelegram("y".repeat(pad) + "\n```ts\ncode", LIMIT)
-      );
+      expectWithinLimit(splitMarkdownForTelegram("y".repeat(pad) + "\n```ts\ncode", LIMIT));
     }
   });
 
@@ -414,7 +434,7 @@ describe("MCP request files: the callback_data budget", () => {
     // answered with the newer one's option. Ten options is the schema's maximum.
     const keyboard = createAskUserKeyboard(
       crypto.randomUUID(),
-      Array.from({ length: 10 }, (_, i) => `option ${i}`)
+      Array.from({ length: 10 }, (_, i) => `option ${i}`),
     );
     const datas = keyboard.inline_keyboard
       .flat()
@@ -451,7 +471,7 @@ describe("MCP request files: reaping the dead ones", () => {
   async function put(
     prefix: "ask-user" | "send-file",
     data: Record<string, unknown> | string,
-    ageMs: number
+    ageMs: number,
   ): Promise<string> {
     const path = `${IPC}/${prefix}-${crypto.randomUUID()}.json`;
     await Bun.write(path, typeof data === "string" ? data : JSON.stringify(data));
@@ -466,7 +486,10 @@ describe("MCP request files: reaping the dead ones", () => {
     return {
       replies,
       ctx: {
-        reply: async (...args: unknown[]) => { replies.push(args); return { message_id: 1 }; },
+        reply: async (...args: unknown[]) => {
+          replies.push(args);
+          return { message_id: 1 };
+        },
         replyWithChatAction: async () => {},
         replyWithDocument: async () => {},
       } as never,
@@ -480,9 +503,14 @@ describe("MCP request files: reaping the dead ones", () => {
   test("a pending request older than the poll window is deleted, not delivered", async () => {
     const path = await put(
       "ask-user",
-      { request_id: "x", question: "an old question", options: ["a", "b"],
-        status: "pending", chat_id: String(CHAT) },
-      IPC_PENDING_TTL_MS + 60_000
+      {
+        request_id: "x",
+        question: "an old question",
+        options: ["a", "b"],
+        status: "pending",
+        chat_id: String(CHAT),
+      },
+      IPC_PENDING_TTL_MS + 60_000,
     );
     const { ctx, replies } = stubCtx();
 
@@ -494,9 +522,14 @@ describe("MCP request files: reaping the dead ones", () => {
   test("a fresh pending request is still delivered", async () => {
     const path = await put(
       "ask-user",
-      { request_id: "y", question: "a live question", options: ["a", "b"],
-        status: "pending", chat_id: String(CHAT) },
-      0
+      {
+        request_id: "y",
+        question: "a live question",
+        options: ["a", "b"],
+        status: "pending",
+        chat_id: String(CHAT),
+      },
+      0,
     );
     const { ctx, replies } = stubCtx();
 
@@ -510,13 +543,25 @@ describe("MCP request files: reaping the dead ones", () => {
   test("a sent request keeps its buttons alive until the retention window closes", async () => {
     const live = await put(
       "ask-user",
-      { request_id: "z", question: "answered", options: ["a"], status: "sent", chat_id: String(CHAT) },
-      TEMP_RETENTION_MS / 2
+      {
+        request_id: "z",
+        question: "answered",
+        options: ["a"],
+        status: "sent",
+        chat_id: String(CHAT),
+      },
+      TEMP_RETENTION_MS / 2,
     );
     const expired = await put(
       "ask-user",
-      { request_id: "w", question: "ancient", options: ["a"], status: "sent", chat_id: String(CHAT) },
-      TEMP_RETENTION_MS + 60_000
+      {
+        request_id: "w",
+        question: "ancient",
+        options: ["a"],
+        status: "sent",
+        chat_id: String(CHAT),
+      },
+      TEMP_RETENTION_MS + 60_000,
     );
     const { ctx } = stubCtx();
 
@@ -531,9 +576,14 @@ describe("MCP request files: reaping the dead ones", () => {
     // request from a chat this poll is not serving accumulates for good.
     const path = await put(
       "ask-user",
-      { request_id: "v", question: "other chat", options: ["a", "b"],
-        status: "pending", chat_id: String(OTHER_CHAT) },
-      IPC_PENDING_TTL_MS + 60_000
+      {
+        request_id: "v",
+        question: "other chat",
+        options: ["a", "b"],
+        status: "pending",
+        chat_id: String(OTHER_CHAT),
+      },
+      IPC_PENDING_TTL_MS + 60_000,
     );
     const { ctx } = stubCtx();
 
@@ -617,9 +667,8 @@ describe("MCP request files: reaping the dead ones", () => {
 
     await put(
       "send-file",
-      { request_id: "c", file_path: target, caption,
-        status: "pending", chat_id: String(CHAT) },
-      0
+      { request_id: "c", file_path: target, caption, status: "pending", chat_id: String(CHAT) },
+      0,
     );
     expect(await checkPendingSendFileRequests(ctx, CHAT, IPC)).toBe(true);
     expect(calls).toBe(1);
@@ -658,7 +707,7 @@ describe("MCP request files: reaping the dead ones", () => {
       expect(sent?.slice(0, -3)).toBe(char.repeat(TELEGRAM_CAPTION_LIMIT - 3));
       // A UTF-16 slice would cut the emoji at the boundary in half.
       expect(hasLoneSurrogate(sent!)).toBe(false);
-    }
+    },
   );
 
   // `data.caption || undefined` predates the clipping and survives it. Pinned because the
@@ -697,16 +746,20 @@ describe("MCP request files: reaping the dead ones", () => {
 
     const replies: string[] = [];
     const ctx = {
-      reply: async (text: string) => { replies.push(text); return { message_id: 1 }; },
+      reply: async (text: string) => {
+        replies.push(text);
+        return { message_id: 1 };
+      },
       replyWithChatAction: async () => {},
-      replyWithDocument: async () => { throw error; },
+      replyWithDocument: async () => {
+        throw error;
+      },
     } as never;
 
     const path = await put(
       "send-file",
-      { request_id: "f", file_path: target, caption: "",
-        status: "pending", chat_id: String(CHAT) },
-      0
+      { request_id: "f", file_path: target, caption: "", status: "pending", chat_id: String(CHAT) },
+      0,
     );
     // False: nothing was delivered. The request is still consumed.
     expect(await checkPendingSendFileRequests(ctx, CHAT, IPC)).toBe(false);
@@ -742,10 +795,7 @@ describe("MCP request files: reaping the dead ones", () => {
   // the handler at all. That is a separate defect with its own fix; the reporting below
   // is what it will surface once the retry is bounded.
   test("a wrapped errno is reported and the request consumed", async () => {
-    const wrapped = new HttpError(
-      "Network request for 'sendDocument' failed!",
-      await realEacces()
-    );
+    const wrapped = new HttpError("Network request for 'sendDocument' failed!", await realEacces());
     // The premise: the wrapper alone does not say why.
     expect(String(wrapped)).not.toContain("EACCES");
 
@@ -763,12 +813,12 @@ describe("MCP request files: reaping the dead ones", () => {
   test("the wrapped error's message is not pasted into the chat", async () => {
     const secret = "SECRET-1234:AAH-token-in-a-url";
     const inner: NodeJS.ErrnoException = new Error(
-      `request to https://api.telegram.org/bot${secret}/sendDocument failed`
+      `request to https://api.telegram.org/bot${secret}/sendDocument failed`,
     );
     inner.code = "ECONNRESET";
 
     const { replies } = await failingSend(
-      new HttpError("Network request for 'sendDocument' failed!", inner)
+      new HttpError("Network request for 'sendDocument' failed!", inner),
     );
 
     expect(replies[0]).toContain("ECONNRESET");
@@ -784,8 +834,8 @@ describe("MCP request files: reaping the dead ones", () => {
         "Call to 'sendDocument' failed!",
         { ok: false, error_code: 400, description: "Bad Request: file is too big" },
         "sendDocument",
-        {}
-      )
+        {},
+      ),
     );
 
     expect(replies[0]).toContain("400");
@@ -831,11 +881,32 @@ describe("MCP request files: reaping the dead ones", () => {
   // the request is consumed even when reporting the failure fails outright.
   test.each([
     ["a null-prototype object", Object.create(null)],
-    ["a throwing toString", { toString() { throw new Error("no"); } }],
-    ["a throwing .error getter", { get error(): never { throw new Error("no"); } }],
-    ["a throwing .code getter", {
-      error: { get code(): never { throw new Error("no"); } },
-    }],
+    [
+      "a throwing toString",
+      {
+        toString() {
+          throw new Error("no");
+        },
+      },
+    ],
+    [
+      "a throwing .error getter",
+      {
+        get error(): never {
+          throw new Error("no");
+        },
+      },
+    ],
+    [
+      "a throwing .code getter",
+      {
+        error: {
+          get code(): never {
+            throw new Error("no");
+          },
+        },
+      },
+    ],
     ["undefined", undefined],
   ] as const)("%s is still reported, not thrown past the unlink", async (_n, err) => {
     const { replies, survived } = await failingSend(err);
@@ -853,16 +924,19 @@ describe("MCP request files: reaping the dead ones", () => {
     await Bun.write(target, "x");
 
     const ctx = {
-      reply: async () => { throw new Error("chat unreachable"); },
+      reply: async () => {
+        throw new Error("chat unreachable");
+      },
       replyWithChatAction: async () => {},
-      replyWithDocument: async () => { throw new Error("send failed"); },
+      replyWithDocument: async () => {
+        throw new Error("send failed");
+      },
     } as never;
 
     const path = await put(
       "send-file",
-      { request_id: "u", file_path: target, caption: "",
-        status: "pending", chat_id: String(CHAT) },
-      0
+      { request_id: "u", file_path: target, caption: "", status: "pending", chat_id: String(CHAT) },
+      0,
     );
 
     expect(await checkPendingSendFileRequests(ctx, CHAT, IPC)).toBe(false);
@@ -872,9 +946,14 @@ describe("MCP request files: reaping the dead ones", () => {
   test("a stale send-file request is deleted rather than sent late", async () => {
     const path = await put(
       "send-file",
-      { request_id: "u", file_path: "/tmp/telegram-bot/whatever.txt", caption: "",
-        status: "pending", chat_id: String(CHAT) },
-      IPC_PENDING_TTL_MS + 60_000
+      {
+        request_id: "u",
+        file_path: "/tmp/telegram-bot/whatever.txt",
+        caption: "",
+        status: "pending",
+        chat_id: String(CHAT),
+      },
+      IPC_PENDING_TTL_MS + 60_000,
     );
     const { ctx, replies } = stubCtx();
 

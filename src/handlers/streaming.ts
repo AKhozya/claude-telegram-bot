@@ -62,7 +62,11 @@ export function fileAgeMs(filepath: string): number {
 }
 
 function discard(filepath: string): void {
-  try { unlinkSync(filepath); } catch { /* ignore */ }
+  try {
+    unlinkSync(filepath);
+  } catch {
+    /* ignore */
+  }
 }
 
 /**
@@ -97,11 +101,7 @@ function discard(filepath: string): void {
  * Exported alongside `fileAgeMs` for the test that pins that, since neither a failing
  * `stat` nor a non-finite retention can be driven through the pollers.
  */
-export function reapIfOlderThan(
-  filepath: string,
-  ageMs: number,
-  ttlMs: number
-): boolean {
+export function reapIfOlderThan(filepath: string, ageMs: number, ttlMs: number): boolean {
   if (!Number.isFinite(ageMs) || !Number.isFinite(ttlMs)) return false;
   if (ageMs <= ttlMs) return false;
   discard(filepath);
@@ -144,18 +144,13 @@ function sendFailureReason(error: unknown): string {
     const text = clip(String(error), 200);
     const code = (error as { error?: { code?: unknown } })?.error?.code;
     // Skipped when the text already carries it, which is the unwrapped case.
-    return typeof code === "string" && !text.includes(code)
-      ? `${text} (${clip(code, 32)})`
-      : text;
+    return typeof code === "string" && !text.includes(code) ? `${text} (${clip(code, 32)})` : text;
   } catch {
     return "unreportable error";
   }
 }
 
-export function createAskUserKeyboard(
-  requestId: string,
-  options: string[]
-): InlineKeyboard {
+export function createAskUserKeyboard(requestId: string, options: string[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
   for (let idx = 0; idx < options.length; idx++) {
     const option = options[idx]!;
@@ -171,7 +166,7 @@ export function createAskUserKeyboard(
 export async function checkPendingAskUserRequests(
   ctx: Context,
   chatId: number,
-  dir: string = IPC_DIR
+  dir: string = IPC_DIR,
 ): Promise<boolean> {
   const glob = new Bun.Glob("ask-user-*.json");
   let buttonsSent = false;
@@ -222,7 +217,7 @@ const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".ogg", ".flac", ".m4a"]);
 export async function checkPendingSendFileRequests(
   ctx: Context,
   chatId: number,
-  dir: string = IPC_DIR
+  dir: string = IPC_DIR,
 ): Promise<boolean> {
   const glob = new Bun.Glob("send-file-*.json");
   let fileSent = false;
@@ -260,8 +255,7 @@ export async function checkPendingSendFileRequests(
       // directory, and `.slice` on a non-string throws out to the outer catch, which
       // leaves the request file in place to fail again on every poll until the pending
       // window reaps it.
-      const rawCaption =
-        typeof data.caption === "string" ? data.caption : "";
+      const rawCaption = typeof data.caption === "string" ? data.caption : "";
       const points = Array.from(rawCaption);
       const caption =
         points.length > TELEGRAM_CAPTION_LIMIT
@@ -269,13 +263,21 @@ export async function checkPendingSendFileRequests(
           : rawCaption || undefined;
 
       if (!filePath) {
-        try { unlinkSync(filepath); } catch { /* ignore */ }
+        try {
+          unlinkSync(filepath);
+        } catch {
+          /* ignore */
+        }
         continue;
       }
 
       if (!isPathAllowed(filePath)) {
         console.warn(`send-file BLOCKED (outside allowed paths): ${filePath}`);
-        try { unlinkSync(filepath); } catch { /* ignore */ }
+        try {
+          unlinkSync(filepath);
+        } catch {
+          /* ignore */
+        }
         continue;
       }
 
@@ -316,16 +318,18 @@ export async function checkPendingSendFileRequests(
         // NAME_MAX, in bytes, and a name never has more UTF-16 units than UTF-8 bytes —
         // so on a filesystem with that limit only a crafted value is ever cut.
         const name = clip(filePath.split("/").pop() || "unknown", 255);
-        await ctx.reply(
-          `Failed to send file: ${name} (${sendFailureReason(sendError)})`
-        );
+        await ctx.reply(`Failed to send file: ${name} (${sendFailureReason(sendError)})`);
       } finally {
         // In the finally, not after it: `ctx.reply` above can itself reject, and the
         // request would then be left for the next poll to try again. Delivered, failed,
         // or failed with the failure unreportable, one pass is all a request gets. The
         // unlink itself can still fail, and a request whose file cannot be removed does
         // come round again.
-        try { unlinkSync(filepath); } catch { /* ignore */ }
+        try {
+          unlinkSync(filepath);
+        } catch {
+          /* ignore */
+        }
       }
     } catch (error) {
       console.warn(`Failed to process send-file request ${filepath}:`, error);
@@ -357,12 +361,8 @@ export class StreamingState {
   }
 }
 
-function formatWithinLimit(
-  content: string,
-  safeLimit: number = TELEGRAM_SAFE_LIMIT
-): string {
-  let display =
-    content.length > safeLimit ? content.slice(0, safeLimit) + "..." : content;
+function formatWithinLimit(content: string, safeLimit: number = TELEGRAM_SAFE_LIMIT): string {
+  let display = content.length > safeLimit ? content.slice(0, safeLimit) + "..." : content;
   let formatted = convertMarkdownToHtml(display);
 
   // HTML tags can inflate content beyond the limit - shrink until it fits
@@ -389,7 +389,7 @@ const FENCE_LINE = /^\s*```/;
  */
 export function splitMarkdownForTelegram(
   markdown: string,
-  maxLength: number = TELEGRAM_SAFE_LIMIT
+  maxLength: number = TELEGRAM_SAFE_LIMIT,
 ): string[] {
   // Slice offsets below step by whole characters, so a fractional cap would be overshot.
   const limit = Math.max(1, Math.floor(maxLength));
@@ -432,8 +432,7 @@ export function splitMarkdownForTelegram(
     if (!curContent && !curInputFence) return false;
     // Only close a block that has payload, and only when the closer fits — slicing a
     // chunk through its own delimiter is worse than leaving the block open.
-    const closable =
-      curContent && openFence && cur.length + FENCE_CLOSER.length <= limit;
+    const closable = curContent && openFence && cur.length + FENCE_CLOSER.length <= limit;
     emit(closable ? cur + FENCE_CLOSER : cur);
     return true;
   };
@@ -463,8 +462,7 @@ export function splitMarkdownForTelegram(
     // own — unless it is too long to be a marker at all, in which case its info string is
     // the payload. Same threshold as the reopen decision below, so the two agree.
     const markerSized = rawLine.length + 1 + FENCE_CLOSER.length <= limit / 2;
-    const rawPayload =
-      rawLine.trim() !== "" && !(rawIsFence && markerSized);
+    const rawPayload = rawLine.trim() !== "" && !(rawIsFence && markerSized);
 
     for (const line of pieces) {
       const isFence = FENCE_LINE.test(line);
@@ -511,10 +509,7 @@ export function splitMarkdownForTelegram(
   return out;
 }
 
-async function sendChunkedMessages(
-  ctx: Context,
-  markdown: string
-): Promise<void> {
+async function sendChunkedMessages(ctx: Context, markdown: string): Promise<void> {
   for (const chunk of splitMarkdownForTelegram(markdown)) {
     try {
       await ctx.reply(convertMarkdownToHtml(chunk), {
@@ -539,10 +534,7 @@ async function sendChunkedMessages(
  * Send Claude markdown as a Bot API 10.1 rich message, degrading on failure:
  * rich -> HTML -> plain text. Returns the created message, or null if all fail.
  */
-async function sendRichWithFallback(
-  ctx: Context,
-  content: string
-): Promise<Message | null> {
+async function sendRichWithFallback(ctx: Context, content: string): Promise<Message | null> {
   const chatId = ctx.chatId;
   if (chatId === undefined) return null;
 
@@ -578,11 +570,7 @@ async function sendRichWithFallback(
  * Edit a message in place to rich markdown, degrading rich -> HTML -> plain.
  * Throws "CONTENT_TOO_LONG"/MESSAGE_TOO_LONG so callers can delete + chunk.
  */
-async function editRichWithFallback(
-  ctx: Context,
-  msg: Message,
-  content: string
-): Promise<void> {
+async function editRichWithFallback(ctx: Context, msg: Message, content: string): Promise<void> {
   // Too long for a single rich message — signal caller to chunk full content.
   if (content.length > TELEGRAM_RICH_LIMIT) {
     throw new Error("CONTENT_TOO_LONG");
@@ -616,15 +604,11 @@ async function editRichWithFallback(
   }
 }
 
-export function createStatusCallback(
-  ctx: Context,
-  state: StreamingState
-): StatusCallback {
+export function createStatusCallback(ctx: Context, state: StreamingState): StatusCallback {
   return async (statusType: string, content: string, segmentId?: number) => {
     try {
       if (statusType === "thinking") {
-        const preview =
-          content.length > 500 ? content.slice(0, 500) + "..." : content;
+        const preview = content.length > 500 ? content.slice(0, 500) + "..." : content;
         const escaped = escapeHtml(preview);
         const thinkingMsg = await ctx.reply(`🧠 <i>${escaped}</i>`, {
           parse_mode: "HTML",

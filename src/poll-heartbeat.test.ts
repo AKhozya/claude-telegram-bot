@@ -14,8 +14,7 @@ function capture() {
   } as unknown as Pick<Api, "config">;
   return {
     api,
-    call: (method: string, prev: any) =>
-      transformer(prev, method, {}, undefined),
+    call: (method: string, prev: any) => transformer(prev, method, {}, undefined),
   };
 }
 
@@ -62,7 +61,7 @@ describe("installPollHeartbeat", () => {
     await expect(
       call("getUpdates", async () => {
         throw boom;
-      })
+      }),
     ).rejects.toBe(boom);
     expect(existsSync(file)).toBe(false);
   });

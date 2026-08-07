@@ -4,23 +4,23 @@
 
 `bun test --coverage`, commit `528cb8d`: **190 tests / 14 files, 62.03% funcs, 57.98% lines.**
 
-| File | % lines | tests | Note |
-|---|---|---|---|
-| `handlers/auth.ts` | 100 | 4 | |
-| `handlers/download.ts` | 100 | 1 | |
-| `handlers/reactions.ts` | 100 | 3 | |
-| `sandbox.ts` | 100 | 15 | |
-| `security.ts` | 92.29 | 122 | 64% of the whole suite |
-| `config.ts` | 88.71 | — | covered transitively |
-| `handlers/trigger.ts` | 86.30 | 5 | |
-| `session.ts` | 67.83 | 10 | across 3 files |
-| `handlers/streaming.ts` | 58.42 | 8 | |
-| `formatting.ts` | 29.74 | 7 | `formatToolStatus` untouched |
-| `handlers/document.ts` | 13.04 | 11 | security helpers covered; I/O not |
-| `handlers/media-group.ts` | 10.27 | 0 | |
-| `handlers/photo.ts` | 9.09 | 0 | |
-| `handlers/commands.ts` | 7.35 | 2 | |
-| `utils.ts` | 6.60 | 0 | |
+| File                      | % lines | tests | Note                              |
+| ------------------------- | ------- | ----- | --------------------------------- |
+| `handlers/auth.ts`        | 100     | 4     |                                   |
+| `handlers/download.ts`    | 100     | 1     |                                   |
+| `handlers/reactions.ts`   | 100     | 3     |                                   |
+| `sandbox.ts`              | 100     | 15    |                                   |
+| `security.ts`             | 92.29   | 122   | 64% of the whole suite            |
+| `config.ts`               | 88.71   | —     | covered transitively              |
+| `handlers/trigger.ts`     | 86.30   | 5     |                                   |
+| `session.ts`              | 67.83   | 10    | across 3 files                    |
+| `handlers/streaming.ts`   | 58.42   | 8     |                                   |
+| `formatting.ts`           | 29.74   | 7     | `formatToolStatus` untouched      |
+| `handlers/document.ts`    | 13.04   | 11    | security helpers covered; I/O not |
+| `handlers/media-group.ts` | 10.27   | 0     |                                   |
+| `handlers/photo.ts`       | 9.09    | 0     |                                   |
+| `handlers/commands.ts`    | 7.35    | 2     |                                   |
+| `utils.ts`                | 6.60    | 0     |                                   |
 
 Absent from the report entirely — never imported by any test, so 0%:
 `index.ts`, `handlers/callback.ts` (200 lines), `handlers/text.ts` (118), `handlers/video.ts` (142), `handlers/media.ts`, `handlers/index.ts`.
@@ -33,20 +33,20 @@ Rank by **bug class prevented**, not by percent. The list below does that; the r
 
 ## Assumptions
 
-| # | Assumption | Tier |
-|---|---|---|
-| 1 | `coverageThreshold` in `bunfig.toml [test]` fails the run | ✅ probed 2026-07-29 — `0.99` gave exit 1 with 0 test failures |
-| 2 | A fake grammY `Context` can drive a handler without network | ✅ `commands.test.ts` already does it (`Object.create(proto)` with prototype getters for `message`/`chat`/`from`) |
-| 3 | SDK session functions are real, not stubs | ✅ probed — `listSessions({limit:3})` returned live sessions despite `_`-prefixed param names |
-| 4 | `mock.module("./session")` leaks exactly like the SDK mock did | 🟡 same mechanism, not re-probed. Use the copy-snapshot + `afterAll` re-mock from `session-reset.test.ts` and the guard test that comes with it |
-| 5 | `handleText`'s retry loop is drivable by making `sendMessageStreaming` throw `"exited with code 1"` | ⚠ my call — needs a spike before writing the P1.4 tests |
+| #   | Assumption                                                                                          | Tier                                                                                                                                            |
+| --- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `coverageThreshold` in `bunfig.toml [test]` fails the run                                           | ✅ probed 2026-07-29 — `0.99` gave exit 1 with 0 test failures                                                                                  |
+| 2   | A fake grammY `Context` can drive a handler without network                                         | ✅ `commands.test.ts` already does it (`Object.create(proto)` with prototype getters for `message`/`chat`/`from`)                               |
+| 3   | SDK session functions are real, not stubs                                                           | ✅ probed — `listSessions({limit:3})` returned live sessions despite `_`-prefixed param names                                                   |
+| 4   | `mock.module("./session")` leaks exactly like the SDK mock did                                      | 🟡 same mechanism, not re-probed. Use the copy-snapshot + `afterAll` re-mock from `session-reset.test.ts` and the guard test that comes with it |
+| 5   | `handleText`'s retry loop is drivable by making `sendMessageStreaming` throw `"exited with code 1"` | ⚠ my call — needs a spike before writing the P1.4 tests                                                                                         |
 
 **Validate before build:** items 4 and 5. Both are one short spike against the real loop, same shape as `session-reset.test.ts`.
 
 ## Priority 1 — untested logic that gates every message
 
 1. **`utils.ts: checkInterrupt`** — 0 tests today, runs on every text message. Table test: no prefix passes through; `!foo` strips and interrupts; `!stop` and `!/stop` return `""` (pure stop alias, no prompt forwarded); `!` alone returns `""`. Pure apart from the lazy `./session` import — see assumption 4.
-2. **`handlers/callback.ts`: the `requestId` charset guard** — `/^[A-Za-z0-9_-]+$/` is the only thing stopping `../` in a `/tmp` path that is then read *and* `unlinkSync`'d. A security control with zero tests. Extract nothing; drive `handleCallback` with a fake ctx and assert a traversal id is rejected before any file touch.
+2. **`handlers/callback.ts`: the `requestId` charset guard** — `/^[A-Za-z0-9_-]+$/` is the only thing stopping `../` in a `/tmp` path that is then read _and_ `unlinkSync`'d. A security control with zero tests. Extract nothing; drive `handleCallback` with a fake ctx and assert a traversal id is rejected before any file touch.
 3. **`handlers/media-group.ts`: `addToGroup`** — real logic, no tests: rate limit charged once per album not per item; first caption wins regardless of arrival order; the debounce timer resets per item and fires once. Use fake timers, no Telegram.
 4. **`handlers/text.ts`: the crash-retry loop** — `MAX_RETRIES = 1`, retry only on `"exited with code"`, and the interrupt-vs-explicit-stop branch that decides whether "🛑 Query stopped." is shown. Four distinct outcomes, none covered. Gated on assumption 5.
 

@@ -44,7 +44,11 @@ const run = async (events: unknown[], startingId: string | null) => {
   return session.sessionId;
 };
 
-const reset = { type: "conversation_reset", session_id: "old-session-id", new_conversation_id: "unused" };
+const reset = {
+  type: "conversation_reset",
+  session_id: "old-session-id",
+  new_conversation_id: "unused",
+};
 const init = { type: "system", subtype: "init", session_id: "new-session-id" };
 
 // The trap: conversation_reset still carries the PRE-reset id. Dropping the `continue` lets
@@ -60,7 +64,7 @@ test("a reset with no following init leaves no id, so the next message starts fr
 
 test("without a reset the first id still wins and is never replaced mid-stream", async () => {
   expect(await run([init, { type: "system", session_id: "later-id" }], null)).toBe(
-    "new-session-id"
+    "new-session-id",
   );
 });
 

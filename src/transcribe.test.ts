@@ -79,10 +79,7 @@ test("probeDuration measures every stream, not just the audio", async () => {
 // longest stream wins — a clip whose audio is shorter than its video must still be measured
 // by the video, or an over-long file slips through on its audio length.
 test("probeDuration falls back to the streams and takes the longest", async () => {
-  const calls = fakeSpawns(
-    { code: 0, stdout: "N/A\n" },
-    { code: 0, stdout: "\n30.0\n605.0\n" }
-  );
+  const calls = fakeSpawns({ code: 0, stdout: "N/A\n" }, { code: 0, stdout: "\n30.0\n605.0\n" });
   try {
     expect(await probeDuration("/tmp/telegram-bot/video_2.mkv")).toBe(605);
     expect(calls).toHaveLength(2);
@@ -95,10 +92,7 @@ test("probeDuration falls back to the streams and takes the longest", async () =
 // Trusting the header the moment it parses would take 12 over 601. Both forms are asked and
 // the largest wins, so a header that disagrees with the packets cannot undercut the cap.
 test("probeDuration prefers the streams when the header undercounts", async () => {
-  const calls = fakeSpawns(
-    { code: 0, stdout: "12.0\n" },
-    { code: 0, stdout: "601.0\n" }
-  );
+  const calls = fakeSpawns({ code: 0, stdout: "12.0\n" }, { code: 0, stdout: "601.0\n" });
   try {
     expect(await probeDuration("/tmp/telegram-bot/mismatched.mp4")).toBe(601);
     expect(calls).toHaveLength(2);
@@ -298,7 +292,7 @@ test("a frame that fails to extract is left out of the set", async () => {
   fakeSpawns(
     { code: 0, stderr: showinfo(0.5, 9) },
     { code: 0 },
-    { code: 1, stderr: "Output file is empty" }
+    { code: 1, stderr: "Output file is empty" },
   );
   try {
     expect(await extractSceneFrames(join(scratch, "video_6.mp4"), 60)).toEqual([
@@ -317,7 +311,7 @@ test("a silent track is caught before whisper runs", async () => {
   const calls = fakeSpawns({ code: 0, stderr: "max_volume: -91.0 dB\nmean_volume: -91.0 dB" });
   try {
     await expect(transcribeMedia(join(scratch, "silent.ogg"))).rejects.toBeInstanceOf(
-      SilentAudioError
+      SilentAudioError,
     );
     // Decode only — whisper was never spawned.
     expect(calls).toHaveLength(1);
@@ -332,7 +326,7 @@ test("a silent track is caught before whisper runs", async () => {
 test("the decode runs at a loglevel that keeps volumedetect's output", async () => {
   const calls = fakeSpawns(
     { code: 0, stderr: "max_volume: -2.2 dB" },
-    { code: 0, stdout: "real speech" }
+    { code: 0, stdout: "real speech" },
   );
   try {
     expect(await transcribeMedia(join(scratch, "loud.ogg"))).toBe("real speech");
@@ -345,10 +339,7 @@ test("the decode runs at a loglevel that keeps volumedetect's output", async () 
 // Quiet is not silent. Speech attenuated by 30 dB still measures around -33, far above the
 // line, and must transcribe normally.
 test("a quiet but audible track still transcribes", async () => {
-  fakeSpawns(
-    { code: 0, stderr: "max_volume: -32.9 dB" },
-    { code: 0, stdout: "faint but real" }
-  );
+  fakeSpawns({ code: 0, stderr: "max_volume: -32.9 dB" }, { code: 0, stdout: "faint but real" });
   try {
     expect(await transcribeMedia(join(scratch, "quiet.ogg"))).toBe("faint but real");
   } finally {
@@ -361,12 +352,10 @@ test("a quiet but audible track still transcribes", async () => {
 test("a level just above the silence line still transcribes", async () => {
   fakeSpawns(
     { code: 0, stderr: "max_volume: -75.9 dB" },
-    { code: 0, stdout: "very quiet but intelligible" }
+    { code: 0, stdout: "very quiet but intelligible" },
   );
   try {
-    expect(await transcribeMedia(join(scratch, "faint.ogg"))).toBe(
-      "very quiet but intelligible"
-    );
+    expect(await transcribeMedia(join(scratch, "faint.ogg"))).toBe("very quiet but intelligible");
   } finally {
     restore();
   }
@@ -377,7 +366,7 @@ test("a level just below the silence line is refused", async () => {
   fakeSpawns({ code: 0, stderr: "max_volume: -76.1 dB" });
   try {
     await expect(transcribeMedia(join(scratch, "toofaint.ogg"))).rejects.toBeInstanceOf(
-      SilentAudioError
+      SilentAudioError,
     );
   } finally {
     restore();
@@ -403,7 +392,7 @@ test("WHISPER_SILENCE_DB moves the threshold", async () => {
         env: { ...process.env, ...env },
         stdout: "pipe",
         stderr: "pipe",
-      }
+      },
     );
     const out = await new Response(proc.stdout).text();
     await proc.exited;
@@ -432,7 +421,7 @@ test("a malformed WHISPER_SILENCE_DB falls back rather than breaking the check",
          try { await transcribeMedia("/tmp/x.ogg"); console.log("TRANSCRIBED"); }
          catch (e) { console.log(e instanceof SilentAudioError ? "SILENT" : "OTHER"); }`,
       ],
-      { env: { ...process.env, WHISPER_SILENCE_DB: value }, stdout: "pipe", stderr: "pipe" }
+      { env: { ...process.env, WHISPER_SILENCE_DB: value }, stdout: "pipe", stderr: "pipe" },
     );
     const out = await new Response(proc.stdout).text();
     await proc.exited;
@@ -451,7 +440,7 @@ test("a malformed WHISPER_SILENCE_DB falls back rather than breaking the check",
 test("an unreadable level is not treated as silence", async () => {
   fakeSpawns(
     { code: 0, stderr: "no volume line here at all" },
-    { code: 0, stdout: "transcribed anyway" }
+    { code: 0, stdout: "transcribed anyway" },
   );
   try {
     expect(await transcribeMedia(join(scratch, "nolevel.ogg"))).toBe("transcribed anyway");
@@ -507,7 +496,7 @@ test("a video with no audio track is reported as such, not as a generic failure"
   });
   try {
     await expect(transcribeMedia("/tmp/telegram-bot/video_1.mp4")).rejects.toBeInstanceOf(
-      NoAudioTrackError
+      NoAudioTrackError,
     );
   } finally {
     restore();
@@ -520,9 +509,7 @@ test("a video with no audio track is reported as such, not as a generic failure"
 test("whisper exiting 0 with no output is a failure, not an empty transcript", async () => {
   fakeSpawns({ code: 0 }, { code: 0, stdout: "   \n" });
   try {
-    await expect(transcribeMedia("/tmp/telegram-bot/voice_4.ogg")).rejects.toThrow(
-      /no transcript/
-    );
+    await expect(transcribeMedia("/tmp/telegram-bot/voice_4.ogg")).rejects.toThrow(/no transcript/);
   } finally {
     restore();
   }
@@ -535,11 +522,11 @@ test("whisper exiting 0 with no output is a failure, not an empty transcript", a
 test("a non-zero whisper exit surfaces its stderr, even when it printed something", async () => {
   fakeSpawns(
     { code: 0 },
-    { code: 1, stdout: "half a sen", stderr: "error: failed to process audio\n" }
+    { code: 1, stdout: "half a sen", stderr: "error: failed to process audio\n" },
   );
   try {
     await expect(transcribeMedia("/tmp/telegram-bot/voice_5.ogg")).rejects.toThrow(
-      /failed to process audio/
+      /failed to process audio/,
     );
   } finally {
     restore();
@@ -550,14 +537,11 @@ test("a non-zero whisper exit surfaces its stderr, even when it printed somethin
 // message differs. Checked by stderr rather than by stat-ing the model: an existsSync guard
 // at the top of the module makes every test above fail on a dev machine that has no model.
 test("an unloadable model is unavailability, not a bad file", async () => {
-  fakeSpawns(
-    { code: 0 },
-    { code: 3, stderr: "error: failed to initialize whisper context\n" }
-  );
+  fakeSpawns({ code: 0 }, { code: 3, stderr: "error: failed to initialize whisper context\n" });
   try {
-    await expect(
-      transcribeMedia("/tmp/telegram-bot/voice_6.ogg")
-    ).rejects.toBeInstanceOf(TranscriptionUnavailableError);
+    await expect(transcribeMedia("/tmp/telegram-bot/voice_6.ogg")).rejects.toBeInstanceOf(
+      TranscriptionUnavailableError,
+    );
   } finally {
     restore();
   }
@@ -599,9 +583,9 @@ test("a missing binary is reported as unavailable, not as a broken file", async 
     throw err;
   };
   try {
-    await expect(
-      transcribeMedia("/tmp/telegram-bot/voice_7.ogg")
-    ).rejects.toBeInstanceOf(TranscriptionUnavailableError);
+    await expect(transcribeMedia("/tmp/telegram-bot/voice_7.ogg")).rejects.toBeInstanceOf(
+      TranscriptionUnavailableError,
+    );
   } finally {
     restore();
   }

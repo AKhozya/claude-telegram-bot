@@ -18,15 +18,13 @@ import { markFailed } from "./reactions";
 export async function rateLimitOrReply(
   ctx: BotContext,
   userId: number,
-  username: string
+  username: string,
 ): Promise<boolean> {
   const [allowed, retryAfter] = rateLimiter.check(userId);
   if (allowed) return false;
 
   await auditLogRateLimit(userId, username, retryAfter!);
-  await ctx.reply(
-    `⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`
-  );
+  await ctx.reply(`⏳ Rate limited. Please wait ${retryAfter!.toFixed(1)} seconds.`);
   await markFailed(ctx);
   return true;
 }

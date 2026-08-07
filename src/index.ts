@@ -79,7 +79,7 @@ bot.use(
       return undefined;
     }
     return ctx.chat?.id.toString();
-  })
+  }),
 );
 
 // ============== Command Handlers ==============
@@ -157,16 +157,14 @@ if (existsSync(RESTART_FILE)) {
     // this old means some earlier restart never cleaned up, so the "✅ Bot restarted"
     // edit would land long after the user stopped waiting for it.
     if (age < 30000 && data.chat_id && data.message_id) {
-      await bot.api.editMessageText(
-        data.chat_id,
-        data.message_id,
-        "✅ Bot restarted"
-      );
+      await bot.api.editMessageText(data.chat_id, data.message_id, "✅ Bot restarted");
     }
     unlinkSync(RESTART_FILE);
   } catch (e) {
     console.warn("Failed to update restart message:", e);
-    try { unlinkSync(RESTART_FILE); } catch {}
+    try {
+      unlinkSync(RESTART_FILE);
+    } catch {}
   }
 }
 

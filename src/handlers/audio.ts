@@ -81,9 +81,7 @@ export function transcriptPreview(transcript: string): string {
     units = next;
     taken += 1;
   }
-  return taken === points.length
-    ? transcript
-    : `${points.slice(0, taken).join("")}…`;
+  return taken === points.length ? transcript : `${points.slice(0, taken).join("")}…`;
 }
 
 export async function handleAudio(ctx: BotContext): Promise<void> {
@@ -100,9 +98,7 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
 
   if (media.file_size && media.file_size > MAX_AUDIO_SIZE) {
     await markFailed(ctx);
-    await ctx.reply(
-      `❌ Audio too large. Maximum size is ${MAX_AUDIO_SIZE / 1024 / 1024}MB.`
-    );
+    await ctx.reply(`❌ Audio too large. Maximum size is ${MAX_AUDIO_SIZE / 1024 / 1024}MB.`);
     return;
   }
 
@@ -113,9 +109,7 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
     await markFailed(ctx);
     // Seconds, not minutes: the cap is configurable, and flooring it to whole minutes
     // reports "1 minutes" for a 90-second setting that in fact allows 90 seconds.
-    await ctx.reply(
-      `❌ Too long to transcribe. Maximum is ${TRANSCRIBE_MAX_DURATION_S} seconds.`
-    );
+    await ctx.reply(`❌ Too long to transcribe. Maximum is ${TRANSCRIBE_MAX_DURATION_S} seconds.`);
     return;
   }
 
@@ -150,11 +144,7 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
     } catch (error) {
       console.error("Failed to download audio:", error);
       await markFailed(ctx);
-      await ctx.api.editMessageText(
-        chatId,
-        statusMsg.message_id,
-        "❌ Failed to download audio."
-      );
+      await ctx.api.editMessageText(chatId, statusMsg.message_id, "❌ Failed to download audio.");
       return;
     }
 
@@ -169,7 +159,7 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
           statusMsg.message_id,
           seconds === null
             ? "❌ Couldn't read how long that audio is."
-            : `❌ Too long to transcribe. Maximum is ${TRANSCRIBE_MAX_DURATION_S} seconds.`
+            : `❌ Too long to transcribe. Maximum is ${TRANSCRIBE_MAX_DURATION_S} seconds.`,
         );
         return;
       }
@@ -196,7 +186,7 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
     await ctx.api.editMessageText(
       chatId,
       statusMsg.message_id,
-      `${TRANSCRIPT_PREFIX}${transcriptPreview(transcript)}`
+      `${TRANSCRIPT_PREFIX}${transcriptPreview(transcript)}`,
     );
 
     session.lastMessage = transcript; // consumed by /retry
@@ -210,7 +200,7 @@ export async function handleAudio(ctx: BotContext): Promise<void> {
       userId,
       statusCallback,
       chatId,
-      ctx
+      ctx,
     );
 
     await auditLog(userId, username, "VOICE", transcript, response);

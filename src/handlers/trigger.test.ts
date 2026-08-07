@@ -42,9 +42,7 @@ describe("startTriggerServer", () => {
       // Non-literal specifier: tsc can't statically resolve a query-stringed
       // path, so build it in a variable rather than typing the import error away.
       const cacheBustedTriggerPath = "./trigger?mock-config-test";
-      const { startTriggerServer: freshStartTriggerServer } = await import(
-        cacheBustedTriggerPath
-      );
+      const { startTriggerServer: freshStartTriggerServer } = await import(cacheBustedTriggerPath);
       const server = freshStartTriggerServer(bot);
       expect(server).not.toBeNull();
 

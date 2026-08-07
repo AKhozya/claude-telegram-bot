@@ -6,11 +6,12 @@
 
 ```typescript
 // src/session.ts
-permissionMode: "bypassPermissions"
-allowDangerouslySkipPermissions: true
+permissionMode: "bypassPermissions";
+allowDangerouslySkipPermissions: true;
 ```
 
 This means Claude can:
+
 - **Read and write files** without asking for confirmation
 - **Execute shell commands** without permission prompts
 - **Use all tools** (Bash, Edit, Write, etc.) autonomously
@@ -51,6 +52,7 @@ Default: 20 requests per 60 seconds per user
 ```
 
 Configure via:
+
 - `RATE_LIMIT_ENABLED` - Enable/disable (default: true)
 - `RATE_LIMIT_REQUESTS` - Requests per window (default: 20)
 - `RATE_LIMIT_WINDOW` - Window in seconds (default: 60)
@@ -60,14 +62,15 @@ Configure via:
 A `PreToolUse` SDK hook (`src/session.ts`, backed by `evaluateToolUse` in `src/security.ts`) runs before every tool call and returns `permissionDecision: "deny"` for anything it rejects. Under `bypassPermissions` this is the enforcing control for native tools — nothing else stops a Read, Write, Edit or Bash call.
 
 It denies:
+
 - Tools in `DENIED_TOOLS` (also passed to the SDK as `disallowedTools`, so the model rarely emits them)
 - `WebFetch` with a non-string `url`, and — when `url` is a non-empty string — a non-`http(s)` scheme, an unparseable URL, `localhost` / `*.localhost` / `*.local` / `*.internal` / `metadata.google.internal`, or a host resolving into `0/8`, `10/8`, `127/8`, `169.254/16`, `172.16/12`, `192.168/16`, `::1`, `::`, `fe80::/10` or `fc00::/7`. Domain names are resolved and every returned address re-checked, so `evil.example.com A 169.254.169.254` is caught; resolution failure blocks. **Not** a full public/private classifier — CGNAT (`100.64/10`) and other reserved ranges are not covered, and active DNS rebinding needs IP pinning the SDK does not expose. Egress policy is the backstop.
 - `Bash` commands failing the command-safety checks in Layer 6
-- `Read`/`Write`/`Edit`/`NotebookEdit` on paths outside `ALLOWED_PATHS` **and** outside the three `TEMP_PATHS` (see Layer 5 — temp is allowed for read *and* write). One exemption: a native `Read` under `$HOME/.claude/` is allowed even when that directory is not in `ALLOWED_PATHS`, so Claude can load its own config and skills. It fails closed if `HOME` is unset.
+- `Read`/`Write`/`Edit`/`NotebookEdit` on paths outside `ALLOWED_PATHS` **and** outside the three `TEMP_PATHS` (see Layer 5 — temp is allowed for read _and_ write). One exemption: a native `Read` under `$HOME/.claude/` is allowed even when that directory is not in `ALLOWED_PATHS`, so Claude can load its own config and skills. It fails closed if `HOME` is unset.
 - Within those same four tools, denied by name even inside an allowed path: credential stores (read and write), and the bot's own session, restart and audit files (read and write — reading exfils conversations, writing is DoS)
 - Code-execution control files (`settings*.json`, `.claude/hooks/**`, `.mcp.json`) — **write only**. `Read` is deliberately exempt so Claude can inspect its own config; the sandbox's `denyWrite` covers the Bash path separately
 - `Grep`/`Glob` with a search path outside the allowlist. Note this branch checks `isPathAllowed` only; the named runtime-file denials above do not apply to it
-- Any **MCP** tool (`mcp__server__tool`) called with a `file_path` argument, on the same terms as `Read` but without the `$HOME/.claude/` exemption — credential stores, the bot's runtime files, and anything outside `ALLOWED_PATHS` + `TEMP_PATHS`. This exists for the bundled `send_file`, which reads a path and publishes it to Telegram: the same shape as `Artifact` in `DENIED_TOOLS`. The branch keys on the *argument*, not on `mcp__send-file__send_file` — the server half of that name comes from whatever key `mcp-config.ts` uses, so renaming it must not reopen the hole, and any future MCP taking a `file_path` is covered without a code change
+- Any **MCP** tool (`mcp__server__tool`) called with a `file_path` argument, on the same terms as `Read` but without the `$HOME/.claude/` exemption — credential stores, the bot's runtime files, and anything outside `ALLOWED_PATHS` + `TEMP_PATHS`. This exists for the bundled `send_file`, which reads a path and publishes it to Telegram: the same shape as `Artifact` in `DENIED_TOOLS`. The branch keys on the _argument_, not on `mcp__send-file__send_file` — the server half of that name comes from whatever key `mcp-config.ts` uses, so renaming it must not reopen the hole, and any future MCP taking a `file_path` is covered without a code change
 
 The hook is registered without a matcher, so it sees MCP tools as well as built-ins. That matters because every other branch keys on a built-in tool name and the function's tail allows: before the MCP branch existed, `send_file` fell straight through it.
 
@@ -75,7 +78,7 @@ What the MCP branch does **not** cover, stated plainly so it is not mistaken for
 
 - **Other argument names and shapes.** It matches a top-level string `file_path`, the schema the bundled `send_file` uses. A third-party MCP taking `path`, `source`, or a nested `{file: {path}}` reaches the allow tail. Adding any third-party MCP to `mcp-config.ts` means revisiting this branch — the aliases are deliberately not guessed at, because widening the net would also reject tools whose `file_path` is remote rather than local.
 - **TOCTOU and hard links.** The path is canonicalized at check time and opened later by the server, and a hard link inside an allowed path names a credential inode under a benign path. Neither is closed here.
-- **It is not the last line.** With `BASH_SANDBOX_ENABLED=false` — which is how this runs in-cluster, because bubblewrap needs user namespaces the pod's `seccompProfile: RuntimeDefault` blocks — `Bash` can already `cat ~/.ssh/id_ed25519`; Layer 6's patterns do not deny it. The MCP branch closes the *one-tool-call* exfil that prompt injection reaches for, and raises the cost of the rest. It does not make credentials unreachable, and Layer 4 being off is the reason.
+- **It is not the last line.** With `BASH_SANDBOX_ENABLED=false` — which is how this runs in-cluster, because bubblewrap needs user namespaces the pod's `seccompProfile: RuntimeDefault` blocks — `Bash` can already `cat ~/.ssh/id_ed25519`; Layer 6's patterns do not deny it. The MCP branch closes the _one-tool-call_ exfil that prompt injection reaches for, and raises the cost of the rest. It does not make credentials unreachable, and Layer 4 being off is the reason.
 
 The hook does **not** bind Bash syscalls. That is Layer 4's job, and the two are deliberately separate.
 
@@ -91,7 +94,7 @@ BASH_SANDBOX_ENABLED=false
 
 Set that **only** where bubblewrap cannot get unprivileged user namespaces — a hardened container (`seccompProfile: RuntimeDefault`, caps dropped), where the pod itself is the sandbox. Leaving it on there makes every Bash command fail closed.
 
-With the sandbox off, Layer 6's pattern matching is the only *filesystem* containment left on Bash — a real gap, not a redundancy. The env scrub (`sanitizeEnv`) and `strictMcpConfig` are independent of the sandbox and stay on either way.
+With the sandbox off, Layer 6's pattern matching is the only _filesystem_ containment left on Bash — a real gap, not a redundancy. The env scrub (`sanitizeEnv`) and `strictMcpConfig` are independent of the sandbox and stay on either way.
 
 ### Layer 5: Path Validation
 
@@ -109,11 +112,13 @@ Default allowed paths:
 Customize via `ALLOWED_PATHS` (comma-separated). Setting it **overrides** the defaults — include `~/.claude` if you want plan mode to work.
 
 **Validation uses proper path containment checks:**
+
 - Symlinks are resolved before checking
 - Path traversal attacks (../) are prevented
 - Only exact directory matches are allowed
 
 **Exception for temp files:**
+
 - `/tmp/`, `/private/tmp/` and `/var/folders/` are allowed, for **write as well as read** — `isPathAllowed` checks them before `ALLOWED_PATHS` and returns early
 - This enables handling of Telegram-downloaded files and the `ask_user` IPC files
 - Named exceptions still apply inside them: `Read`/`Write`/`Edit`/`NotebookEdit` on the session, restart and audit files are denied by path. `Grep`/`Glob` are not covered by that denial — a search rooted in `/tmp` can still match them
@@ -128,16 +133,16 @@ Dangerous shell commands are blocked as defense-in-depth.
 
 These patterns are **always rejected**, regardless of context:
 
-| Pattern | Reason |
-|---------|--------|
-| `rm -rf /` | System destruction |
-| `rm -rf ~` | Home directory wipe |
-| `rm -rf $HOME` | Home directory wipe |
-| `sudo rm` | Privileged deletion |
-| `:(){ :\|:& };:` | Fork bomb |
-| `> /dev/sd` | Disk overwrite |
-| `mkfs.` | Filesystem formatting |
-| `dd if=` | Raw disk operations |
+| Pattern          | Reason                |
+| ---------------- | --------------------- |
+| `rm -rf /`       | System destruction    |
+| `rm -rf ~`       | Home directory wipe   |
+| `rm -rf $HOME`   | Home directory wipe   |
+| `sudo rm`        | Privileged deletion   |
+| `:(){ :\|:& };:` | Fork bomb             |
+| `> /dev/sd`      | Disk overwrite        |
+| `mkfs.`          | Filesystem formatting |
+| `dd if=`         | Raw disk operations   |
 
 #### Path-Validated Commands
 
@@ -174,6 +179,7 @@ Log location: /tmp/claude-telegram-audit.log (configurable)
 ```
 
 Logged events:
+
 - `message` - User messages and Claude responses
 - `rate_limit` - Rate limit events
 
@@ -211,7 +217,7 @@ Three limits worth knowing:
    its own shell, model and approval policy, outside `evaluateToolUse` entirely. A string denylist
    does not close this — writing a script to an allowed path and running it defeats any pattern.
    The containment is the pod, not this process. Precisely: the `codex` invocation itself is a Bash
-   call and *is* evaluated by `evaluateToolUse`; what escapes is everything Codex does afterwards,
+   call and _is_ evaluated by `evaluateToolUse`; what escapes is everything Codex does afterwards,
    through its own shell and its own approval policy. Note the asymmetry deliberately — `Agent` is
    denied at two layers and Codex at none, though only the latter matches how it is reached.
    Running Codex `danger-full-access` inside a container is OpenAI's own documented guidance when
