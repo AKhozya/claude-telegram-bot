@@ -17,7 +17,24 @@ jobs:
         with:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
+      - run: bunx prettier --check .
       - run: bun run typecheck
       - name: Compile standalone binary (proves the app bundles)
         run: bun build --compile src/index.ts --outfile /tmp/bot-ci-smoke
       - run: bun test
+
+  gitleaks:
+    runs-on: ubuntu-latest
+    permissions:
+      # A job-level block zeroes everything unlisted — contents:read must be
+      # restated or checkout fails.
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Shallow clones hide history — gitleaks scans every commit.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

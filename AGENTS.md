@@ -9,7 +9,9 @@ bun run start      # Run the bot
 bun run dev        # Run with auto-reload (--watch)
 bun run typecheck  # Run TypeScript type checking
 bun test           # Run the test suite (CI gates on this)
+bun run format     # Prettier over the whole repo
 bun install        # Install dependencies
+pre-commit install # One-time per clone: installs the git hooks below
 ```
 
 ## Architecture
@@ -38,6 +40,7 @@ Telegram message → Handler → Auth check → Rate limit → Claude session �
 ### Handlers (`src/handlers/`)
 
 Message-type handlers:
+
 - **`commands.ts`** - `/start`, `/new`, `/stop`, `/status`, `/resume`, `/restart`, `/retry`
 - **`text.ts`** - Text messages; a `!` prefix interrupts the running query, `!stop` is a `/stop` alias
 - **`photo.ts`** - Image analysis with media group buffering (1s timeout for albums)
@@ -48,6 +51,7 @@ Message-type handlers:
 - **`streaming.ts`** - Shared `StreamingState` and status callback factory
 
 Supporting modules in the same directory:
+
 - **`auth.ts`** - `authGate` middleware, the single choke point for the user allowlist
 - **`media-group.ts`** - Generic album buffer; rate-limits once per album, not per item
 - **`errors.ts`** - `handleProcessingError`, the shared catch-block body for every query-running handler. Not in `streaming.ts` because `session.ts` imports the pollers from there and this handler needs `session` — moving it closes an import cycle
@@ -93,28 +97,28 @@ reminder, and denies nothing.
 
 All config via `.env` (copy from `.env.example`). Every configuration variable the code reads — OS-supplied ones (`HOME`, `PATH`, `TMPDIR`) excluded:
 
-| Variable | Purpose |
-|---|---|
-| `TELEGRAM_BOT_TOKEN` | Required. From @BotFather |
-| `TELEGRAM_ALLOWED_USERS` | Required. Comma-separated numeric user IDs |
-| `TELEGRAM_API_ROOT` | Alternate Bot API server |
-| `CLAUDE_WORKING_DIR` | Working directory for Claude |
-| `CLAUDE_CODE_PATH` | Explicit path to the Claude CLI (auto-detected otherwise) |
-| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` | Consumed by the SDK child, not by this code. `sandbox.ts` `AUTH_KEEP` passes them through to the child while still hiding them from sandboxed Bash |
-| `ALLOWED_PATHS` | Directories Claude can access — overrides all defaults |
-| `BASH_SANDBOX_ENABLED` | OS Bash sandbox; on unless explicitly `false`/`0`/`off`/`no` |
-| `SAFETY_HOOK` | Absolute path to the external Bash denylist. Unset disables that layer; set makes every failure to run it a deny |
-| `RATE_LIMIT_ENABLED`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW` | Token bucket |
-| `THINKING_KEYWORDS`, `THINKING_DEEP_KEYWORDS` | Extended-thinking triggers |
-| `WHISPER_MODEL` | Path to the ggml model; baked into the image at `/usr/local/share/whisper/ggml-small.bin` |
-| `WHISPER_THREADS` | Threads for whisper.cpp, default 2. Must track the CPU limit — `nproc` reports the node's count inside a capped pod |
-| `TRANSCRIBE_MAX_DURATION_SECONDS` | Longest clip accepted, default 600. Size does not bound transcription time |
-| `WHISPER_SILENCE_DB` | Peak dBFS at or below which audio counts as silent, default -76. Model-specific — whisper invents words on silence rather than returning nothing, and each model starts doing so at a different level, so this moves with `WHISPER_MODEL` |
-| `AUDIT_LOG_PATH`, `AUDIT_LOG_JSON` | Audit log location and format |
-| `SESSION_FILE_PATH`, `RESTART_FILE_PATH`, `TEMP_DIR` | Runtime file overrides |
-| `TEMP_REAP_INTERVAL_MS`, `TEMP_RETENTION_HOURS` | Temp-dir sweep cadence (default 1h) and file age (default 24h). Nothing else clears `TEMP_DIR`. The retention is also the age at which the pollers in `streaming.ts` drop an MCP request file in `/tmp`. It is not a bound on one: the pollers run only while Claude is calling `ask_user` or `send_file`, so an idle bot sweeps nothing |
-| `TRIGGER_SECRET`, `TRIGGER_PORT`, `TRIGGER_HOST` | HTTP trigger; disabled without a secret |
-| `TELEGRAM_CHAT_ID` | Not user config — `session.ts` sets it so the MCP servers know the recipient |
+| Variable                                                               | Purpose                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`                                                   | Required. From @BotFather                                                                                                                                                                                                                                                                                                                |
+| `TELEGRAM_ALLOWED_USERS`                                               | Required. Comma-separated numeric user IDs                                                                                                                                                                                                                                                                                               |
+| `TELEGRAM_API_ROOT`                                                    | Alternate Bot API server                                                                                                                                                                                                                                                                                                                 |
+| `CLAUDE_WORKING_DIR`                                                   | Working directory for Claude                                                                                                                                                                                                                                                                                                             |
+| `CLAUDE_CODE_PATH`                                                     | Explicit path to the Claude CLI (auto-detected otherwise)                                                                                                                                                                                                                                                                                |
+| `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN` | Consumed by the SDK child, not by this code. `sandbox.ts` `AUTH_KEEP` passes them through to the child while still hiding them from sandboxed Bash                                                                                                                                                                                       |
+| `ALLOWED_PATHS`                                                        | Directories Claude can access — overrides all defaults                                                                                                                                                                                                                                                                                   |
+| `BASH_SANDBOX_ENABLED`                                                 | OS Bash sandbox; on unless explicitly `false`/`0`/`off`/`no`                                                                                                                                                                                                                                                                             |
+| `SAFETY_HOOK`                                                          | Absolute path to the external Bash denylist. Unset disables that layer; set makes every failure to run it a deny                                                                                                                                                                                                                         |
+| `RATE_LIMIT_ENABLED`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW`       | Token bucket                                                                                                                                                                                                                                                                                                                             |
+| `THINKING_KEYWORDS`, `THINKING_DEEP_KEYWORDS`                          | Extended-thinking triggers                                                                                                                                                                                                                                                                                                               |
+| `WHISPER_MODEL`                                                        | Path to the ggml model; baked into the image at `/usr/local/share/whisper/ggml-small.bin`                                                                                                                                                                                                                                                |
+| `WHISPER_THREADS`                                                      | Threads for whisper.cpp, default 2. Must track the CPU limit — `nproc` reports the node's count inside a capped pod                                                                                                                                                                                                                      |
+| `TRANSCRIBE_MAX_DURATION_SECONDS`                                      | Longest clip accepted, default 600. Size does not bound transcription time                                                                                                                                                                                                                                                               |
+| `WHISPER_SILENCE_DB`                                                   | Peak dBFS at or below which audio counts as silent, default -76. Model-specific — whisper invents words on silence rather than returning nothing, and each model starts doing so at a different level, so this moves with `WHISPER_MODEL`                                                                                                |
+| `AUDIT_LOG_PATH`, `AUDIT_LOG_JSON`                                     | Audit log location and format                                                                                                                                                                                                                                                                                                            |
+| `SESSION_FILE_PATH`, `RESTART_FILE_PATH`, `TEMP_DIR`                   | Runtime file overrides                                                                                                                                                                                                                                                                                                                   |
+| `TEMP_REAP_INTERVAL_MS`, `TEMP_RETENTION_HOURS`                        | Temp-dir sweep cadence (default 1h) and file age (default 24h). Nothing else clears `TEMP_DIR`. The retention is also the age at which the pollers in `streaming.ts` drop an MCP request file in `/tmp`. It is not a bound on one: the pollers run only while Claude is calling `ask_user` or `send_file`, so an idle bot sweeps nothing |
+| `TRIGGER_SECRET`, `TRIGGER_PORT`, `TRIGGER_HOST`                       | HTTP trigger; disabled without a secret                                                                                                                                                                                                                                                                                                  |
+| `TELEGRAM_CHAT_ID`                                                     | Not user config — `session.ts` sets it so the MCP servers know the recipient                                                                                                                                                                                                                                                             |
 
 MCP servers defined in `mcp-config.ts` (copy from `mcp-config.example.ts`; absent means no MCPs).
 The example enables this repo's own `ask-user` and `send-file` and leaves the third-party
@@ -125,15 +129,15 @@ servers while a locally built one baked whichever config that machine happened t
 
 ### Runtime Files
 
-| Path | Purpose | Override |
-|---|---|---|
-| `/tmp/claude-telegram-session.json` | Session persistence for `/resume` | `SESSION_FILE_PATH` |
-| `/tmp/claude-telegram-restart.json` | Chat/message ids so `/restart` can edit its own status message | `RESTART_FILE_PATH` |
-| `/tmp/claude-telegram-audit.log` | Audit log | `AUDIT_LOG_PATH` |
-| `/tmp/telegram-bot/` | Downloaded photos, documents, audio and video, plus the `.wav` transcription derives from a media file and up to 8 `.frame-N.jpg` stills per video | `TEMP_DIR` |
-| `/tmp/ctb-sandbox` | Bash sandbox scratch dir — the only writable path outside `ALLOWED_PATHS` | — |
-| `/tmp/ask-user-<uuid>.json` | IPC file for one `ask_user` round trip. Deleted when the button is tapped; otherwise swept by the poller on the next `ask_user` call — `pending` after 5 min, anything after `TEMP_RETENTION_HOURS` | — |
-| `/tmp/send-file-<uuid>.json` | IPC file for one `send_file` request; polled and deleted by `streaming.ts`, swept on the same terms — on the next `send_file` call, not on a timer | — |
+| Path                                | Purpose                                                                                                                                                                                             | Override            |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
+| `/tmp/claude-telegram-session.json` | Session persistence for `/resume`                                                                                                                                                                   | `SESSION_FILE_PATH` |
+| `/tmp/claude-telegram-restart.json` | Chat/message ids so `/restart` can edit its own status message                                                                                                                                      | `RESTART_FILE_PATH` |
+| `/tmp/claude-telegram-audit.log`    | Audit log                                                                                                                                                                                           | `AUDIT_LOG_PATH`    |
+| `/tmp/telegram-bot/`                | Downloaded photos, documents, audio and video, plus the `.wav` transcription derives from a media file and up to 8 `.frame-N.jpg` stills per video                                                  | `TEMP_DIR`          |
+| `/tmp/ctb-sandbox`                  | Bash sandbox scratch dir — the only writable path outside `ALLOWED_PATHS`                                                                                                                           | —                   |
+| `/tmp/ask-user-<uuid>.json`         | IPC file for one `ask_user` round trip. Deleted when the button is tapped; otherwise swept by the poller on the next `ask_user` call — `pending` after 5 min, anything after `TEMP_RETENTION_HOURS` | —                   |
+| `/tmp/send-file-<uuid>.json`        | IPC file for one `send_file` request; polled and deleted by `streaming.ts`, swept on the same terms — on the next `send_file` call, not on a timer                                                  | —                   |
 
 ## Patterns
 
@@ -143,7 +147,7 @@ servers while a locally built one baked whichever config that machine happened t
 
 **Streaming pattern**: All handlers use `createStatusCallback()` from `streaming.ts` and `session.sendMessageStreaming()` for live updates.
 
-**Before committing**: `bun run typecheck && bun test`. A green typecheck does not prove the bot runs — the suite is the gate that matters, and neither covers the Telegram wire.
+**Before committing**: git hooks enforce the gates (`.pre-commit-config.yaml`, one-time `pre-commit install` per clone). Commit runs Prettier on staged files plus a gitleaks staged-diff scan; push runs `bun run typecheck && bun test`. The Prettier hook uses `--write`: a mis-formatted commit fails once with the files already fixed — re-stage and re-commit. A green typecheck does not prove the bot runs — the suite is the gate that matters, and neither covers the Telegram wire. CI repeats all of it and adds a full-history gitleaks scan.
 
 **Test env**: `bunfig.toml` preloads `test-preload.ts`, which sets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS`. `config.ts` reads both at module-eval time and exits without them, so no test file needs to set them itself.
 
@@ -175,6 +179,7 @@ image bakes one in, a host run does not.
 ### PATH Requirements
 
 When running as a standalone binary (especially from a macOS app), the PATH may not include Homebrew. The launcher must ensure PATH includes:
+
 - `/opt/homebrew/bin` (Apple Silicon Homebrew)
 - `/usr/local/bin` (Intel Homebrew)
 
