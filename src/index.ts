@@ -7,8 +7,17 @@
 import { Bot, Api, Context } from "grammy";
 import { run, sequentialize } from "@grammyjs/runner";
 import { hydrateFiles, type FileFlavor, type FileApiFlavor } from "@grammyjs/files";
-import { TELEGRAM_TOKEN, WORKING_DIR, ALLOWED_USERS, RESTART_FILE } from "./config";
+import {
+  TELEGRAM_TOKEN,
+  TRIGGER_SECRET,
+  WORKING_DIR,
+  ALLOWED_USERS,
+  RESTART_FILE,
+  POLL_HEARTBEAT_FILE,
+} from "./config";
 import { installRetry } from "./retry";
+import { installConsoleRedaction } from "./redact";
+import { installPollHeartbeat, beat } from "./poll-heartbeat";
 import { unlinkSync, readFileSync, existsSync } from "fs";
 import { startTempReaper } from "./utils";
 import {
@@ -29,6 +38,14 @@ import { handleAudio } from "./handlers/audio";
 import { handleCallback } from "./handlers/callback";
 import { startTriggerServer } from "./handlers/trigger";
 
+// Before anything that can log an error: third-party error formatting embeds the
+// bot token via the request URL (see redact.ts).
+installConsoleRedaction([
+  TELEGRAM_TOKEN,
+  TRIGGER_SECRET,
+  process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "",
+]);
+
 // Create bot instance. TELEGRAM_API_ROOT (unset by default) points every
 // api/ctx.api call at a self-hosted Bot API server — needed for >20MB files.
 const bot = new Bot<FileFlavor<Context>, FileApiFlavor<Api>>(TELEGRAM_TOKEN, {
@@ -37,6 +54,7 @@ const bot = new Bot<FileFlavor<Context>, FileApiFlavor<Api>>(TELEGRAM_TOKEN, {
 
 // API transformers — cover EVERY api/ctx.api call (incl. streaming edits & raw).
 installRetry(bot.api);
+installPollHeartbeat(bot.api, POLL_HEARTBEAT_FILE);
 bot.api.config.use(hydrateFiles(bot.token, { apiRoot: process.env.TELEGRAM_API_ROOT }));
 
 // Authorization: single choke point for the user allowlist. Runs before sequentialize so
@@ -151,6 +169,9 @@ if (existsSync(RESTART_FILE)) {
     try { unlinkSync(RESTART_FILE); } catch {}
   }
 }
+
+// Boot write — see beat()'s doc for the coupling with the probe's initial delay.
+beat(POLL_HEARTBEAT_FILE);
 
 const runner = run(bot);
 

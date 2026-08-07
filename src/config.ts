@@ -222,6 +222,10 @@ export const SESSION_FILE =
   process.env.SESSION_FILE_PATH || "/tmp/claude-telegram-session.json";
 export const RESTART_FILE =
   process.env.RESTART_FILE_PATH || "/tmp/claude-telegram-restart.json";
+// mtime is the deployment livenessProbe's poll-liveness signal — the probe
+// command in deployment.yaml must name the same path this resolves to.
+export const POLL_HEARTBEAT_FILE =
+  process.env.POLL_HEARTBEAT_PATH || "/tmp/claude-telegram-poll-heartbeat";
 export const TEMP_DIR = process.env.TEMP_DIR || "/tmp/telegram-bot";
 
 // canonicalize() resolves before isPathAllowed matches, so a bare spelling never matches on
