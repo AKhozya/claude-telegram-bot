@@ -1,10 +1,3 @@
-/**
- * Session management for Claude Telegram Bot.
- *
- * ClaudeSession wraps the Agent SDK query() stream: one process-wide session,
- * persisted to SESSION_FILE so /resume survives a restart.
- */
-
 import {
   query,
   type HookCallback,
@@ -135,8 +128,8 @@ class ClaudeSession {
   }
 
   /**
-   * Check if the last stop was triggered by a new message interrupt (! prefix).
-   * Resets the flag when called. Also clears stopRequested so new messages can proceed.
+   * Reports whether the last stop came from a new-message interrupt. Also clears the flag
+   * and stopRequested, so the incoming message is not itself cancelled.
    */
   consumeInterruptFlag(): boolean {
     const was = this._wasInterruptedByNewMessage;
@@ -174,8 +167,8 @@ class ClaudeSession {
   }
 
   /**
-   * Stop the currently running query or mark for cancellation.
-   * Returns: "stopped" if query was aborted, "pending" if processing will be cancelled, false if nothing running
+   * Returns "stopped" if a running query was aborted. Returns "pending" if a query that
+   * has not started yet is marked for cancellation, and false if nothing runs.
    */
   async stop(): Promise<"stopped" | "pending" | false> {
     if (this.isQueryRunning && this.abortController) {
@@ -221,7 +214,7 @@ class ClaudeSession {
     chatId?: number,
     ctx?: Context,
   ): Promise<string> {
-    // Set chat context for ask_user MCP tool
+    // Both MCP servers read this from their own process to learn the recipient.
     if (chatId) {
       process.env.TELEGRAM_CHAT_ID = String(chatId);
     }
@@ -372,7 +365,6 @@ class ClaudeSession {
                 continue;
               }
 
-              // Segment ends when tool starts
               if (currentSegmentText) {
                 await statusCallback("segment_end", currentSegmentText, currentSegmentId);
                 currentSegmentId++;

@@ -1,6 +1,4 @@
 /**
- * Voice and audio handler.
- *
  * The transcript is sent on as if the user had typed it: session.ts reads the thinking
  * keywords out of that text, so a spoken "ultrathink about X" behaves like the typed form.
  */
@@ -22,9 +20,8 @@ import {
   TranscriptionUnavailableError,
 } from "../transcribe";
 
-// How much of the transcript the status message shows back. The whole thing still goes to
-// Claude; this is only so the user can see what was heard.
-// How much of the transcript the status message echoes back, in code points.
+// How much of the transcript the status message echoes back, in code points. The whole
+// transcript still reaches Claude; this bound is only what the user sees.
 const TRANSCRIPT_PREVIEW_CHARS = 4000;
 const TRANSCRIPT_PREFIX = "🎤 ";
 

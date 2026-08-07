@@ -16,7 +16,7 @@ pre-commit install # One-time per clone: installs the git hooks below
 
 ## Architecture
 
-This is a Telegram bot that lets you control Claude Code from your phone via text, photos, and documents. Built with Bun and grammY. ~3,600 code lines in `src/` excluding its tests, ~6,100 across the repo including them and the two MCP servers (`tokei`).
+This is a Telegram bot that lets you control Claude Code from your phone via text, photos, documents, video and voice. Built with Bun and grammY. About 4,100 code lines in `src/` excluding its tests, and about 9,800 across the repo including them and the two MCP servers. Re-derive rather than trust those figures: `tokei src --exclude '*.test.ts' -t=TypeScript` for the first, `tokei --exclude node_modules -t=TypeScript` for the second.
 
 ### Message Flow
 
@@ -34,7 +34,10 @@ Telegram message → Handler → Auth check → Rate limit → Claude session �
 - **`src/retry.ts`** - API retry policy. Bounds the `HttpError` retry `autoRetry` runs unbounded, and installs both halves together
 - **`src/transcribe.ts`** - ffmpeg → whisper.cpp pipeline, plus duration probing and scene-change frame extraction for video. ffmpeg is mandatory: whisper.cpp cannot read Telegram's opus and exits 0 while failing, so empty output is the failure signal, not the exit code. Audio whose peak sits at or below `WHISPER_SILENCE_DB` is refused before whisper runs — given silence the model invents words instead of returning nothing
 - **`src/formatting.ts`** - Markdown→HTML conversion for Telegram, tool status emoji formatting
-- **`src/utils.ts`** - Audit logging, typing indicators
+- **`src/redact.ts`** - Rewrites the console methods so no known secret reaches the logs. A Bun fetch error carries the request URL, and the Bot API puts the token in that URL
+- **`src/poll-heartbeat.ts`** - Touches `POLL_HEARTBEAT_FILE` after every successful `getUpdates`. The deployment's livenessProbe reads its mtime, so a wedged poller restarts the pod
+- **`src/utils.ts`** - Audit logging, typing indicators, the temp-dir reaper
+- **`src/safety-hook.ts`** - Runs the external Bash denylist named by `SAFETY_HOOK`; see the `hooks/` section below
 - **`src/types.ts`** - Shared TypeScript types
 
 ### Handlers (`src/handlers/`)
@@ -44,17 +47,19 @@ Message-type handlers:
 - **`commands.ts`** - `/start`, `/new`, `/stop`, `/status`, `/resume`, `/restart`, `/retry`
 - **`text.ts`** - Text messages; a `!` prefix interrupts the running query, `!stop` is a `/stop` alias
 - **`photo.ts`** - Image analysis with media group buffering (1s timeout for albums)
-- **`document.ts`** - PDF extraction (pdftotext CLI), text files, archives. Media sent as a file attachment never reaches it: a dispatcher registered ahead of it in `index.ts` routes `video/*` and `audio/*` MIME types to the handlers below
+- **`document.ts`** - PDF extraction (pdftotext CLI), text files, archives. A PDF with no usable text layer is rendered to page images with pdftocairo and routed through `photo.ts`, so scans reach Claude as vision input. Media sent as a file attachment never reaches it: a dispatcher registered ahead of it in `index.ts` routes `video/*` and `audio/*` MIME types to the handlers below
 - **`video.ts`** - Video messages, video notes, and videos sent as documents. The audio track is transcribed and up to 8 frames are extracted at scene changes, falling back to evenly spaced stills when no cut is detected. Claude has no video tool, so the frames are the only way the picture reaches it
 - **`audio.ts`** - Voice notes and audio files. Transcribes with whisper.cpp and sends the transcript on as if it had been typed, so thinking keywords work spoken
 - **`callback.ts`** - Inline keyboard button handling for ask_user MCP
-- **`streaming.ts`** - Shared `StreamingState` and status callback factory
+- **`streaming.ts`** - Shared `StreamingState` and status callback factory, the pollers that deliver both MCP servers' request files, and the markdown splitter that keeps every chunk under Telegram's message limit
 
 Supporting modules in the same directory:
 
 - **`auth.ts`** - `authGate` middleware, the single choke point for the user allowlist
 - **`media-group.ts`** - Generic album buffer; rate-limits once per album, not per item
 - **`errors.ts`** - `handleProcessingError`, the shared catch-block body for every query-running handler. Not in `streaming.ts` because `session.ts` imports the pollers from there and this handler needs `session` — moving it closes an import cycle
+- **`rate-limit.ts`** - `rateLimitOrReply`, the one-token charge every handler makes for itself. Not middleware: an album is charged once in `media-group.ts`, not per item
+- **`run-prompt.ts`** - The shared query tail (lifecycle flag, title, typing indicator, streaming, audit, reaction, cleanup) used by `photo.ts` and `document.ts`. `video.ts` and `callback.ts` stay out on purpose — see its own doc
 - **`download.ts`** - Shared file download via the files plugin (honours `TELEGRAM_API_ROOT`)
 - **`reactions.ts`** - Best-effort 👀/👌/👎 message reactions
 - **`trigger.ts`** - HTTP endpoint that injects a prompt as if the first allowed user sent it. Binds `TRIGGER_HOST` (default `127.0.0.1`); disabled unless `TRIGGER_SECRET` is set
@@ -116,6 +121,7 @@ All config via `.env` (copy from `.env.example`). Every configuration variable t
 | `WHISPER_SILENCE_DB`                                                   | Peak dBFS at or below which audio counts as silent, default -76. Model-specific — whisper invents words on silence rather than returning nothing, and each model starts doing so at a different level, so this moves with `WHISPER_MODEL`                                                                                                |
 | `AUDIT_LOG_PATH`, `AUDIT_LOG_JSON`                                     | Audit log location and format                                                                                                                                                                                                                                                                                                            |
 | `SESSION_FILE_PATH`, `RESTART_FILE_PATH`, `TEMP_DIR`                   | Runtime file overrides                                                                                                                                                                                                                                                                                                                   |
+| `POLL_HEARTBEAT_PATH`                                                  | Poll-liveness file, default `/tmp/claude-telegram-poll-heartbeat`. The deployment's livenessProbe must name the same path                                                                                                                                                                                                                |
 | `TEMP_REAP_INTERVAL_MS`, `TEMP_RETENTION_HOURS`                        | Temp-dir sweep cadence (default 1h) and file age (default 24h). Nothing else clears `TEMP_DIR`. The retention is also the age at which the pollers in `streaming.ts` drop an MCP request file in `/tmp`. It is not a bound on one: the pollers run only while Claude is calling `ask_user` or `send_file`, so an idle bot sweeps nothing |
 | `TRIGGER_SECRET`, `TRIGGER_PORT`, `TRIGGER_HOST`                       | HTTP trigger; disabled without a secret                                                                                                                                                                                                                                                                                                  |
 | `TELEGRAM_CHAT_ID`                                                     | Not user config — `session.ts` sets it so the MCP servers know the recipient                                                                                                                                                                                                                                                             |
@@ -129,15 +135,16 @@ servers while a locally built one baked whichever config that machine happened t
 
 ### Runtime Files
 
-| Path                                | Purpose                                                                                                                                                                                             | Override            |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------- |
-| `/tmp/claude-telegram-session.json` | Session persistence for `/resume`                                                                                                                                                                   | `SESSION_FILE_PATH` |
-| `/tmp/claude-telegram-restart.json` | Chat/message ids so `/restart` can edit its own status message                                                                                                                                      | `RESTART_FILE_PATH` |
-| `/tmp/claude-telegram-audit.log`    | Audit log                                                                                                                                                                                           | `AUDIT_LOG_PATH`    |
-| `/tmp/telegram-bot/`                | Downloaded photos, documents, audio and video, plus the `.wav` transcription derives from a media file and up to 8 `.frame-N.jpg` stills per video                                                  | `TEMP_DIR`          |
-| `/tmp/ctb-sandbox`                  | Bash sandbox scratch dir — the only writable path outside `ALLOWED_PATHS`                                                                                                                           | —                   |
-| `/tmp/ask-user-<uuid>.json`         | IPC file for one `ask_user` round trip. Deleted when the button is tapped; otherwise swept by the poller on the next `ask_user` call — `pending` after 5 min, anything after `TEMP_RETENTION_HOURS` | —                   |
-| `/tmp/send-file-<uuid>.json`        | IPC file for one `send_file` request; polled and deleted by `streaming.ts`, swept on the same terms — on the next `send_file` call, not on a timer                                                  | —                   |
+| Path                                  | Purpose                                                                                                                                                                                             | Override              |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `/tmp/claude-telegram-session.json`   | Session persistence for `/resume`                                                                                                                                                                   | `SESSION_FILE_PATH`   |
+| `/tmp/claude-telegram-restart.json`   | Chat/message ids so `/restart` can edit its own status message                                                                                                                                      | `RESTART_FILE_PATH`   |
+| `/tmp/claude-telegram-audit.log`      | Audit log                                                                                                                                                                                           | `AUDIT_LOG_PATH`      |
+| `/tmp/claude-telegram-poll-heartbeat` | Touched after every successful `getUpdates`; the livenessProbe reads its mtime                                                                                                                      | `POLL_HEARTBEAT_PATH` |
+| `/tmp/telegram-bot/`                  | Downloaded photos, documents, audio and video, plus the `.wav` transcription derives from a media file, up to 8 `.frame-N.jpg` stills per video, and the `pdf_*` and `archive_*` working dirs       | `TEMP_DIR`            |
+| `/tmp/ctb-sandbox`                    | Bash sandbox scratch dir — the only writable path outside `ALLOWED_PATHS`                                                                                                                           | —                     |
+| `/tmp/ask-user-<uuid>.json`           | IPC file for one `ask_user` round trip. Deleted when the button is tapped; otherwise swept by the poller on the next `ask_user` call — `pending` after 5 min, anything after `TEMP_RETENTION_HOURS` | —                     |
+| `/tmp/send-file-<uuid>.json`          | IPC file for one `send_file` request; polled and deleted by `streaming.ts`, swept on the same terms — on the next `send_file` call, not on a timer                                                  | —                     |
 
 ## Patterns
 
@@ -147,9 +154,9 @@ servers while a locally built one baked whichever config that machine happened t
 
 **Streaming pattern**: All handlers use `createStatusCallback()` from `streaming.ts` and `session.sendMessageStreaming()` for live updates.
 
-**Before committing**: git hooks enforce the gates (`.pre-commit-config.yaml`, one-time `pre-commit install` per clone). Commit runs Prettier on staged files plus a gitleaks staged-diff scan; push runs `bun run typecheck && bun test`. The Prettier hook uses `--write`: a mis-formatted commit fails once with the files already fixed — re-stage and re-commit. A green typecheck does not prove the bot runs — the suite is the gate that matters, and neither covers the Telegram wire. CI repeats all of it and adds a full-history gitleaks scan.
+**Before committing**: git hooks enforce the gates (`.pre-commit-config.yaml`, one-time `pre-commit install` per clone). Commit runs Prettier on staged files plus a gitleaks staged-diff scan; push runs `bun run typecheck && bun test`. The Prettier hook uses `--write`: a mis-formatted commit fails once with the files already fixed — re-stage and re-commit. A green typecheck does not prove the bot runs — the suite is the gate that matters, and neither covers the Telegram wire. CI repeats all of it, pins Bun 1.3.14, adds a full-history gitleaks scan, and compiles the standalone binary as a bundling smoke test.
 
-**Test env**: `bunfig.toml` preloads `test-preload.ts`, which sets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS`. `config.ts` reads both at module-eval time and exits without them, so no test file needs to set them itself.
+**Test env**: `bunfig.toml` preloads `test-preload.ts`, which sets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS`. `config.ts` reads both at module-eval time and exits without them, so no test file needs to set them itself. The same file redirects `AUDIT_LOG_PATH` and `TEMP_DIR`: left at their defaults, a test run appends to the running bot's own audit log and writes into its download directory.
 
 **MCP server tests**: `ask_user_mcp/server.test.ts` and `send_file_mcp/server.test.ts` spawn their server as a child process and drive it with a real MCP `Client` over stdio — the only tests here that speak the protocol. They write to `/tmp` under a chat id no real chat uses, and clean up after themselves.
 
@@ -178,12 +185,12 @@ image bakes one in, a host run does not.
 
 ### PATH Requirements
 
-When running as a standalone binary (especially from a macOS app), the PATH may not include Homebrew. The launcher must ensure PATH includes:
+A standalone binary, and especially one launched from a macOS app, can start with a PATH that has no Homebrew in it. The launcher must put both of these on PATH:
 
 - `/opt/homebrew/bin` (Apple Silicon Homebrew)
 - `/usr/local/bin` (Intel Homebrew)
 
-Without this, `pdftotext` won't be found and PDF parsing will fail silently with an error message.
+Without them `pdftotext` is not found, and every PDF comes back as a failed-to-process reply instead of text.
 
 ## Commit Style
 

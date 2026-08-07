@@ -1,10 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Ask User MCP Server - Presents options as Telegram inline keyboard buttons.
- *
- * When Claude calls ask_user(), this server writes a request file that the
- * Telegram bot monitors. The bot then displays inline keyboard buttons.
- * When the user clicks, their choice is injected back to Claude.
+ * When Claude calls ask_user(), this server writes a request file that the Telegram bot
+ * polls. The bot draws the inline keyboard, and the user's tap reaches Claude as their
+ * next message.
  */
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";

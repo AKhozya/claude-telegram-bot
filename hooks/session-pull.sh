@@ -16,16 +16,13 @@ pull_repo() {
     return 0
   fi
 
-  # Fetch latest
   git fetch origin "$branch" --quiet 2>/dev/null || return 0
 
-  # If already up to date, skip
   local local_sha remote_sha
   local_sha=$(git rev-parse HEAD 2>/dev/null)
   remote_sha=$(git rev-parse "origin/${branch}" 2>/dev/null)
   [ "$local_sha" = "$remote_sha" ] && return 0
 
-  # Stash uncommitted changes if dirty
   local stashed=false
   if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
     git stash push -m "session-pull-auto-$(date +%s)" --quiet 2>/dev/null
@@ -35,7 +32,6 @@ pull_repo() {
   # Force-align to remote (safe: unpushed-check + stash happened above)
   git checkout -B "$branch" "origin/${branch}" --quiet 2>/dev/null
 
-  # Restore stashed changes
   if [ "$stashed" = true ]; then
     git stash pop --quiet 2>/dev/null || true
   fi

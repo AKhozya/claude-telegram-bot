@@ -4,7 +4,7 @@ const { session } = await import("./session");
 
 // interruptForNewMessage is the single canonical "a new user message is preempting
 // the running query" dance. callback.ts used to inline this and had drifted from
-// utils.ts checkInterrupt, dropping markInterrupt() + clearStopRequested() — which
+// `checkInterrupt`, dropping markInterrupt() + clearStopRequested() — which
 // dropped the button selection (stopRequested left true → sendMessageStreaming threw
 // "Query cancelled") and showed a spurious "🛑 Query stopped." on the old query.
 

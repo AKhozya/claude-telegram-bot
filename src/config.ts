@@ -1,9 +1,3 @@
-/**
- * Configuration for Claude Telegram Bot.
- *
- * All environment variables, paths, constants, and safety settings.
- */
-
 import { existsSync, realpathSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { resolve, dirname } from "path";
@@ -13,8 +7,8 @@ import type { McpServerConfig } from "./types";
 
 const HOME = homedir();
 
-// Ensure necessary paths are available for Claude's bash commands
-// LaunchAgents don't inherit the full shell environment
+// A LaunchAgent does not inherit the shell environment, so Claude's Bash starts without
+// these on PATH.
 const EXTRA_PATHS = [
   `${HOME}/.local/bin`,
   `${HOME}/.bun/bin`,
@@ -166,8 +160,8 @@ export const MEDIA_GROUP_TIMEOUT = 1000; // ms to wait for more photos in a grou
 
 export const TELEGRAM_MESSAGE_LIMIT = 4096; // Max characters per message
 export const TELEGRAM_SAFE_LIMIT = 4000; // Safe limit with buffer for formatting
-export const STREAMING_THROTTLE_MS = 500; // Throttle streaming updates
-export const BUTTON_LABEL_MAX_LENGTH = 30; // Max chars for inline button labels
+export const STREAMING_THROTTLE_MS = 500;
+export const BUTTON_LABEL_MAX_LENGTH = 30;
 
 // Bot API caption cap, identical on sendPhoto/Video/Audio/Document. Over it the whole
 // send is rejected, so an unclipped caption loses the file it was attached to.
@@ -244,16 +238,12 @@ export const TEMP_REAP_INTERVAL_MS = positiveNumberEnv("TEMP_REAP_INTERVAL_MS", 
 // Claude re-reads it then. A pause outlasting this window loses the file.
 export const TEMP_RETENTION_MS = positiveNumberEnv("TEMP_RETENTION_HOURS", 24) * 60 * 60 * 1000;
 
-// How long an MCP request file may sit `pending` before the bot treats it as orphaned.
+// How long an MCP request file can sit `pending` before the bot treats it as orphaned.
 // Only pending files are judged by it. A request reaches `sent` once its buttons are up, so
 // one still pending is one whose turn never read it — a bot killed mid-query, a request
 // written for a chat this bot no longer serves — or one whose delivery threw before it
 // could be marked. Over this window it is dropped rather than shown: a query whose child
 // died must not put live buttons under a dead question. Not configurable.
-//
-// It used to carry more than that. A 400 ms poll in `session.ts` raced the MCP servers' own
-// write and lost, so an ordinary request went unread by its own turn and reached the user
-// only if a later call of the same kind polled before this expired. That poll is gone.
 export const IPC_PENDING_TTL_MS = 5 * 60 * 1000;
 
 // ============== Transcription ==============

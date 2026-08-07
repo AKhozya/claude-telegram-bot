@@ -41,7 +41,7 @@ User sends message → Check user ID in allowlist → Reject if not authorized
 
 - User IDs are numeric and cannot be spoofed in Telegram
 - Get your ID from [@userinfobot](https://t.me/userinfobot)
-- Unauthorized updates are dropped silently — no reply and no log entry, so the bot never advertises itself to strangers
+- Unauthorized updates are dropped silently — no message and no log entry, so the bot never advertises itself to strangers. A callback query is acked so the button's loading spinner clears, which returns no content
 
 ### Layer 2: Rate Limiting
 
@@ -68,7 +68,7 @@ It denies:
 - `Bash` commands failing the command-safety checks in Layer 6
 - `Read`/`Write`/`Edit`/`NotebookEdit` on paths outside `ALLOWED_PATHS` **and** outside the three `TEMP_PATHS` (see Layer 5 — temp is allowed for read _and_ write). One exemption: a native `Read` under `$HOME/.claude/` is allowed even when that directory is not in `ALLOWED_PATHS`, so Claude can load its own config and skills. It fails closed if `HOME` is unset.
 - Within those same four tools, denied by name even inside an allowed path: credential stores (read and write), and the bot's own session, restart and audit files (read and write — reading exfils conversations, writing is DoS)
-- Code-execution control files (`settings*.json`, `.claude/hooks/**`, `.mcp.json`) — **write only**. `Read` is deliberately exempt so Claude can inspect its own config; the sandbox's `denyWrite` covers the Bash path separately
+- Code-execution control files (`settings*.json`, `.claude/hooks/**`, `.claude/plugins/**`, `.mcp.json`) — **write only**. `Read` is deliberately exempt so Claude can inspect its own config; the sandbox's `denyWrite` covers the Bash path separately
 - `Grep`/`Glob` with a search path outside the allowlist. Note this branch checks `isPathAllowed` only; the named runtime-file denials above do not apply to it
 - Any **MCP** tool (`mcp__server__tool`) called with a `file_path` argument, on the same terms as `Read` but without the `$HOME/.claude/` exemption — credential stores, the bot's runtime files, and anything outside `ALLOWED_PATHS` + `TEMP_PATHS`. This exists for the bundled `send_file`, which reads a path and publishes it to Telegram: the same shape as `Artifact` in `DENIED_TOOLS`. The branch keys on the _argument_, not on `mcp__send-file__send_file` — the server half of that name comes from whatever key `mcp-config.ts` uses, so renaming it must not reopen the hole, and any future MCP taking a `file_path` is covered without a code change
 
@@ -111,15 +111,15 @@ Default allowed paths:
 
 Customize via `ALLOWED_PATHS` (comma-separated). Setting it **overrides** the defaults — include `~/.claude` if you want plan mode to work.
 
-**Validation uses proper path containment checks:**
+**Path containment:**
 
-- Symlinks are resolved before checking
-- Path traversal attacks (../) are prevented
-- Only exact directory matches are allowed
+- Symlinks resolve before the check
+- A `..` segment applies to the resolved physical path, so it cannot cancel a symlink and escape
+- A path matches an allowed directory itself, or anything under it
 
 **Exception for temp files:**
 
-- `/tmp/`, `/private/tmp/` and `/var/folders/` are allowed, for **write as well as read** — `isPathAllowed` checks them before `ALLOWED_PATHS` and returns early
+- `/tmp/`, `/private/tmp/` and the process's own canonical `TMPDIR` are allowed, for **write as well as read** — `isPathAllowed` checks them before `ALLOWED_PATHS` and returns early. On macOS that is one directory under `/var/folders`, not the whole tree: the sibling `C` directory there is the user's cache
 - This enables handling of Telegram-downloaded files and the `ask_user` IPC files
 - Named exceptions still apply inside them: `Read`/`Write`/`Edit`/`NotebookEdit` on the session, restart and audit files are denied by path. `Grep`/`Glob` are not covered by that denial — a search rooted in `/tmp` can still match them
 
@@ -230,7 +230,7 @@ Three limits worth knowing:
 3. **Review audit logs periodically** - Look for suspicious patterns
 4. **Keep dependencies updated** - Security patches for the SDK and Telegram library
 5. **Use a dedicated API key** - Create a separate Anthropic API key for the bot
-6. **Enable email alerts** - Get notified when new sessions start
+6. **Put the audit log where only this user can write** - Set `AUDIT_LOG_PATH` off a shared `/tmp`; see Layer 8 on why a pre-created path suppresses every record
 
 ## Incident Response
 

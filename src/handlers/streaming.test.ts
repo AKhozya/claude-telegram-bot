@@ -790,10 +790,8 @@ describe("MCP request files: reaping the dead ones", () => {
   // exception raised while performing the request (`core/client.js:58`), and with
   // `sensitiveLogs` off — this bot never sets it — the wrapper's own text names no cause.
   //
-  // This proves the handler, not the whole path. `autoRetry` currently retries an
-  // `HttpError` in an unbounded loop, so today this send never returns and never reaches
-  // the handler at all. That is a separate defect with its own fix; the reporting below
-  // is what it will surface once the retry is bounded.
+  // This proves the handler, not the whole path: the send is stubbed on the context, so
+  // nothing here goes through the transformers that bound an `HttpError` retry (retry.ts).
   test("a wrapped errno is reported and the request consumed", async () => {
     const wrapped = new HttpError("Network request for 'sendDocument' failed!", await realEacces());
     // The premise: the wrapper alone does not say why.

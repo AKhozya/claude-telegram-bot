@@ -1,11 +1,8 @@
 /**
- * MCP Servers Configuration for Claude Telegram Bot.
+ * Copy this file to `mcp-config.ts` and edit it for your setup.
  *
- * Copy this file and customize for your setup.
- * Each MCP server gives Claude access to external tools/data.
- *
- * Format matches Claude's MCP config schema.
- * See: https://docs.anthropic.com/en/docs/build-with-claude/mcp
+ * The format matches Claude's MCP config schema:
+ * https://docs.anthropic.com/en/docs/build-with-claude/mcp
  */
 
 import { homedir } from "os";

@@ -14,7 +14,7 @@ interface Recorded {
 
 const rec = (): Recorded => ({ replies: [], reactions: [], edits: [] });
 
-// No `ctx.getFile` — download.ts:12 calls it on the context, not on `api`. Its absence
+// No `ctx.getFile` — `downloadTelegramFile` calls it on the context, not on `api`. Its absence
 // makes downloadTelegramFile throw, which is the download-failure path the handler
 // already catches, and the cheapest way to prove a call got past the size guard
 // without stubbing a module.

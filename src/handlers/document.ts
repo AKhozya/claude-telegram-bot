@@ -1,11 +1,3 @@
-/**
- * Document handler for Claude Telegram Bot.
- *
- * Supports PDFs and text files with media group buffering.
- * PDFs: pdftotext for the text layer, pdftocairo to render image/scanned PDFs
- * to page images for Claude vision (poppler-utils; apk in the container image).
- */
-
 import { readdirSync, lstatSync, unlinkSync } from "fs";
 import { join } from "path";
 import type { BotContext } from "../types";
@@ -43,7 +35,7 @@ const TEXT_EXTENSIONS = [
 
 const ARCHIVE_EXTENSIONS = [".zip", ".tar", ".tar.gz", ".tgz"];
 
-// Max file size (20MB — Telegram getFile ceiling)
+// 20 MB is the getFile download ceiling on the official Bot API.
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
 const MAX_ARCHIVE_CONTENT = 50000;
@@ -103,7 +95,7 @@ async function renderPdfToImages(filePath: string): Promise<{ dir: string; image
     return { dir, images: sortPdfPagePaths(names).map((n) => `${dir}/${n}`) };
   } catch (error) {
     console.error("PDF render failed:", error);
-    await Bun.$`rm -rf ${dir}`.quiet(); // don't leak the temp dir on failure
+    await Bun.$`rm -rf ${dir}`.quiet();
     return { dir, images: [] };
   }
 }
@@ -179,8 +171,9 @@ export function isUnsafeMemberName(name: string): boolean {
 /**
  * List an archive's member names without extracting, for pre-validation.
  * Zip uses `unzip -Z1` (one raw name per line — not evadable by crafted names the
- * way `-l` column parsing would be). BusyBox's unzip lacks `-Z`, so zip fails closed
- * in the container image (which ships no full unzip); tar works everywhere.
+ * way `-l` column parsing would be). BusyBox's applet lacks `-Z`, so the image installs
+ * Info-ZIP for this; on a host that has only the BusyBox applet the zip path fails closed.
+ * tar works everywhere.
  */
 export async function listArchiveMembers(archivePath: string, ext: string): Promise<string[]> {
   const out =
@@ -233,7 +226,6 @@ async function extractArchive(archivePath: string, fileName: string): Promise<st
     throw new Error(`Unknown archive type: ${ext}`);
   }
 
-  // Drop extracted symlink/hard-link members before content is read (containment).
   stripLinks(extractDir);
 
   return extractDir;
@@ -242,7 +234,7 @@ async function extractArchive(archivePath: string, fileName: string): Promise<st
 async function buildFileTree(dir: string): Promise<string[]> {
   const entries = await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: dir, dot: false }));
   entries.sort();
-  return entries.slice(0, 100); // Limit to 100 files
+  return entries.slice(0, 100);
 }
 
 async function extractArchiveContent(extractDir: string): Promise<{
@@ -273,7 +265,7 @@ async function extractArchiveContent(extractDir: string): Promise<{
 
     try {
       const text = await Bun.file(fullPath).text();
-      const truncated = text.slice(0, 10000); // 10K per file max
+      const truncated = text.slice(0, 10000);
       if (totalSize + truncated.length > MAX_ARCHIVE_CONTENT) break;
       contents.push({ name: relativePath, content: truncated });
       totalSize += truncated.length;

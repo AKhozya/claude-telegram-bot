@@ -1,9 +1,3 @@
-/**
- * Claude Telegram Bot - TypeScript/Bun Edition
- *
- * Control Claude Code from your phone via Telegram.
- */
-
 import { Bot, Api, Context } from "grammy";
 import { run, sequentialize } from "@grammyjs/runner";
 import { hydrateFiles, type FileFlavor, type FileApiFlavor } from "@grammyjs/files";
@@ -46,8 +40,8 @@ installConsoleRedaction([
   process.env.CLAUDE_CODE_OAUTH_TOKEN ?? "",
 ]);
 
-// Create bot instance. TELEGRAM_API_ROOT (unset by default) points every
-// api/ctx.api call at a self-hosted Bot API server — needed for >20MB files.
+// TELEGRAM_API_ROOT (unset by default) points every api/ctx.api call at a self-hosted Bot
+// API server — needed for files over 20 MB.
 const bot = new Bot<FileFlavor<Context>, FileApiFlavor<Api>>(TELEGRAM_TOKEN, {
   client: { apiRoot: process.env.TELEGRAM_API_ROOT },
 });
@@ -138,7 +132,6 @@ console.log("Starting bot...");
 const botInfo = await bot.api.getMe();
 console.log(`Bot started: @${botInfo.username}`);
 
-// Register the command menu shown in Telegram's "/" picker
 await bot.api.setMyCommands([
   { command: "new", description: "Start a new Claude session" },
   { command: "stop", description: "Stop the current query" },
@@ -178,7 +171,6 @@ const triggerServer = startTriggerServer(bot);
 
 const tempReaper = startTempReaper();
 
-// Graceful shutdown
 const stopRunner = () => {
   if (runner.isRunning()) {
     console.log("Stopping bot...");

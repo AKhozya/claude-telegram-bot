@@ -1,9 +1,3 @@
-/**
- * Callback query handler for Claude Telegram Bot.
- *
- * Handles inline keyboard button presses (ask_user MCP integration).
- */
-
 import { unlinkSync } from "fs";
 import type { BotContext } from "../types";
 import { session } from "../session";
@@ -22,7 +16,6 @@ export async function handleCallback(ctx: BotContext): Promise<void> {
     return;
   }
 
-  // resume:{session_id}
   if (callbackData.startsWith("resume:")) {
     await handleResumeCallback(ctx, callbackData);
     return;

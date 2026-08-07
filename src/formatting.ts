@@ -1,16 +1,12 @@
-/**
- * Formatting module for Claude Telegram Bot.
- *
- * Markdown conversion and tool status display formatting.
- */
-
 import {
   ORG_POLICY_LIMIT_PREFIXES,
   USAGE_LIMIT_ERROR_PREFIXES,
 } from "@anthropic-ai/claude-agent-sdk";
 
-// Only these two tables can reach a `catch`. USAGE_WARNING_PREFIXES and
-// USAGE_TRANSITION_PREFIXES are toast-only in the CLI and are never thrown.
+// The SDK publishes four prefix tables and reads none of them itself, so choosing the two
+// that mean "this turn failed" is the consumer's job. These two carry terminal text
+// ("You've hit your monthly spend limit…"). The other two carry progress notices ("You've
+// used …% of your…"), and matching those here would report a notice as a failure.
 const LIMIT_PREFIXES = [...USAGE_LIMIT_ERROR_PREFIXES, ...ORG_POLICY_LIMIT_PREFIXES];
 
 /**
@@ -47,10 +43,8 @@ export function escapeHtml(text: string): string {
 }
 
 /**
- * Convert standard markdown to Telegram-compatible HTML.
- *
- * HTML is more reliable than Telegram's Markdown which breaks on special chars.
- * Telegram HTML supports: <b>, <i>, <code>, <pre>, <a href="">
+ * Telegram's own Markdown breaks on special characters, so the output is HTML instead.
+ * Telegram HTML accepts only <b>, <i>, <code>, <pre> and <a href="">.
  */
 export function convertMarkdownToHtml(text: string): string {
   // Store code blocks temporarily to avoid processing their contents

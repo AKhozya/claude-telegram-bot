@@ -1,9 +1,3 @@
-/**
- * Security module for Claude Telegram Bot.
- *
- * Rate limiting, path validation, command safety.
- */
-
 import { resolve, dirname, basename, join } from "path";
 import { realpathSync, lstatSync, readlinkSync } from "fs";
 import { lookup } from "dns/promises";
@@ -452,7 +446,8 @@ export function isProtectedControlFile(canonicalPath: string): boolean {
 
 // Credential stores the native file tools must never read/write, even inside an ALLOWED_PATH. The
 // Bash sandbox denyRead only binds Bash — without this, injected Claude reads a secret via the native
-// Read tool instead, defeating the whole read blocklist. Mirrors READ_DENY in sandbox.ts.
+// Read tool instead, defeating the whole read blocklist. Covers every store READ_DENY in sandbox.ts
+// lists, and matches several of them by basename anywhere rather than only under $HOME.
 export function isCredentialPath(canonicalPath: string): boolean {
   const p = canonicalPath.toLowerCase(); // case-insensitive: APFS resolves .KUBE/.Docker to .kube/.docker
   const base = basename(p);
@@ -505,7 +500,6 @@ export async function evaluateToolUse(
   toolName: string,
   input: Record<string, unknown>,
 ): Promise<ToolVerdict> {
-  // Dangerous exec/publish/scheduling tools — no place in this bot.
   if (DENIED_TOOLS.has(toolName)) {
     return { allowed: false, reason: `Tool not permitted in bot context: ${toolName}` };
   }
@@ -545,8 +539,8 @@ export async function evaluateToolUse(
       } catch {
         return { allowed: false, reason: `Unresolvable path (symlink loop?): ${filePath}` };
       }
-      // Writing a code-execution control file runs OUTSIDE the Bash sandbox on next load; the
-      // sandbox denyWrite only binds Bash, so block the native write tools here regardless of path.
+      // Ahead of the path check, not inside it: a control file within an ALLOWED_PATH still
+      // executes on the next load.
       if (toolName !== "Read" && isProtectedControlFile(canonical)) {
         return {
           allowed: false,
@@ -557,7 +551,6 @@ export async function evaluateToolUse(
       if (isCredentialPath(canonical)) {
         return { allowed: false, reason: `Access to credential store blocked: ${filePath}` };
       }
-      // The bot's own audit log / session state (in /tmp) — reading exfils conversations, writing is DoS.
       if (BOT_RUNTIME_FILES.has(canonical)) {
         return { allowed: false, reason: `Access to bot runtime file blocked: ${filePath}` };
       }

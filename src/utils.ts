@@ -1,9 +1,3 @@
-/**
- * Utility functions for Claude Telegram Bot.
- *
- * Audit logging, typing indicator.
- */
-
 import type { Context } from "grammy";
 import { constants } from "node:fs";
 import * as fs from "node:fs/promises";

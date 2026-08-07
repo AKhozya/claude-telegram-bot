@@ -1,9 +1,7 @@
 /**
- * Authorization middleware.
- *
- * One choke point for the user allowlist, replacing the per-handler isAuthorized checks.
- * Unauthorized updates are dropped silently — a private bot shouldn't advertise itself to
- * strangers. Register before the message handlers so no path can forget the check.
+ * One choke point for the user allowlist. It drops an unauthorized update silently — a
+ * private bot must not advertise itself to strangers. Register this before the message
+ * handlers, so no path can forget the check.
  */
 
 import type { NextFunction } from "grammy";

@@ -1,8 +1,4 @@
-/**
- * Glanceable message reactions for Claude Telegram Bot.
- *
- * Best-effort: a reaction failure must never break message handling.
- */
+/** Best-effort: a reaction failure must never break message handling. */
 
 import type { BotContext } from "../types";
 
@@ -14,7 +10,7 @@ async function react(ctx: BotContext, emoji: "👀" | "👌" | "👎"): Promise<
   try {
     await ctx.api.setMessageReaction(chatId, messageId, [{ type: "emoji", emoji }]);
   } catch (err) {
-    console.debug("setMessageReaction failed:", err); // best-effort, never throw
+    console.debug("setMessageReaction failed:", err);
   }
 }
 

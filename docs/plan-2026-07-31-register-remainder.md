@@ -1,5 +1,11 @@
 # Register remainder — implementation plan
 
+> **DONE — do not execute.** Closed 2026-07-31 at `ac46251`. Task 1 `9afab64`, task 2
+> `f461ec9`, task 3 `e4d0e2c` + `e1fe9f9` + `ac46251`, task 5 `51f0389` (and `a86f9e9`).
+> Task 4 landed in the homelab repo. Task 6 was deferred by design and became
+> `plan-2026-08-01-transcription.md`, which has also shipped. The unchecked boxes below are
+> the plan as written, kept as a record.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.

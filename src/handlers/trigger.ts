@@ -1,6 +1,4 @@
 /**
- * HTTP trigger endpoint.
- *
  * Lets an external caller (e.g. systemd ExecStopPost, cron) POST a prompt
  * that the bot processes as if the first allowed user had sent it via
  * Telegram. The full handler chain runs (rate limit, audit log, streaming)
@@ -27,7 +25,6 @@ interface TriggerBody {
   prompt?: string;
 }
 
-/** Constant-time secret comparison. */
 export function secretMatches(provided: string, expected: string): boolean {
   const a = Buffer.from(provided);
   const b = Buffer.from(expected);
@@ -53,6 +50,9 @@ export function startTriggerServer(bot: Bot<BotContext, BotApi>): { stop: () => 
     async fetch(req) {
       const url = new URL(req.url);
 
+      // The deployment's readinessProbe curls this. It is an exec probe because the server
+      // binds loopback, which the kubelet cannot reach. Unauthenticated on purpose: a probe
+      // holds no secret.
       if (req.method === "GET" && url.pathname === "/healthz") {
         return new Response("ok\n", { status: 200 });
       }

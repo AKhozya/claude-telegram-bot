@@ -1,6 +1,4 @@
 /**
- * Video handler for Claude Telegram Bot.
- *
  * Downloads the video, transcribes its audio track with whisper.cpp, extracts stills at the
  * scene changes, and passes the transcript plus both sets of paths to Claude. There is no
  * video tool, so the frames are how the picture reaches it at all — Claude reads them as
@@ -235,7 +233,7 @@ export async function handleVideo(ctx: BotContext): Promise<void> {
     stopProcessing();
     typing.stop();
 
-    // Deliberately not removed — the path went into the prompt, so Claude may still read
+    // Deliberately not removed — the path went into the prompt, so Claude can still read
     // the file during the query above. The temp reaper collects it once it ages past
     // TEMP_RETENTION_HOURS — which also backs up the derived .wav, since transcribeMedia
     // unlinks that on a best-effort basis and swallows the failure.

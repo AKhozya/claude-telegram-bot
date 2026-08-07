@@ -5,7 +5,7 @@
 
 **Turn [Claude Code](https://claude.com/product/claude-code) into your personal assistant, accessible from anywhere via Telegram.**
 
-Send text, photos, documents, and video. See responses and tools usage in real-time.
+Send text, photos, documents, and video. See responses and tool use in real time.
 
 ![Demo](assets/demo.gif)
 
@@ -13,24 +13,24 @@ Send text, photos, documents, and video. See responses and tools usage in real-t
 
 I've started using Claude Code as a personal assistant, and I've built this bot so I can access it from anywhere.
 
-In fact, while Claude Code is described as a powerful AI **coding agent**, it's actually a very capable **general-purpose agent** too when given the right instructions, context, and tools.
+Claude Code is described as an AI **coding agent**, but it is a capable **general-purpose agent** too, given the right instructions, context, and tools.
 
 To achieve this, I set up a folder with a CLAUDE.md that teaches Claude about me (my preferences, where my notes live, my workflows), has a set of tools and scripts based on my needs, and pointed this bot at that folder.
 
-→ **[📄 See the Personal Assistant Guide](docs/personal-assistant-guide.md)** for detailed setup and examples.
+→ **[See the Personal Assistant Guide](docs/personal-assistant-guide.md)** for detailed setup and examples.
 
 ## Bot Features
 
-- 💬 **Text**: Ask questions, give instructions, have conversations
-- 📸 **Photos**: Send screenshots, documents, or anything visual for analysis
-- 📄 **Documents**: PDFs, text files, and archives (ZIP, TAR) are extracted and analyzed
-- 🎬 **Video**: Video messages, video notes, and videos sent as files — the audio track is transcribed and frames are pulled at scene changes, so Claude gets both the words and the picture
-- 🎤 **Voice & audio**: Voice notes and audio files are transcribed locally with whisper.cpp and answered like a typed message
-- 🔄 **Session persistence**: Conversations continue across messages
-- 📨 **Message queuing**: Send multiple messages while Claude works - they queue up automatically. Prefix with `!` or use `/stop` to interrupt and send immediately
-- 🧠 **Extended thinking**: Say "think" for a 10k-token reasoning budget or "ultrathink" for 50k - you'll see its thought process as it works (configurable via `THINKING_KEYWORDS` and `THINKING_DEEP_KEYWORDS`)
-- 🔘 **Interactive buttons**: Claude can present options as tappable inline buttons via the built-in `ask_user` MCP tool
-- 📎 **File delivery**: Claude can send files (images, videos, audio, documents) back to the chat via the `send_file` MCP tool
+- **Text**: Ask questions, give instructions, have conversations
+- **Photos**: Send screenshots, documents, or anything visual for analysis
+- **Documents**: PDFs, text files, and archives (ZIP, TAR) are extracted and analyzed. A scanned PDF with no text layer is rendered to page images and read as vision input
+- **Video**: Video messages, video notes, and videos sent as files — the audio track is transcribed and frames are pulled at scene changes, so Claude gets both the words and the picture
+- **Voice & audio**: Voice notes and audio files are transcribed locally with whisper.cpp and answered like a typed message
+- **Session persistence**: Conversations continue across messages
+- **Message queuing**: Send multiple messages while Claude works — they queue up automatically. Prefix with `!` or use `/stop` to interrupt and send immediately
+- **Extended thinking**: Say "think" for a 10k-token reasoning budget or "ultrathink" for 50k — you see the thought process as it works (configurable via `THINKING_KEYWORDS` and `THINKING_DEEP_KEYWORDS`)
+- **Interactive buttons**: Claude can present options as tappable inline buttons via the built-in `ask_user` MCP tool
+- **File delivery**: Claude can send files (images, videos, audio, documents) back to the chat via the `send_file` MCP tool
 
 ## Quick Start
 
@@ -47,7 +47,7 @@ bun run src/index.ts
 
 ### Prerequisites
 
-- **Bun 1.0+** - [Install Bun](https://bun.sh/)
+- **Bun 1.3+** - [Install Bun](https://bun.sh/). CI pins 1.3.14 and the container image ships `oven/bun:1.3-alpine`
 - **Claude Agent SDK** - `@anthropic-ai/claude-agent-sdk` (installed via bun install)
 - **Telegram Bot Token** from [@BotFather](https://t.me/BotFather)
 - **ffmpeg and whisper-cli** (optional, for transcription) - `brew install ffmpeg whisper-cpp`. Set `WHISPER_MODEL` to a downloaded ggml model. Without them, voice and audio messages get a reply saying transcription isn't available, videos still reach Claude with their audio marked untranscribed, and everything else is unaffected
@@ -155,7 +155,7 @@ cp launchagent/com.claude-telegram-ts.plist.template ~/Library/LaunchAgents/com.
 launchctl load ~/Library/LaunchAgents/com.claude-telegram-ts.plist
 ```
 
-The bot will start automatically on login and restart if it crashes.
+The bot starts on login and restarts if it crashes.
 
 **Prevent sleep:** To keep the bot running when your Mac is idle, go to **System Settings → Battery → Options** and enable **"Prevent automatic sleeping when the display is off"** (when on power adapter).
 
@@ -198,7 +198,7 @@ bun run --bun tsc --noEmit
 Multiple layers protect against misuse:
 
 1. **User allowlist** - Only your Telegram IDs can use the bot
-2. **Pre-execution tool gate** - A `PreToolUse` SDK hook validates every Bash/file tool call _before_ it runs (denies under `bypassPermissions`), restricting file access to `ALLOWED_PATHS` plus `/tmp`, `/private/tmp` and `/var/folders`, with a read-only exemption for `~/.claude`
+2. **Pre-execution tool gate** - A `PreToolUse` SDK hook validates every Bash/file tool call _before_ it runs (denies under `bypassPermissions`), restricting file access to `ALLOWED_PATHS` plus `/tmp`, `/private/tmp` and the process's own `TMPDIR`, with a read-only exemption for `~/.claude`
 3. **OS Bash sandbox** - Bash runs under Seatbelt (macOS) or bubblewrap (Linux), fail-closed and on by default; `BASH_SANDBOX_ENABLED=false` only for environments that block unprivileged user namespaces
 4. **Command safety** - Destructive patterns like `rm -rf /` are blocked. This denylist is **best-effort only** — it is trivially bypassable by construction; real containment comes from the pre-execution gate, the OS sandbox, the path allowlist, and running the bot in a container
 5. **Rate limiting** - Prevents runaway usage

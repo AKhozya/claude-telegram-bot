@@ -32,10 +32,6 @@
         <key>CLAUDE_WORKING_DIR</key>
         <string>/Users/USERNAME/Dev</string>
 
-        <!-- Optional: For voice transcription -->
-        <key>OPENAI_API_KEY</key>
-        <string>sk-...</string>
-
         <!-- Optional: Comma-separated paths Claude can access -->
         <key>ALLOWED_PATHS</key>
         <string>/Users/USERNAME/Dev,/Users/USERNAME/Documents</string>

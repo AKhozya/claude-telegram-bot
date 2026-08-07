@@ -1,9 +1,3 @@
-/**
- * Shared streaming callback for Claude Telegram Bot handlers.
- *
- * Provides a reusable status callback for streaming Claude responses.
- */
-
 import { statSync, unlinkSync } from "fs";
 import type { Context } from "grammy";
 import type { Message } from "grammy/types";
@@ -209,7 +203,6 @@ export async function checkPendingAskUserRequests(
   return buttonsSent;
 }
 
-// File extensions grouped by Telegram send method
 const VIDEO_EXTENSIONS = new Set([".mp4", ".mov", ".avi", ".webm", ".mkv"]);
 const PHOTO_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 const AUDIO_EXTENSIONS = new Set([".mp3", ".wav", ".ogg", ".flac", ".m4a"]);
@@ -246,7 +239,7 @@ export async function checkPendingSendFileRequests(
       // schema takes any string and the model is told no limit.
       //
       // Counted in CODE POINTS, which is the unit the limit is enforced in:
-      // `utf8_length` at tdlib `MessageContent.cpp:5241` counts UTF-8 lead bytes, and
+      // tdlib's `utf8_length` in `MessageContent.cpp` counts UTF-8 lead bytes, and
       // tdlib keeps a separate `utf8_utf16_length` for entity offsets. Using JS
       // `.length` would score an astral character 2 and clip a caption Telegram accepts,
       // and slicing by it can cut a surrogate pair into a replacement character.
@@ -398,8 +391,7 @@ export function splitMarkdownForTelegram(
   // Not `cur !== ""` — a run of blank lines is content that leaves `cur` empty.
   let started = false;
   // The bounded marker to REOPEN with, not necessarily the line that opened the fence.
-  // Repeating a long fence line per chunk blew a 235-char input up to 66 messages; not
-  // tracking it at all desyncs the closer, which then reads as a third delimiter.
+  // Without it the closer desyncs and reads as a third delimiter.
   let openFence: string | null = null;
 
   // curAppended: any input line went into cur after the last reseed, blank ones included.
@@ -518,7 +510,7 @@ async function sendChunkedMessages(ctx: Context, markdown: string): Promise<void
       });
     } catch (htmlError) {
       console.debug("Chunk HTML send failed, falling back to plain:", htmlError);
-      // Retry with the source markdown, not the converted HTML. The failure may be
+      // Retry with the source markdown, not the converted HTML. The failure can be
       // transport (429, timeout) or the markup; re-sending HTML as plain text would show
       // raw tags whenever it was the markup.
       try {
@@ -571,7 +563,6 @@ async function sendRichWithFallback(ctx: Context, content: string): Promise<Mess
  * Throws "CONTENT_TOO_LONG"/MESSAGE_TOO_LONG so callers can delete + chunk.
  */
 async function editRichWithFallback(ctx: Context, msg: Message, content: string): Promise<void> {
-  // Too long for a single rich message — signal caller to chunk full content.
   if (content.length > TELEGRAM_RICH_LIMIT) {
     throw new Error("CONTENT_TOO_LONG");
   }
@@ -584,7 +575,6 @@ async function editRichWithFallback(ctx: Context, msg: Message, content: string)
   } catch (richError) {
     console.debug("Rich edit failed, falling back to HTML:", richError);
   }
-  // Fallback: HTML, then plain. Re-throw too-long so the caller can chunk.
   const formatted = formatWithinLimit(content);
   try {
     await ctx.api.editMessageText(msg.chat.id, msg.message_id, formatted, {
@@ -647,8 +637,9 @@ export function createStatusCallback(ctx: Context, state: StreamingState): Statu
       } else if (statusType === "segment_end" && segmentId !== undefined) {
         if (!content) return;
 
-        // Short responses may skip the "text" event (throttle threshold),
-        // so no message exists yet — create one directly (#12 fix).
+        // A reply under 20 characters emits no "text" event at all — session.ts gates that
+        // event on the throttle AND that minimum — so no message exists yet. Create one
+        // directly (#12 fix).
         if (!state.textMessages.has(segmentId)) {
           if (content.length > TELEGRAM_RICH_LIMIT) {
             await sendChunkedMessages(ctx, content);

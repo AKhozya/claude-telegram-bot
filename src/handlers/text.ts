@@ -1,7 +1,3 @@
-/**
- * Text message handler for Claude Telegram Bot.
- */
-
 import type { BotContext } from "../types";
 import { session } from "../session";
 import { auditLog, startTypingIndicator } from "../utils";
@@ -15,8 +11,7 @@ import { rateLimitOrReply } from "./rate-limit";
  * `!stop` and `!/stop` return "" — a pure stop, forwarding nothing. Anything else keeps
  * its text and rides the same interrupt.
  *
- * Exported for test. Lived in utils.ts behind a lazy import to dodge a cycle that does
- * not exist — nothing session.ts reaches imports utils.ts.
+ * Exported for test.
  */
 export async function checkInterrupt(text: string): Promise<string> {
   if (!text || !text.startsWith("!")) {

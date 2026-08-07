@@ -5,8 +5,7 @@ const { session } = await import("../session");
 const { handleCallback } = await import("./callback");
 
 // `isRunning` is what /status and /stop read. A button-initiated query that never sets it
-// is invisible to both — the drift `session.ts` documents and Batch 3 fixed one function
-// up, in handleCallback's askuser branch.
+// is invisible to both — the drift `session.ts` documents on `interruptForNewMessage`.
 const makeCtx = (data: string, rec?: { replies: string[]; reactions: string[] }): any => ({
   from: { id: 1, username: "tester" },
   chat: { id: 100 },

@@ -95,13 +95,6 @@ function firstLine(text: string, max = 200): string {
 }
 
 /**
- * Returns the transcript of `inputPath`, which may be any container ffmpeg can probe —
- * extension included or not, since ffmpeg identifies inputs by content.
- *
- * Throws `NoAudioTrackError` when there is nothing to transcribe, and
- * `TranscriptionUnavailableError` when the machine is not set up for it.
- */
-/**
  * Duration of a media file in seconds, or null when it cannot be read.
  *
  * Telegram reports a duration for voice, audio and video messages, so those are refused
@@ -299,6 +292,14 @@ export async function extractSceneFrames(
   return paths;
 }
 
+/**
+ * Returns the transcript of `inputPath`, which can be any container ffmpeg reads —
+ * extension included or not, since ffmpeg identifies inputs by content.
+ *
+ * Throws `NoAudioTrackError` when there is nothing to transcribe, `SilentAudioError` when
+ * the track carries nothing audible, and `TranscriptionUnavailableError` when the machine
+ * is not set up for it.
+ */
 export async function transcribeMedia(inputPath: string): Promise<string> {
   const wavPath = `${inputPath}.wav`;
 

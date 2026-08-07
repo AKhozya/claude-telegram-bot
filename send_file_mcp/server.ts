@@ -1,10 +1,8 @@
 #!/usr/bin/env bun
 /**
- * Send File MCP Server - Sends files back to the user via Telegram.
- *
- * When Claude calls send_file(), this server writes a request file that the
- * Telegram bot monitors. The bot then sends the file using the appropriate
- * Telegram API method (video, photo, audio, or document).
+ * When Claude calls send_file(), this server writes a request file that the Telegram bot
+ * polls. The bot then sends the file with the Telegram API method that matches its
+ * extension (video, photo, audio, or document).
  *
  * Fire-and-forget: Claude continues generating after calling this tool.
  */
@@ -18,7 +16,7 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB Telegram limit
 /**
  * A refusal the model can read and act on, not a protocol error. Everything the
  * schema cannot express — the file missing, too big, or no chat to send it to —
- * comes back this way, as it did before.
+ * comes back this way.
  */
 const fail = (text: string) => ({
   content: [{ type: "text" as const, text: `Error: ${text}` }],

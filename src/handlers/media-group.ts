@@ -1,10 +1,3 @@
-/**
- * Shared media group handling for Claude Telegram Bot.
- *
- * Provides a generic buffer for handling Telegram media groups (albums)
- * with configurable processing callbacks.
- */
-
 import type { Message } from "grammy/types";
 import type { BotContext } from "../types";
 import { MEDIA_GROUP_TIMEOUT } from "../config";
@@ -19,11 +12,8 @@ interface PendingMediaGroup {
 }
 
 export interface MediaGroupConfig {
-  /** Emoji for status messages (e.g., "📷" or "📄") */
   emoji: string;
-  /** Label for items (e.g., "photo" or "document") */
   itemLabel: string;
-  /** Plural label for items (e.g., "photos" or "documents") */
   itemLabelPlural: string;
 }
 

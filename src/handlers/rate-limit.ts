@@ -1,7 +1,3 @@
-/**
- * Shared per-message rate-limit guard for Claude Telegram Bot.
- */
-
 import type { BotContext } from "../types";
 import { rateLimiter } from "../security";
 import { auditLogRateLimit } from "../utils";

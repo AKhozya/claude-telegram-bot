@@ -1,7 +1,3 @@
-/**
- * Shared TypeScript types for the Claude Telegram Bot.
- */
-
 import type { Context, Api } from "grammy";
 import type { FileFlavor, FileApiFlavor } from "@grammyjs/files";
 

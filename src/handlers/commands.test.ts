@@ -53,8 +53,8 @@ test("withMessageText does not mutate the original context", () => {
   expect(ctx.update.message.text).toBe("original"); // original untouched
 });
 
-// /new and /stop both run stop -> settle -> clearStopRequested. session.ts:158-174 records
-// that this sequence has already been dropped once by a hand-copy, in callback.ts.
+// /new and /stop both run stop -> settle -> clearStopRequested. `interruptForNewMessage` in
+// session.ts records that this sequence was already dropped once by a hand-copy, in callback.ts.
 const withStoppedSession = async (
   stopResult: "stopped" | "pending" | false,
   body: (calls: string[]) => Promise<void>,

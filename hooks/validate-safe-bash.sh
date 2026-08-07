@@ -8,11 +8,9 @@
 
 set -e
 
-# Read tool input from stdin (JSON format)
 INPUT=$(cat)
 
-# Extract the command from the input
-# Claude Code passes tool_input.command for Bash tool
+# Claude Code passes the Bash tool's command as tool_input.command.
 COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 
 # If no command found, allow (not a Bash tool call or jq failed)

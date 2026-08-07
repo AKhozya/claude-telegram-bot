@@ -26,7 +26,8 @@ export function ensureScratchDir(dir: string = SANDBOX_SCRATCH): void {
 // verified: allowRead only re-allows within denyRead regions, and allowManagedReadPathsOnly is honored
 // only from managed policy settings, not the query() option). So read containment is this BLOCKLIST +
 // Layer-2 network egress. A blocklist is inherently incomplete — an unlisted store is a documented
-// ceiling (see spec). Broad dirs (~/.config) are denied wholesale to catch unknown stores under them.
+// ceiling (SECURITY.md, Layer 4). Broad dirs (~/.config) are denied wholesale to catch unknown stores
+// under them.
 const READ_DENY: string[] = [
   `${HOME}/.ssh`,
   `${HOME}/.aws`,

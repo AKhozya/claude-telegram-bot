@@ -1,9 +1,3 @@
-/**
- * Photo message handler for Claude Telegram Bot.
- *
- * Supports single photos and media groups (albums) with 1s buffering.
- */
-
 import type { BotContext } from "../types";
 import { uniqueTempDir } from "../utils";
 import { createMediaGroupBuffer } from "./media-group";

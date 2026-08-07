@@ -1,5 +1,13 @@
 # Audio and Video Transcription Implementation Plan
 
+> **DONE — do not execute.** Every task shipped between `9edba20` and `8e09766` (2026-08-01
+> to 2026-08-02): pipeline `9edba20`, voice/audio handler `1ea87b2`, video audio track
+> `fa18aac`, image build `05f8a6f`, docs `33f5448`. Later work on the same feature: file
+> attachments `1d2c23c`, scene frames `d90bc2c`, silence detection `2c90006`, and the move to
+> the `small` model with a re-measured threshold `8e09766`. The unchecked boxes below are the
+> plan as written, kept as a record. `src/transcribe.ts` and `src/handlers/audio.ts` are the
+> authority on what shipped.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.

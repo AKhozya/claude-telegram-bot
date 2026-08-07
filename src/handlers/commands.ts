@@ -1,8 +1,4 @@
-/**
- * Command handlers for Claude Telegram Bot.
- *
- * One exported handler per slash command; registration lives in index.ts.
- */
+// One exported handler per slash command. index.ts registers them.
 
 import type { Context } from "grammy";
 import type { BotContext } from "../types";
@@ -10,7 +6,6 @@ import { session } from "../session";
 import { WORKING_DIR, RESTART_FILE } from "../config";
 import { handleText } from "./text";
 
-/** /start - Show welcome message and status. */
 export async function handleStart(ctx: Context): Promise<void> {
   const status = session.isActive ? "Active session" : "No active session";
 
@@ -51,7 +46,6 @@ async function stopAndSettle(): Promise<void> {
   }
 }
 
-/** /new - Start a fresh session. */
 export async function handleNew(ctx: Context): Promise<void> {
   await stopAndSettle();
   await session.kill();
@@ -59,23 +53,20 @@ export async function handleNew(ctx: Context): Promise<void> {
   await ctx.reply("🆕 Session cleared. Next message starts fresh.");
 }
 
-/** /stop - Stop the current query. Silent either way, running or not. */
+/** Replies nothing, whether a query was running or not. */
 export async function handleStop(_ctx: Context): Promise<void> {
   await stopAndSettle();
 }
 
-/** /status - Show detailed status. */
 export async function handleStatus(ctx: Context): Promise<void> {
   const lines: string[] = ["📊 <b>Bot Status</b>\n"];
 
-  // Session status
   if (session.isActive) {
     lines.push(`✅ Session: Active (${session.sessionId?.slice(0, 8)}...)`);
   } else {
     lines.push("⚪ Session: None");
   }
 
-  // Query status
   if (session.isRunning) {
     const elapsed = session.queryStarted
       ? Math.floor((Date.now() - session.queryStarted.getTime()) / 1000)
@@ -91,13 +82,11 @@ export async function handleStatus(ctx: Context): Promise<void> {
     }
   }
 
-  // Last activity
   if (session.lastActivity) {
     const ago = Math.floor((Date.now() - session.lastActivity.getTime()) / 1000);
     lines.push(`\n⏱️ Last activity: ${ago}s ago`);
   }
 
-  // Usage stats
   if (session.lastUsage) {
     const usage = session.lastUsage;
     lines.push(
@@ -110,7 +99,6 @@ export async function handleStatus(ctx: Context): Promise<void> {
     }
   }
 
-  // Error status
   if (session.lastError) {
     const ago = session.lastErrorTime
       ? Math.floor((Date.now() - session.lastErrorTime.getTime()) / 1000)
@@ -118,13 +106,11 @@ export async function handleStatus(ctx: Context): Promise<void> {
     lines.push(`\n⚠️ Last error (${ago}s ago):`, `   ${session.lastError}`);
   }
 
-  // Working directory
   lines.push(`\n📁 Working dir: <code>${WORKING_DIR}</code>`);
 
   await ctx.reply(lines.join("\n"), { parse_mode: "HTML" });
 }
 
-/** /resume - Show list of sessions to resume with inline keyboard. */
 export async function handleResume(ctx: Context): Promise<void> {
   if (session.isActive) {
     await ctx.reply("Session already active. Use /new to start over.");
@@ -168,7 +154,6 @@ export async function handleResume(ctx: Context): Promise<void> {
   });
 }
 
-/** /restart - Restart the bot process. */
 export async function handleRestart(ctx: Context): Promise<void> {
   const chatId = ctx.chat?.id;
 
@@ -200,7 +185,6 @@ export async function handleRestart(ctx: Context): Promise<void> {
   process.exit(0);
 }
 
-/** /retry - Retry the last message (resume session and re-send). */
 export async function handleRetry(ctx: Context): Promise<void> {
   if (!session.lastMessage) {
     await ctx.reply("❌ No message to retry.");

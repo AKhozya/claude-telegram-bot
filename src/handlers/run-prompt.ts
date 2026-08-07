@@ -1,7 +1,3 @@
-/**
- * Shared query tail for Claude Telegram Bot.
- */
-
 import type { BotContext } from "../types";
 import { session } from "../session";
 import { auditLog, startTypingIndicator } from "../utils";
@@ -10,7 +6,6 @@ import { handleProcessingError } from "./errors";
 import { markDone } from "./reactions";
 
 export interface RunPromptOptions {
-  /** Sent to Claude. */
   prompt: string;
   /** Names the conversation, if this is its first message. */
   titleSeed: string;
