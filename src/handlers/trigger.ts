@@ -31,7 +31,9 @@ export function secretMatches(provided: string, expected: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export function startTriggerServer(bot: Bot<BotContext, BotApi>): { stop: () => void } | null {
+export function startTriggerServer(
+  bot: Bot<BotContext, BotApi>,
+): { port: number; stop: () => void } | null {
   if (!TRIGGER_ENABLED) {
     console.log("HTTP trigger disabled (TRIGGER_SECRET unset)");
     return null;
@@ -112,9 +114,15 @@ export function startTriggerServer(bot: Bot<BotContext, BotApi>): { stop: () => 
     },
   });
 
-  console.log(`HTTP trigger listening on http://${TRIGGER_HOST}:${TRIGGER_PORT}/trigger`);
+  // `server.port`, not TRIGGER_PORT: port 0 asks the OS for a free one, and only the server
+  // knows which it got. The test binds 0 so a port another process holds cannot fail the run.
+  // Non-null because this call always binds host:port — Bun types the field optional only
+  // for a unix-socket server.
+  const port = server.port!;
+  console.log(`HTTP trigger listening on http://${TRIGGER_HOST}:${port}/trigger`);
 
   return {
+    port,
     stop: () => {
       server.stop(true);
     },

@@ -23,18 +23,27 @@ describe("startTriggerServer", () => {
     // config.ts is a cached module singleton; mock it for this consumer and
     // re-import trigger.ts via a cache-busting query string so the test is
     // order-independent (other files may have imported config first).
+    // Port 0: the OS picks a free one and `startTriggerServer` reports it back. A fixed port
+    // fails this test outright whenever anything else on the machine holds it — including a
+    // second copy of this suite.
     mock.module("../config", () => ({
       ALLOWED_USERS: [12345],
       TRIGGER_ENABLED: true,
       TRIGGER_HOST: "127.0.0.1",
-      TRIGGER_PORT: 18099,
+      TRIGGER_PORT: 0,
       TRIGGER_SECRET: "test-secret-xyz",
     }));
 
-    let captured: any = null;
+    // `trigger.ts` does not await `handleUpdate`, so the update arrives after the response.
+    // The stub resolves this promise instead of the test polling a wall clock: a deadline
+    // long enough to be safe on an idle machine is still short enough to lose under load.
+    let deliver: (update: any) => void;
+    const delivered = new Promise<any>((resolve) => {
+      deliver = resolve;
+    });
     const bot = {
       handleUpdate: async (u: unknown) => {
-        captured = u;
+        deliver(u);
       },
     } as any;
 
@@ -47,7 +56,7 @@ describe("startTriggerServer", () => {
       expect(server).not.toBeNull();
 
       try {
-        const res = await fetch("http://127.0.0.1:18099/trigger", {
+        const res = await fetch(`http://127.0.0.1:${server.port}/trigger`, {
           method: "POST",
           headers: {
             "content-type": "application/json",
@@ -57,14 +66,7 @@ describe("startTriggerServer", () => {
         });
         expect(res.status).toBe(202);
 
-        // trigger.ts calls bot.handleUpdate() without awaiting it — poll
-        // instead of assuming it landed synchronously.
-        const deadline = Date.now() + 2000;
-        while (!captured && Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 10));
-        }
-
-        expect(captured).not.toBeNull();
+        const captured = await delivered;
         // Regression guard: a caller-supplied chat_id must never reach the
         // reply destination — it's always the first allowed user.
         expect(captured.message.chat.id).toBe(12345);
