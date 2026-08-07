@@ -87,7 +87,9 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await client.close();
+  // Optional: if beforeAll fails, `client` is undefined and an unguarded close throws a
+  // TypeError here that masks the real cause.
+  await client?.close();
   await cleanup();
 });
 

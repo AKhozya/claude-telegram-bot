@@ -112,8 +112,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await client.close();
-  await noChatClient.close();
+  // Optional: if beforeAll fails, these are undefined and an unguarded close throws a
+  // TypeError here that masks the real cause.
+  await client?.close();
+  await noChatClient?.close();
   await cleanup();
   rmSync(FIXTURE, { force: true });
   rmSync(BIG, { force: true });
