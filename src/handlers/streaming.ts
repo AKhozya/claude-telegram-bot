@@ -637,9 +637,9 @@ export function createStatusCallback(ctx: Context, state: StreamingState): Statu
       } else if (statusType === "segment_end" && segmentId !== undefined) {
         if (!content) return;
 
-        // A reply under 20 characters emits no "text" event at all — session.ts gates that
-        // event on the throttle AND that minimum — so no message exists yet. Create one
-        // directly (#12 fix).
+        // A reply under 20 characters emits no "text" event at all: session.ts gates that
+        // event on the throttle AND that minimum. No message exists yet, so create one here
+        // (#12 fix).
         if (!state.textMessages.has(segmentId)) {
           if (content.length > TELEGRAM_RICH_LIMIT) {
             await sendChunkedMessages(ctx, content);
