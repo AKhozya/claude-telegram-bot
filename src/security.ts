@@ -242,9 +242,9 @@ export function isAuthorized(userId: number | undefined, allowedUsers: number[])
 export type ToolVerdict = { allowed: true } | { allowed: false; reason: string };
 
 /**
- * Built-in SDK tools that grant code/command execution, external publish, or
- * scheduled re-entry — with no legitimate use in a phone-controlled Claude Code
- * session. Denied outright.
+ * Built-in SDK tools that grant code/command execution, external publish, scheduled
+ * re-entry, or non-interactive control of the session's own lifecycle — with no
+ * legitimate use in a phone-controlled Claude Code session. Denied outright.
  *
  * The gate is a blocklist, so an SDK bump can introduce a new dangerous tool that
  * falls through default-allow (this happened when the SDK grew from 0.2.x → 0.3.x,
@@ -277,6 +277,9 @@ export const DENIED_TOOLS = new Set<string>([
   "ProposeSkills", // injects SKILL.md drafts for adoption — skills execute in later
   //                 sessions (persistence); bot skills are chezmoi-managed, not
   //                 session-proposed (SDK 0.3.212, audit 2026-07-17)
+  "ProposeGoal", // sets the session's completion condition. If `ask_user` is false, the
+  //               SDK sets it with no approval dialog. This bot has no /goal command to
+  //               clear it (SDK 0.3.227, audit 2026-08-11)
 ]);
 
 /** Loopback / this-host / RFC1918-private / link-local IPv4 (a.b are the top octets). */
