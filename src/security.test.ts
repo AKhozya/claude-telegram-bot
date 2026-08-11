@@ -698,6 +698,8 @@ describe("SDK tool-surface tripwire", () => {
     // 2026-07-17 (SDK 0.3.212): added RefreshMcpTools (allowed — refreshes connected
     // MCP listings, ListMcpResources sibling), SendFeedback (denied — external
     // publish to Anthropic), ProposeSkills (denied — skill-injection persistence).
+    // 2026-08-11 (SDK 0.3.227): added ProposeGoal (denied — sets the session's
+    // completion condition, which this bot has no /goal command to clear).
     const REVIEWED = new Set([
       "Agent",
       "Artifact",
@@ -721,6 +723,7 @@ describe("SDK tool-surface tripwire", () => {
       "Monitor",
       "NotebookEdit",
       "Projects",
+      "ProposeGoal",
       "ProposeSkills",
       "PushNotification",
       "ReadMcpResourceDir",
