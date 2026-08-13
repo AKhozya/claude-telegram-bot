@@ -280,6 +280,10 @@ export const DENIED_TOOLS = new Set<string>([
   "ProposeGoal", // sets the session's completion condition. If `ask_user` is false, the
   //               SDK sets it with no approval dialog. This bot has no /goal command to
   //               clear it (SDK 0.3.227, audit 2026-08-11)
+  "ReadNotifications", // drains a backend queue of notification bodies into the context
+  //                     verbatim. Their origins are an open set, so the gate cannot bound
+  //                     what text enters a session that runs under bypassPermissions
+  //                     (SDK 0.3.231, audit 2026-08-13)
 ]);
 
 /** Loopback / this-host / RFC1918-private / link-local IPv4 (a.b are the top octets). */

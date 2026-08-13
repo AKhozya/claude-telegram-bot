@@ -700,6 +700,8 @@ describe("SDK tool-surface tripwire", () => {
     // publish to Anthropic), ProposeSkills (denied — skill-injection persistence).
     // 2026-08-11 (SDK 0.3.227): added ProposeGoal (denied — sets the session's
     // completion condition, which this bot has no /goal command to clear).
+    // 2026-08-13 (SDK 0.3.231): added ReadNotifications (denied — drains notification
+    // bodies into the context verbatim, from an open set of origins).
     const REVIEWED = new Set([
       "Agent",
       "Artifact",
@@ -728,6 +730,7 @@ describe("SDK tool-surface tripwire", () => {
       "PushNotification",
       "ReadMcpResourceDir",
       "ReadMcpResource",
+      "ReadNotifications",
       "RefreshMcpTools",
       "RemoteTrigger",
       "REPL",
