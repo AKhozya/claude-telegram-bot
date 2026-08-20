@@ -1,4 +1,4 @@
-FROM oven/bun:1.3-alpine AS deps
+FROM oven/bun:1.4-alpine AS deps
 WORKDIR /app
 # BUILD_TS busts this layer each scheduled rebuild. bun update, not install:
 # install pins to bun.lock and rebuilds refresh nothing (froze SDK at 0.2.119).
@@ -14,7 +14,7 @@ RUN echo "build: $BUILD_TS" && bun update
 # Built static so the runtime image needs no libstdc++/libgomp and the toolchain never lands
 # in it. OpenMP is off because static libgomp on musl is the usual failure; ggml's own thread
 # pool covers it.
-FROM oven/bun:1.3-alpine AS whisper
+FROM oven/bun:1.4-alpine AS whisper
 # A git tag is mutable. The commit it pointed at when this was pinned is checked below, so a
 # moved tag fails the build instead of silently changing the binary — matching how kubectl,
 # flux and the model are all checksum-verified.
@@ -53,7 +53,7 @@ RUN mkdir -p /out/whisper \
 # kubectl and flux, fetched here for the same reason as the model above: the runtime stage
 # declares BUILD_TS, so every RUN after it refetches on each scheduled rebuild. Both are
 # pinned and checksum-verified against the vendor's own published sums.
-FROM oven/bun:1.3-alpine AS tools
+FROM oven/bun:1.4-alpine AS tools
 RUN apk add --no-cache curl
 
 # kubectl (pinned — match cluster k3s version; bump deliberately). Checksum-verified.
@@ -73,7 +73,7 @@ RUN set -o pipefail && cd /tmp \
     && tar -xzf "flux_${FLUX_VERSION}_linux_amd64.tar.gz" -C /out flux \
     && rm -f "flux_${FLUX_VERSION}_linux_amd64.tar.gz" "flux_${FLUX_VERSION}_checksums.txt"
 
-FROM oven/bun:1.3-alpine
+FROM oven/bun:1.4-alpine
 
 ARG BUILD_TS=local
 
