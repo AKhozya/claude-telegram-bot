@@ -49,6 +49,16 @@
       "automerge": false
     },
     {
+      "description": "bunfig.toml quarantines any npm release younger than 7 days (minimumReleaseAge). Renovate must not offer one: bun then refuses to resolve the new pin, the lock-file update fails, and the PR lands a package.json bump with no matching lock entry (prettier 3.9.7, #109). Keep this number equal to bunfig's. Placed after the major rule so it overrides that 3-day soak for bun deps.",
+      "matchManagers": ["bun"],
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Mirrors minimumReleaseAgeExcludes in bunfig.toml — bun does not quarantine the Agent SDK, so gating it here would only delay it.",
+      "matchPackageNames": ["@anthropic-ai/claude-agent-sdk"],
+      "minimumReleaseAge": "0 days"
+    },
+    {
       "description": "Pin @types/node to the Node 24 LTS line. Bun targets Node 24, so the types must match; a mismatch surfaces APIs Bun doesn't implement. @types/node is an `overrides` entry (Renovate manages overrides as deps and kept proposing the v26 major), so cap it here — 24.x patches/minors still flow.",
       "matchPackageNames": ["@types/node"],
       "allowedVersions": "<25"
