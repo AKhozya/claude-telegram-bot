@@ -3,8 +3,11 @@ preload = ["./test-preload.ts"]
 
 [install]
 # 7-day quarantine for third-party deps (supply-chain gate).
-# Anthropic Agent SDK stack exempt: trusted publisher, we want the newest engine,
-# and the SDK tool-surface tripwire test catches new built-in tools on update.
+# Anthropic Agent SDK stack exempt: trusted publisher, and the bot should run the newest
+# engine. A new built-in tool no longer needs a test to catch it — the gate defaults to deny,
+# so `evaluateToolUse` refuses any name outside ALLOWED_BUILTIN_TOOLS. The exemption now buys
+# early sight of the surface instead: the SDK's manifest.json pins the CLI, so taking the bump
+# promptly is what lets the release probe read the new tools before they matter.
 minimumReleaseAge = 604800
 minimumReleaseAgeExcludes = [
   "@anthropic-ai/claude-agent-sdk",
