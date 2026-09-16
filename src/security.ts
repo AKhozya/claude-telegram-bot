@@ -242,19 +242,63 @@ export function isAuthorized(userId: number | undefined, allowedUsers: number[])
 export type ToolVerdict = { allowed: true } | { allowed: false; reason: string };
 
 /**
- * Built-in SDK tools that grant code/command execution, external publish, scheduled
- * re-entry, or non-interactive control of the session's own lifecycle — with no
- * legitimate use in a phone-controlled Claude Code session. Denied outright.
+ * Built-in tools the bot needs. The gate refuses every other name, including one a CLI
+ * bump adds after this list was written — that default-deny is the point.
  *
- * The gate is a blocklist, so an SDK bump can introduce a new dangerous tool that
- * falls through default-allow (this happened when the SDK grew from 0.2.x → 0.3.x,
- * audit 2026-07-05). The `SDK tool-surface tripwire` test in security.test.ts fails
- * on any new unreviewed tool schema — update this set (and that snapshot) together.
- * Exported so session.ts can also pass it as SDK `disallowedTools` (defense in depth).
+ * `session.ts` hands this set to the SDK as `options.tools`, which selects the built-ins
+ * the CLI offers the model. It does not filter MCP tools, so the bundled `ask_user` and
+ * `send_file` survive `tools: []` (measured on SDK 0.3.273 / CLI 2.1.273, audit 2026-09-16).
+ *
+ * If the CLI does not know a name it drops that name without a diagnostic, so an upstream
+ * rename removes a tool the bot depends on and nothing reports it. `session.ts` diffs this
+ * set against the init event's tools on every query and warns on the gap.
+ *
+ * This list names Grep and Glob on purpose: if a native build does not receive them
+ * explicitly it omits them and leaves search to Bash. If settings deny WebFetch or
+ * WebSearch the CLI drops them, so the SSRF branch below cannot assume WebFetch exists.
+ */
+export const ALLOWED_BUILTIN_TOOLS = new Set<string>([
+  "Bash",
+  "Read",
+  "Write",
+  "Edit",
+  "NotebookEdit",
+  "Grep",
+  "Glob",
+  "WebFetch",
+  "WebSearch",
+  "Skill", // loads instruction text. Some skills run in a subagent instead. Nobody has
+  //         measured whether the harness consults `disallowedTools` on that internal
+  //         spawn, so treat the subagent path as open until someone does.
+]);
+
+/**
+ * Allowlisted names the CLI did not serve. A name it does not know is dropped from
+ * `options.tools` silently, so this is the only signal that an upstream rename took a
+ * tool the bot depends on. Takes the init event's `tools`, which also carries the MCP
+ * ones. They are not in the allowlist, so they cannot mask a gap.
+ */
+export function unservedTools(served: readonly string[]): string[] {
+  const have = new Set(served);
+  return [...ALLOWED_BUILTIN_TOOLS].filter((t) => !have.has(t));
+}
+
+/**
+ * Tools refused outright: code/command execution, external publish, scheduled
+ * re-entry, or non-interactive control of the session's own lifecycle.
+ *
+ * Redundant with ALLOWED_BUILTIN_TOOLS for anything the model calls by name. It stays
+ * because `disallowedTools` also blocks a harness-internal spawn that holds the tool
+ * object without a name lookup, which `options.tools` never sees. Nobody has measured
+ * how far that reaches — the `Skill` note above records the case it leaves open.
+ * Exported so session.ts can pass it as SDK `disallowedTools`.
  */
 export const DENIED_TOOLS = new Set<string>([
   "REPL", // arbitrary JavaScript execution
   "Monitor", // background shell command
+  "Task", // the runtime name. `Agent` below is the SDK alias. sdk-tools.d.ts declares
+  //        the schema as `AgentInput`. The SDK maps the alias through `toolAliases`, so
+  //        `disallowedTools` accepts either name. The hook only ever receives `Task`.
   "Agent", // spawns a subagent with its OWN Bash/file tools — a second exec surface
   //          this process's PreToolUse hook never reaches; isolation:"remote" runs
   //          off-host entirely. checkCommandSafety/isPathAllowed/SSRF gate can't span it.
@@ -284,6 +328,14 @@ export const DENIED_TOOLS = new Set<string>([
   //                     verbatim. Their origins are an open set, so the gate cannot bound
   //                     what text enters a session that runs under bypassPermissions
   //                     (SDK 0.3.231, audit 2026-08-13)
+  "DesignSync", // writes and deletes files in a claude.ai design-system project and
+  //              uploads local ones — the publish/exfil shape already refused in
+  //              `ClaudeDesign` and `Artifact` (CLI 2.1.273, audit 2026-09-16)
+  "SendMessage", // messages other local, cloud and Remote Control sessions. Those run
+  //               under their own permission settings, so anything this gate denies can
+  //               be asked of a session that would allow it (CLI 2.1.273, audit 2026-09-16)
+  "ListAgents", // enumerates those sessions; the discovery half of SendMessage and
+  //              useless without it (CLI 2.1.273, audit 2026-09-16)
 ]);
 
 /** Loopback / this-host / RFC1918-private / link-local IPv4 (a.b are the top octets). */
@@ -508,6 +560,14 @@ export async function evaluateToolUse(
   input: Record<string, unknown>,
 ): Promise<ToolVerdict> {
   if (DENIED_TOOLS.has(toolName)) {
+    return { allowed: false, reason: `Tool not permitted in bot context: ${toolName}` };
+  }
+
+  // Default-deny. `options.tools` keeps an unlisted built-in out of the model's context,
+  // but a hook that allowed whatever reached it would depend on that option holding.
+  // MCP tools are exempt because `options.tools` does not govern them; they continue to
+  // the `mcp__` argument checks below.
+  if (!toolName.startsWith("mcp__") && !ALLOWED_BUILTIN_TOOLS.has(toolName)) {
     return { allowed: false, reason: `Tool not permitted in bot context: ${toolName}` };
   }
 

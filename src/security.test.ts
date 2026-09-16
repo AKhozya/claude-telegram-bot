@@ -1,5 +1,5 @@
 import { describe, expect, test, mock, afterEach } from "bun:test";
-import { symlinkSync, mkdirSync, rmSync, realpathSync } from "fs";
+import { symlinkSync, mkdirSync, rmSync, realpathSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -18,6 +18,9 @@ const {
   isProtectedControlFile,
   isCredentialPath,
   isPathAllowed,
+  ALLOWED_BUILTIN_TOOLS,
+  DENIED_TOOLS,
+  unservedTools,
 } = await import("./security");
 
 describe("credential-store protection (#12)", () => {
@@ -676,81 +679,80 @@ describe("proc environ secret-read (native belt)", () => {
   });
 });
 
-// Tripwire: the tool-gate is a blocklist, so a NEW built-in tool from an SDK bump
-// is default-allowed at runtime until classified. This test fails the moment the
-// installed SDK declares a tool schema we have not reviewed — forcing a look at
-// evaluateToolUse's DENIED_TOOLS. This is the recurrence killer for finding #1.
-describe("SDK tool-surface tripwire", () => {
-  test("no unreviewed built-in tool schemas since 2026-07-05 audit", async () => {
-    const { readFileSync } = await import("fs");
-    const dts = "node_modules/@anthropic-ai/claude-agent-sdk/sdk-tools.d.ts";
-    // Deliberately no try/catch: if the SDK moves/renames this file, the tripwire
-    // SHOULD fail loudly so someone re-checks the tool surface. Match both
-    // `interface FooInput` and `type FooInput =` shapes.
-    const src = readFileSync(dts, "utf-8");
-    const found = new Set([...src.matchAll(/(?:interface|type) (\w+)Input\b/g)].map((m) => m[1]!));
-    // Sanity: the regex must actually find the surface (guard against a silent
-    // zero-match false-pass if the declaration style changes wholesale).
-    expect(found.size).toBeGreaterThan(20);
-    // Snapshot of the tool schemas reviewed during the 2026-07-05 audit.
-    // 2026-07-10 (SDK 0.3.200): added ClaudeDesign (denied — external dispatcher)
-    // and ReportFindings (allowed — inert code-review reporter).
-    // 2026-07-17 (SDK 0.3.212): added RefreshMcpTools (allowed — refreshes connected
-    // MCP listings, ListMcpResources sibling), SendFeedback (denied — external
-    // publish to Anthropic), ProposeSkills (denied — skill-injection persistence).
-    // 2026-08-11 (SDK 0.3.227): added ProposeGoal (denied — sets the session's
-    // completion condition, which this bot has no /goal command to clear).
-    // 2026-08-13 (SDK 0.3.231): added ReadNotifications (denied — drains notification
-    // bodies into the context verbatim, from an open set of origins).
-    const REVIEWED = new Set([
-      "Agent",
-      "Artifact",
-      "AskUserQuestion",
-      "Bash",
-      "ClaudeDesign",
-      "CronCreate",
-      "CronDelete",
-      "CronList",
-      "EnterPlanMode",
-      "EnterWorktree",
-      "ExitPlanMode",
-      "ExitWorktree",
-      "FileEdit",
-      "FileRead",
-      "FileWrite",
-      "Glob",
-      "Grep",
-      "ListMcpResources",
-      "Mcp",
-      "Monitor",
-      "NotebookEdit",
-      "Projects",
-      "ProposeGoal",
-      "ProposeSkills",
-      "PushNotification",
-      "ReadMcpResourceDir",
-      "ReadMcpResource",
-      "ReadNotifications",
-      "RefreshMcpTools",
-      "RemoteTrigger",
-      "REPL",
-      "ReportFindings",
-      "ScheduleWakeup",
-      "SendFeedback",
-      "ShowOnboardingRolePicker",
-      "TaskCreate",
-      "TaskGet",
-      "TaskList",
-      "TaskOutput",
-      "TaskStop",
-      "TaskUpdate",
-      "TodoWrite",
-      "WebFetch",
-      "WebSearch",
-      "Workflow",
-    ]);
-    const unreviewed = [...found].filter((t) => !REVIEWED.has(t));
-    expect(unreviewed).toEqual([]);
+// The gate defaults to deny, so it refuses a tool a CLI bump adds before anyone
+// classifies it. A snapshot of sdk-tools.d.ts cannot do this job: that file names the
+// declared schemas, not the tools the CLI serves, and it matched 45 of 45 names while
+// missing 9 of the 24 served (Task, Edit, Read, Write, DesignSync, ListAgents,
+// SendMessage, Skill, ToolSearch). The release check probes the live surface through
+// `kubectl exec`; a test cannot, because that needs auth and a spawn.
+describe("tool allowlist", () => {
+  test("an unclassified built-in is denied", async () => {
+    // Real names from CLI 2.1.273 that no branch of the gate mentions.
+    for (const tool of ["ToolSearch", "ReportFindings", "TaskOutput", "EnterWorktree"]) {
+      const verdict = await evaluateToolUse(tool, {});
+      expect(verdict.allowed).toBe(false);
+    }
+  });
+
+  test("Task is denied — the runtime name for the subagent tool", async () => {
+    // The SDK alias is `Agent`, the declared schema is `AgentInput`, the hook gets `Task`.
+    expect((await evaluateToolUse("Task", { prompt: "x" })).allowed).toBe(false);
+    expect((await evaluateToolUse("Agent", { prompt: "x" })).allowed).toBe(false);
+  });
+
+  // Membership, not verdict: default-deny already refuses these names, so asserting
+  // only the verdict passes with the set empty. `session.ts` builds `disallowedTools`
+  // from this set, and that is the one layer reaching a harness-internal spawn, which
+  // carries no tool name for the allowlist to check. How far it reaches is unverified
+  // — see the `Skill` note in security.ts.
+  test("both names of every dangerous tool are members of DENIED_TOOLS", () => {
+    for (const tool of ["Task", "Agent", "DesignSync", "SendMessage", "ListAgents"]) {
+      expect(DENIED_TOOLS.has(tool)).toBe(true);
+    }
+  });
+
+  test("MCP tools are exempt — `options.tools` does not govern them", async () => {
+    expect((await evaluateToolUse("mcp__ask-user__ask_user", { question: "x" })).allowed).toBe(
+      true,
+    );
+  });
+
+  test("default-deny does not shadow the argument branches", async () => {
+    // Each tool needs both verdicts. If default-deny ran too early it would refuse the
+    // safe call too, and a pair of deny-only assertions would still pass.
+    const safe = join(realpathSync(tmpdir()), "ordering-probe.txt");
+    expect((await evaluateToolUse("Bash", { command: "echo hi" })).allowed).toBe(true);
+    expect((await evaluateToolUse("Bash", { command: "rm -rf /" })).allowed).toBe(false);
+    expect((await evaluateToolUse("Read", { file_path: safe })).allowed).toBe(true);
+    expect((await evaluateToolUse("Read", { file_path: "/etc/shadow" })).allowed).toBe(false);
+  });
+
+  // This is the generalisation of the `Agent`/`Task` defect: a branch keyed on a name
+  // the allowlist never admits is dead code that reads as coverage.
+  test("every tool name the gate branches on is allowlisted", () => {
+    const src = readFileSync("src/security.ts", "utf-8");
+    const body = src.slice(src.indexOf("export async function evaluateToolUse"));
+    const branched = new Set<string>();
+    for (const m of body.matchAll(/toolName === "(\w+)"/g)) branched.add(m[1]!);
+    for (const m of body.matchAll(/\[([^\]]*)\]\.includes\(toolName\)/g)) {
+      for (const n of m[1]!.matchAll(/"(\w+)"/g)) branched.add(n[1]!);
+    }
+    // Sanity: the regexes must find the branches at all.
+    expect(branched.size).toBeGreaterThan(4);
+    expect([...branched].filter((t) => !ALLOWED_BUILTIN_TOOLS.has(t))).toEqual([]);
+  });
+
+  test("unservedTools reports an allowlisted name the CLI dropped", () => {
+    // The `Read` → `FileRead` rename shape: sdk-tools.d.ts already uses those names.
+    expect(unservedTools([...ALLOWED_BUILTIN_TOOLS])).toEqual([]);
+    const short = [...ALLOWED_BUILTIN_TOOLS].filter((t) => t !== "Read");
+    expect(unservedTools(short)).toEqual(["Read"]);
+    // The init list carries MCP tools too, and they must not count as coverage.
+    expect(unservedTools(["mcp__ask-user__ask_user"])).toEqual([...ALLOWED_BUILTIN_TOOLS]);
+  });
+
+  test("the allowlist and the denylist do not overlap", () => {
+    expect([...ALLOWED_BUILTIN_TOOLS].filter((t) => DENIED_TOOLS.has(t))).toEqual([]);
   });
 });
 

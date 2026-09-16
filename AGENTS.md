@@ -68,7 +68,7 @@ Supporting modules in the same directory:
 
 1. User allowlist (`TELEGRAM_ALLOWED_USERS`)
 2. Rate limiting (token bucket, configurable)
-3. `PreToolUse` hook (`evaluateToolUse`) — the enforcing gate under `bypassPermissions`
+3. `PreToolUse` hook (`evaluateToolUse`) — the enforcing gate under `bypassPermissions`. It defaults to deny: `ALLOWED_BUILTIN_TOOLS` lists what survives. [SECURITY.md](SECURITY.md) tabulates how that set and `DENIED_TOOLS` each enforce at two layers
 4. OS Bash sandbox (`BASH_SANDBOX_ENABLED`, on by default, fail-closed)
 5. Path validation (`ALLOWED_PATHS`)
 6. Command safety (blocked patterns — best-effort, trivially bypassable)

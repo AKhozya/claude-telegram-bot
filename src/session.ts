@@ -22,7 +22,7 @@ import { describeError, formatToolStatus } from "./formatting";
 import { buildSandboxSettings, sanitizeEnv, ensureScratchDir, bashSandboxEnabled } from "./sandbox";
 import { checkPendingAskUserRequests, checkPendingSendFileRequests } from "./handlers/streaming";
 import { runSafetyHook } from "./safety-hook";
-import { evaluateToolUse, DENIED_TOOLS } from "./security";
+import { evaluateToolUse, DENIED_TOOLS, ALLOWED_BUILTIN_TOOLS, unservedTools } from "./security";
 import type { SavedSession, SessionHistory, StatusCallback, TokenUsage } from "./types";
 
 const deny = (reason: string): HookJSONOutput => ({
@@ -100,6 +100,12 @@ export async function writeJsonAtomic(path: string, data: unknown): Promise<void
 }
 
 const MAX_SESSIONS = 5;
+
+// Process-wide: the CLI and its settings determine the served surface, not the session,
+// so a reconnect must not re-announce a gap this process already reported. A set, not
+// the last value: if the gap alternates, the last value repeats warnings for gaps this
+// process already reported.
+const warnedUnservedGaps = new Set<string>();
 
 class ClaudeSession {
   sessionId: string | null = null;
@@ -258,9 +264,14 @@ class ClaudeSession {
       strictMcpConfig: true,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
-      // Hard-block dangerous exec/publish/scheduling tools at the SDK layer too —
-      // the PreToolUse hook (evaluateToolUse) denies them as well, but this stops
-      // the model from ever emitting them. Single source of truth in security.ts.
+      // Selects the built-ins the CLI offers the model. A name this set omits never
+      // enters the model's context, so the model cannot reach a tool a CLI bump adds
+      // before anyone classifies it. This option does not govern MCP tools.
+      tools: [...ALLOWED_BUILTIN_TOOLS],
+      // Narrower than the allowlist above for one reason: `disallowedTools` also blocks
+      // a harness-internal spawn that holds the tool object without a name lookup, which
+      // `tools` never sees. How far that reaches is unverified — see the `Skill` note in
+      // security.ts, which owns both sets.
       disallowedTools: [...DENIED_TOOLS],
       systemPrompt: SAFETY_PROMPT,
       mcpServers: MCP_SERVERS,
@@ -320,6 +331,21 @@ class ClaudeSession {
         if (this.stopRequested) {
           console.log("Query aborted by user");
           break;
+        }
+
+        // If the CLI does not know a name in `options.tools` it drops that name without a
+        // diagnostic, so an upstream rename removes a tool the bot depends on and nothing
+        // reports it. The init event is the only place this process observes the served
+        // surface. Warn rather than throw: a missing tool degrades the bot, it does not
+        // endanger it. Warn once per distinct gap, because settings deny a tool on purpose
+        // — the macOS standalone denies WebFetch and WebSearch — and a line on every
+        // message would hide the rename this check exists to catch.
+        if (event.type === "system" && event.subtype === "init") {
+          const missing = unservedTools(event.tools).join(", ");
+          if (missing !== "" && !warnedUnservedGaps.has(missing)) {
+            warnedUnservedGaps.add(missing);
+            console.warn(`Allowed tools not served by the CLI: ${missing}`);
+          }
         }
 
         // `/clear`, plan-mode exit and fresh-session flows reset the conversation, leaving

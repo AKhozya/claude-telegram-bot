@@ -61,9 +61,21 @@ Configure via:
 
 A `PreToolUse` SDK hook (`src/session.ts`, backed by `evaluateToolUse` in `src/security.ts`) runs before every tool call and returns `permissionDecision: "deny"` for anything it rejects. Under `bypassPermissions` this is the enforcing control for native tools — nothing else stops a Read, Write, Edit or Bash call.
 
+`session.ts` hands the same two sets to the SDK, so each one enforces at two layers:
+
+| Set                     | SDK option        | What the SDK option covers                                                                                                                     | Why the hook still checks it                                                |
+| ----------------------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `ALLOWED_BUILTIN_TOOLS` | `options.tools`   | Built-ins only. A name it omits never enters the model's context. It does not govern MCP tools: `ask_user` and `send_file` survive `tools: []` | The hook must not depend on that option holding, so it denies by default    |
+| `DENIED_TOOLS`          | `disallowedTools` | The same names, plus a harness-internal spawn that holds the tool object without a name lookup                                                 | Redundant for anything the model calls by name, and kept for the spawn case |
+
+How far the internal-spawn coverage reaches is unverified. A skill that runs in a subagent is the case it leaves open; see the `Skill` note in `src/security.ts`.
+
+Because `options.tools` does not govern MCP tools, the hook's default-deny exempts the `mcp__` prefix and those calls continue to the argument branch below.
+
 It denies:
 
-- Tools in `DENIED_TOOLS` (also passed to the SDK as `disallowedTools`, so the model rarely emits them)
+- Any built-in tool absent from `ALLOWED_BUILTIN_TOOLS`. The gate defaults to deny, so it refuses a tool a CLI bump introduces before anyone classifies it
+- Tools in `DENIED_TOOLS`
 - `WebFetch` with a non-string `url`, and — when `url` is a non-empty string — a non-`http(s)` scheme, an unparseable URL, `localhost` / `*.localhost` / `*.local` / `*.internal` / `metadata.google.internal`, or a host resolving into `0/8`, `10/8`, `127/8`, `169.254/16`, `172.16/12`, `192.168/16`, `::1`, `::`, `fe80::/10` or `fc00::/7`. Domain names are resolved and every returned address re-checked, so `evil.example.com A 169.254.169.254` is caught; resolution failure blocks. **Not** a full public/private classifier — CGNAT (`100.64/10`) and other reserved ranges are not covered, and active DNS rebinding needs IP pinning the SDK does not expose. Egress policy is the backstop.
 - `Bash` commands failing the command-safety checks in Layer 6
 - `Read`/`Write`/`Edit`/`NotebookEdit` on paths outside `ALLOWED_PATHS` **and** outside the three `TEMP_PATHS` (see Layer 5 — temp is allowed for read _and_ write). One exemption: a native `Read` under `$HOME/.claude/` is allowed even when that directory is not in `ALLOWED_PATHS`, so Claude can load its own config and skills. It fails closed if `HOME` is unset.
@@ -72,7 +84,18 @@ It denies:
 - `Grep`/`Glob` with a search path outside the allowlist. Note this branch checks `isPathAllowed` only; the named runtime-file denials above do not apply to it
 - Any **MCP** tool (`mcp__server__tool`) called with a `file_path` argument, on the same terms as `Read` but without the `$HOME/.claude/` exemption — credential stores, the bot's runtime files, and anything outside `ALLOWED_PATHS` + `TEMP_PATHS`. This exists for the bundled `send_file`, which reads a path and publishes it to Telegram: the same shape as `Artifact` in `DENIED_TOOLS`. The branch keys on the _argument_, not on `mcp__send-file__send_file` — the server half of that name comes from whatever key `mcp-config.ts` uses, so renaming it must not reopen the hole, and any future MCP taking a `file_path` is covered without a code change
 
-The hook is registered without a matcher, so it sees MCP tools as well as built-ins. That matters because every other branch keys on a built-in tool name and the function's tail allows: before the MCP branch existed, `send_file` fell straight through it.
+`session.ts` registers the hook without a matcher, so it sees MCP tools as well as built-ins. That matters because every other branch keys on a built-in tool name: before the MCP branch existed, `send_file` reached the allow tail without any check. The default-deny above does not change that route — an MCP call skips it, runs the `file_path` branch, and can still reach the allow tail.
+
+Every branch keys on the name the runtime serves, which is not the name `sdk-tools.d.ts` declares:
+
+| Runtime name | SDK alias | Declared schema  | The hook receives |
+| ------------ | --------- | ---------------- | ----------------- |
+| `Task`       | `Agent`   | `AgentInput`     | `Task`            |
+| `Read`       | —         | `FileReadInput`  | `Read`            |
+| `Write`      | —         | `FileWriteInput` | `Write`           |
+| `Edit`       | —         | `FileEditInput`  | `Edit`            |
+
+The SDK maps an alias to its runtime name through `toolAliases`, so `disallowedTools` accepts either spelling. A branch keyed on a name the runtime never serves is dead code that reads as coverage, so a test asserts every name the gate branches on is in `ALLOWED_BUILTIN_TOOLS`.
 
 What the MCP branch does **not** cover, stated plainly so it is not mistaken for containment:
 
@@ -210,7 +233,7 @@ Three limits worth knowing:
 2. **Zero-day vulnerabilities** - Unknown bugs in Claude, the SDK, or dependencies
 3. **Physical access** - Someone with access to the machine running the bot
 4. **Network interception** - Though Telegram uses encryption
-5. **A second agent started from Bash** - `DENIED_TOOLS` refuses the SDK's `Agent` tool because it
+5. **A second agent started from Bash** - `DENIED_TOOLS` refuses the SDK's subagent tool (`Task`, `Agent` in the types) because it
    "spawns a subagent with its OWN Bash/file tools — a second exec surface this process's
    `PreToolUse` hook never reaches". Anything Bash can launch is that same surface: the container
    image ships an authenticated `codex` CLI, and `codex exec …` starts a fully-trusted agent with
@@ -218,8 +241,9 @@ Three limits worth knowing:
    does not close this — writing a script to an allowed path and running it defeats any pattern.
    The containment is the pod, not this process. Precisely: the `codex` invocation itself is a Bash
    call and _is_ evaluated by `evaluateToolUse`; what escapes is everything Codex does afterwards,
-   through its own shell and its own approval policy. Note the asymmetry deliberately — `Agent` is
-   denied at two layers and Codex at none, though only the latter matches how it is reached.
+   through its own shell and its own approval policy. Note the asymmetry deliberately — the
+   gate denies the subagent tool at three layers and Codex at none, though only the latter matches
+   how it is reached.
    Running Codex `danger-full-access` inside a container is OpenAI's own documented guidance when
    the container is the intended boundary, so this is the accepted posture, not an oversight.
 
