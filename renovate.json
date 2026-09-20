@@ -49,7 +49,7 @@
       "automerge": false
     },
     {
-      "description": "bunfig.toml quarantines any npm release younger than 7 days (minimumReleaseAge). Renovate must not offer one: bun then refuses to resolve the new pin, the lock-file update fails, and the PR lands a package.json bump with no matching lock entry (prettier 3.9.7, #109). Keep this number equal to bunfig's. Placed after the major rule so it overrides that 3-day soak for bun deps.",
+      "description": "bunfig.toml quarantines any npm release younger than 7 days (minimumReleaseAge). Renovate must not offer one: bun then refuses to resolve the new pin, the lock-file update fails, and the PR lands a package.json bump with no matching lock entry (prettier 3.9.7, #109). Keep this number equal to bunfig's. Placed after the major rule so it overrides that 3-day soak for bun deps. The gate only blocks branch creation: ticking the update on the Dependency Dashboard forces the branch anyway, and once the branch exists Renovate keeps pushing newer quarantined versions onto it (prettier 3.9.8, #112). Do not tick a quarantined bun update.",
       "matchManagers": ["bun"],
       "minimumReleaseAge": "7 days"
     },
