@@ -49,9 +49,21 @@
       "automerge": false
     },
     {
-      "description": "bunfig.toml quarantines any npm release younger than 7 days (minimumReleaseAge). Renovate must not offer one: bun then refuses to resolve the new pin, the lock-file update fails, and the PR lands a package.json bump with no matching lock entry (prettier 3.9.7, #109). Keep this number equal to bunfig's. Placed after the major rule so it overrides that 3-day soak for bun deps. The gate only blocks branch creation: ticking the update on the Dependency Dashboard forces the branch anyway, and once the branch exists Renovate keeps pushing newer quarantined versions onto it (prettier 3.9.8, #112). Do not tick a quarantined bun update.",
+      "description": "bunfig.toml quarantines every npm release younger than 1 day (minimumReleaseAge = 86400). Renovate must not offer one: bun then refuses to resolve the new pin, the lock-file update fails, and the PR lands a package.json bump with no matching lock entry (prettier 3.9.7, #109; 3.9.8, #112). Keep this equal to bunfig's number and never below it. It covers every update type, including the ones the two rules below do not name, so no bun update can be offered inside bunfig's window. Placed after the major rule so it overrides that 3-day soak for bun deps. The gate only blocks branch creation: ticking the update on the Dependency Dashboard forces the branch anyway, and once the branch exists Renovate keeps pushing newer quarantined versions onto it (#112). Do not tick a quarantined bun update.",
       "matchManagers": ["bun"],
-      "minimumReleaseAge": "7 days"
+      "minimumReleaseAge": "1 day"
+    },
+    {
+      "description": "A bun major gets 3 days: the longest soak, because a yanked or re-tagged release settles before it is offered and no test run catches a runtime behaviour change.",
+      "matchManagers": ["bun"],
+      "matchUpdateTypes": ["major"],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "A bun minor gets 2 days — new surface, but not a declared break.",
+      "matchManagers": ["bun"],
+      "matchUpdateTypes": ["minor"],
+      "minimumReleaseAge": "2 days"
     },
     {
       "description": "Mirrors minimumReleaseAgeExcludes in bunfig.toml — bun does not quarantine the Agent SDK, so gating it here would only delay it.",
