@@ -2,13 +2,18 @@
 preload = ["./test-preload.ts"]
 
 [install]
-# 7-day quarantine for third-party deps (supply-chain gate).
+# 1-day quarantine for third-party deps (supply-chain gate).
+# This number is a FLOOR, not the policy: bun has one age for every dependency, so it must equal
+# the shortest soak in renovate.json (patch). Set it higher than any Renovate tier and bun refuses
+# the pin Renovate just wrote, the lock update fails, and the PR lands a package.json bump with no
+# lock entry (prettier, #109 and #112). The per-update-type soaks — major 3 days, minor 2, patch 1 —
+# live in renovate.json, which is the only layer that knows an update's type.
 # Anthropic Agent SDK stack exempt: trusted publisher, and the bot should run the newest
 # engine. A new built-in tool no longer needs a test to catch it — the gate defaults to deny,
 # so `evaluateToolUse` refuses any name outside ALLOWED_BUILTIN_TOOLS. The exemption now buys
 # early sight of the surface instead: the SDK's manifest.json pins the CLI, so taking the bump
 # promptly is what lets the release probe read the new tools before they matter.
-minimumReleaseAge = 604800
+minimumReleaseAge = 86400
 minimumReleaseAgeExcludes = [
   "@anthropic-ai/claude-agent-sdk",
   "@anthropic-ai/claude-agent-sdk-darwin-arm64",
