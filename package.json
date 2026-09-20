@@ -11,7 +11,7 @@
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "prettier": "3.9.6"
+    "prettier": "3.9.8"
   },
   "overrides": {
     "@types/node": "^24"
