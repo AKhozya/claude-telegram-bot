@@ -70,13 +70,20 @@ test("thinking config is never 'disabled' — xhigh effort 400s on that pairing"
   }
 });
 
+// If the request omits `display`, claude-opus-5 returns empty thinking text, so the bot
+// skips the 🧠 status. Both branches need it (measured on claude-opus-5, 2026-10-17).
 test("thinking keywords still pin a fixed budget, plain messages stay adaptive", async () => {
   const { getThinkingConfig } = await import("./session");
-  expect(getThinkingConfig("list the pods")).toEqual({ type: "adaptive" });
-  expect(getThinkingConfig("think about it")).toEqual({ type: "enabled", budgetTokens: 10000 });
+  expect(getThinkingConfig("list the pods")).toEqual({ type: "adaptive", display: "summarized" });
+  expect(getThinkingConfig("think about it")).toEqual({
+    type: "enabled",
+    budgetTokens: 10000,
+    display: "summarized",
+  });
   expect(getThinkingConfig("ultrathink about it")).toEqual({
     type: "enabled",
     budgetTokens: 50000,
+    display: "summarized",
   });
 });
 

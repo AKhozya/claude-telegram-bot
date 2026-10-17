@@ -71,11 +71,14 @@ export function convertMarkdownToHtml(text: string): string {
   // <b>*x*</b> — the ** pass above has to run first.
   text = text.replace(/(?<!\*)\*(.+?)\*(?!\*)/g, "<b>$1</b>");
 
-  text = text.replace(/__([^_]+)__/g, "<b>$1</b>");
-
-  // _ is italic, __ is bold. `[^_]+` cannot span the inner delimiters, so unlike the *
-  // pair above this one excludes `__x__` on its own, whatever the order.
-  text = text.replace(/(?<!_)_([^_]+)_(?!_)/g, "<i>$1</i>");
+  // Each underscore pass needs a non-word character or a string edge on both sides, so
+  // snake_case outside backticks stays literal. `_` is a word character, so that check stops
+  // `_x_` matching inside `__x__`. The same check rejects `___x___` in the bold and italic
+  // passes, so it gets its own pass. The passes reject emphasis across a newline, so they
+  // never pair two unrelated underscores on different lines.
+  text = text.replace(/(^|[^\w])___([^_\n]+?)___(?=[^\w]|$)/g, "$1<b><i>$2</i></b>");
+  text = text.replace(/(^|[^\w])__([^_\n]+?)__(?=[^\w]|$)/g, "$1<b>$2</b>");
+  text = text.replace(/(^|[^\w])_([^_\n]+?)_(?=[^\w]|$)/g, "$1<i>$2</i>");
 
   text = convertBlockquotes(text);
   text = text.replace(/^[-*] /gm, "• ");

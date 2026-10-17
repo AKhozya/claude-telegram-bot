@@ -64,10 +64,13 @@ export const preToolUseGate: HookCallback = async (input) => {
 /**
  * Thinking config for a message. Exported so the "never disabled" invariant is testable:
  * the deployment pins effortLevel "xhigh", and the API 400s on xhigh + thinking disabled.
+ * If the request omits `display`, claude-opus-5 returns empty thinking text, so the bot skips the 🧠 status.
  */
 export function getThinkingConfig(message: string): NonNullable<Options["thinking"]> {
   const budget = getThinkingLevel(message);
-  return budget === 0 ? { type: "adaptive" } : { type: "enabled", budgetTokens: budget };
+  return budget === 0
+    ? { type: "adaptive", display: "summarized" }
+    : { type: "enabled", budgetTokens: budget, display: "summarized" };
 }
 
 function getThinkingLevel(message: string): number {
@@ -262,6 +265,10 @@ class ClaudeSession {
       // settings, plugins, and agent frontmatter. A .mcp.json spawns its command from the parent
       // process (unsandboxed); injected content must not be able to introduce one on disk.
       strictMcpConfig: true,
+      // If the CLI attaches the account's claude.ai connectors (Gmail, Drive), the gate
+      // permits their mcp__ tools. strictMcpConfig currently excludes connectors. Its
+      // documentation does not guarantee that, and this setting is the documented switch.
+      settings: { disableClaudeAiConnectors: true },
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       // Selects the built-ins the CLI offers the model. A name this set omits never
