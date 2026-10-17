@@ -5,6 +5,7 @@ import {
   ALLOWED_PATHS,
   AUDIT_LOG_PATH,
   BLOCKED_PATTERNS,
+  MCP_SERVERS,
   RATE_LIMIT_ENABLED,
   RATE_LIMIT_REQUESTS,
   RATE_LIMIT_WINDOW,
@@ -550,6 +551,17 @@ const BOT_RUNTIME_FILES = new Set(
   [AUDIT_LOG_PATH, SESSION_FILE, RESTART_FILE].map((p) => canonicalize(p)),
 );
 
+// `__` joins server and tool. Either part may contain `_`. A prefix match passes
+// `mcp__ask-user__x__run`, which may come from an unconfigured server `ask-user__x`. If
+// neither part contains `__` or starts or ends with `_`, the name splits one way only.
+const MCP_TOOL_NAME = /^mcp__([A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*)__[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*$/;
+
+// Reads MCP_SERVERS on every call, because tests register the bundled servers at runtime.
+function isConfiguredMcpTool(toolName: string): boolean {
+  const server = MCP_TOOL_NAME.exec(toolName)?.[1];
+  return server !== undefined && Object.hasOwn(MCP_SERVERS, server);
+}
+
 /**
  * Single gate for tool safety — used by the SDK PreToolUse hook and stream checks.
  * Async because the WebFetch SSRF check resolves DNS (audit #11); every other branch
@@ -565,9 +577,15 @@ export async function evaluateToolUse(
 
   // Default-deny. `options.tools` keeps an unlisted built-in out of the model's context,
   // but a hook that allowed whatever reached it would depend on that option holding.
-  // MCP tools are exempt because `options.tools` does not govern them; they continue to
-  // the `mcp__` argument checks below.
-  if (!toolName.startsWith("mcp__") && !ALLOWED_BUILTIN_TOOLS.has(toolName)) {
+  // `options.tools` does not govern MCP tools, so they have their own allowlist: the servers
+  // in mcp-config.ts. Plugins and claude.ai connectors also serve `mcp__` tools.
+  // `strictMcpConfig` does not remove a plugin's tools: the 2026-10-17 pod probe lists one
+  // on CLI 2.1.301.
+  if (toolName.startsWith("mcp__")) {
+    if (!isConfiguredMcpTool(toolName)) {
+      return { allowed: false, reason: `MCP tool not from mcp-config.ts: ${toolName}` };
+    }
+  } else if (!ALLOWED_BUILTIN_TOOLS.has(toolName)) {
     return { allowed: false, reason: `Tool not permitted in bot context: ${toolName}` };
   }
 

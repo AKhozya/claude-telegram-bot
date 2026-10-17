@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, afterEach } from "bun:test";
+import { describe, expect, test, mock, afterEach, afterAll } from "bun:test";
 import { symlinkSync, mkdirSync, rmSync, realpathSync, readFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -22,6 +22,17 @@ const {
   DENIED_TOOLS,
   unservedTools,
 } = await import("./security");
+
+// If mcp-config.ts is absent, as in CI, config loads no MCP servers. The gate admits only
+// configured ones, so this file registers the two bundled servers. The cleanup restores the
+// shared `MCP_SERVERS` object for other test files.
+const { MCP_SERVERS } = await import("./config");
+const savedMcpServers = { ...MCP_SERVERS };
+Object.assign(MCP_SERVERS, { "ask-user": { command: "bun" }, "send-file": { command: "bun" } });
+afterAll(() => {
+  for (const name of Object.keys(MCP_SERVERS)) delete MCP_SERVERS[name];
+  Object.assign(MCP_SERVERS, savedMcpServers);
+});
 
 describe("credential-store protection (#12)", () => {
   const HOME = process.env.HOME || "";
@@ -99,10 +110,9 @@ describe("MCP tools that take a file path", () => {
     expect((await send("/tmp/preview.mp4")).allowed).toBe(true);
   });
 
-  // Keyed on the argument, not on `mcp__send-file__send_file`: the server half of that name
-  // is whatever key mcp-config.ts uses, so a rename must not reopen the hole.
-  test("the gate follows the file_path argument, not the server name", async () => {
-    const verdict = await evaluateToolUse("mcp__renamed__upload", {
+  // If a configured MCP tool supplies `file_path`, the gate checks the path whatever the tool name.
+  test("the gate follows the file_path argument, not the tool name", async () => {
+    const verdict = await evaluateToolUse("mcp__ask-user__upload", {
       file_path: `${HOME}/.ssh/id_rsa`,
     });
     expect(verdict.allowed).toBe(false);
@@ -711,10 +721,26 @@ describe("tool allowlist", () => {
     }
   });
 
-  test("MCP tools are exempt — `options.tools` does not govern them", async () => {
+  test("MCP tools from configured servers pass — `options.tools` does not govern them", async () => {
     expect((await evaluateToolUse("mcp__ask-user__ask_user", { question: "x" })).allowed).toBe(
       true,
     );
+  });
+
+  // The pod serves the plugin tool `mcp__explain-as__show` with `strictMcpConfig` on.
+  // claude.ai connectors use the same `mcp__` prefix.
+  test("MCP tools from servers outside mcp-config.ts are refused", async () => {
+    for (const tool of [
+      "mcp__explain-as__show",
+      "mcp__claude_ai_Gmail__send_message",
+      "mcp__ask-userx__ask_user", // a configured name as a prefix of another server
+      "mcp__ask-user__x__run", // may be server `ask-user__x`
+      "mcp__ask-user___run", // may be server `ask-user_`
+      "mcp__ask-user__run_", // `_` at the end
+      "mcp__ask-user__", // no tool part
+    ]) {
+      expect((await evaluateToolUse(tool, {})).allowed).toBe(false);
+    }
   });
 
   test("default-deny does not shadow the argument branches", async () => {

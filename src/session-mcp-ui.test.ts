@@ -51,10 +51,19 @@ mock.module("./handlers/streaming", () => ({
   },
 }));
 
+// If mcp-config.ts is absent, as in CI, config loads no MCP servers. The gate's stream
+// check then refuses every tool_use below, so this file registers the two bundled servers.
+// The cleanup restores the shared `MCP_SERVERS` object for other test files.
+const { MCP_SERVERS } = await import("./config");
+const savedMcpServers = { ...MCP_SERVERS };
+Object.assign(MCP_SERVERS, { "ask-user": { command: "bun" }, "send-file": { command: "bun" } });
+
 afterAll(() => {
   mock.module("@anthropic-ai/claude-agent-sdk", () => realSdk);
   mock.module("./handlers/streaming", () => realStreaming);
   session.sessionId = null;
+  for (const name of Object.keys(MCP_SERVERS)) delete MCP_SERVERS[name];
+  Object.assign(MCP_SERVERS, savedMcpServers);
 });
 
 const { session } = await import("./session");
