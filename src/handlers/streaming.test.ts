@@ -18,6 +18,7 @@ const {
   createStatusCallback,
   StreamingState,
   createAskUserKeyboard,
+  createAnsweredKeyboard,
   splitMarkdownForTelegram,
   checkPendingAskUserRequests,
   checkPendingSendFileRequests,
@@ -128,6 +129,18 @@ describe("ask_user keyboard styling", () => {
     const kb = createAskUserKeyboard("req1", ["Yes", "No"]);
     const rows = kb.inline_keyboard;
     expect(rows[0]![0]).toMatchObject({ text: "Yes", style: "primary" });
+  });
+
+  // A disabled button looks like a plain one, so only the style and ✓ mark the pick.
+  // Answered buttons must have no callback data.
+  test("the answered keyboard disables every button and marks the pick green", () => {
+    const long = "x".repeat(40);
+    const kb = createAnsweredKeyboard(["Yes", "No", long], 1);
+    expect(kb.inline_keyboard).toEqual([
+      [{ text: "Yes", disabled: {} }],
+      [{ text: "✓ No", style: "success", disabled: {} }],
+      [{ text: `${"x".repeat(30)}...`, disabled: {} }],
+    ]);
   });
 });
 

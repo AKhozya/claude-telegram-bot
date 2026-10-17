@@ -144,17 +144,31 @@ function sendFailureReason(error: unknown): string {
   }
 }
 
+function buttonLabel(option: string): string {
+  return option.length > BUTTON_LABEL_MAX_LENGTH
+    ? option.slice(0, BUTTON_LABEL_MAX_LENGTH) + "..."
+    : option;
+}
+
 export function createAskUserKeyboard(requestId: string, options: string[]): InlineKeyboard {
   const keyboard = new InlineKeyboard();
-  for (let idx = 0; idx < options.length; idx++) {
-    const option = options[idx]!;
-    const display =
-      option.length > BUTTON_LABEL_MAX_LENGTH
-        ? option.slice(0, BUTTON_LABEL_MAX_LENGTH) + "..."
-        : option;
-    keyboard.text(display, `askuser:${requestId}:${idx}`).primary().row();
-  }
+  options.forEach((option, idx) => {
+    keyboard.text(buttonLabel(option), `askuser:${requestId}:${idx}`).primary().row();
+  });
   return keyboard;
+}
+
+// On the tested iOS client (2026-10-17), unstyled disabled buttons look like plain buttons.
+// The success style and checkmark identify the selected option.
+export function createAnsweredKeyboard(options: string[], chosen: number): InlineKeyboard {
+  return InlineKeyboard.from(
+    options.map((option, idx) => {
+      const label = buttonLabel(option);
+      return [
+        InlineKeyboard.disabled(idx === chosen ? { text: `✓ ${label}`, style: "success" } : label),
+      ];
+    }),
+  );
 }
 
 export async function checkPendingAskUserRequests(

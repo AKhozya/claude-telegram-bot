@@ -2,7 +2,7 @@ import { unlinkSync } from "fs";
 import type { BotContext } from "../types";
 import { session } from "../session";
 import { auditLog, startTypingIndicator } from "../utils";
-import { StreamingState, createStatusCallback } from "./streaming";
+import { StreamingState, createAnsweredKeyboard, createStatusCallback } from "./streaming";
 import { handleProcessingError } from "./errors";
 
 export async function handleCallback(ctx: BotContext): Promise<void> {
@@ -66,8 +66,11 @@ export async function handleCallback(ctx: BotContext): Promise<void> {
 
   const selectedOption = requestData.options[optionIndex]!;
 
+  // If the edit succeeds, disabled buttons prevent subsequent taps from sending callbacks.
   try {
-    await ctx.editMessageText(`✓ ${selectedOption}`);
+    await ctx.editMessageReplyMarkup({
+      reply_markup: createAnsweredKeyboard(requestData.options, optionIndex),
+    });
   } catch (error) {
     console.debug("Failed to edit callback message:", error);
   }

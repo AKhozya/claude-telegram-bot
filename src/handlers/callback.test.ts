@@ -6,13 +6,19 @@ const { handleCallback } = await import("./callback");
 
 // `isRunning` is what /status and /stop read. A button-initiated query that never sets it
 // is invisible to both — the drift `session.ts` documents on `interruptForNewMessage`.
-const makeCtx = (data: string, rec?: { replies: string[]; reactions: string[] }): any => ({
+type Rec = { replies: string[]; reactions: string[]; textEdits?: string[]; markups?: any[] };
+const makeCtx = (data: string, rec?: Rec): any => ({
   from: { id: 1, username: "tester" },
   chat: { id: 100 },
   msg: { message_id: 5 },
   callbackQuery: { data },
   answerCallbackQuery: async () => {},
-  editMessageText: async () => {},
+  editMessageText: async (t: string) => {
+    rec?.textEdits?.push(t);
+  },
+  editMessageReplyMarkup: async (o: any) => {
+    rec?.markups?.push(o.reply_markup);
+  },
   reply: async (t: string) => {
     rec?.replies.push(t);
     return { chat: { id: 100 }, message_id: 901 };
@@ -102,5 +108,27 @@ describe("ask_user button", () => {
     // The error must reach the user via the shared handler, not vanish in the catch.
     expect(rec.reactions).toEqual(["👎"]);
     expect(rec.replies).toEqual(["❌ Error: Error: boom"]);
+  });
+
+  test("a pick keeps the question and swaps in the answered keyboard", async () => {
+    writeFileSync(
+      requestFile,
+      JSON.stringify({ question: "Pick one", options: ["Yes", "No"], status: "pending" }),
+    );
+    s.sessionId = "live-session";
+    s.sendMessageStreaming = async () => {
+      throw new Error("stop here");
+    };
+
+    const textEdits: string[] = [];
+    const markups: any[] = [];
+    await handleCallback(
+      makeCtx(`askuser:${requestId}:1`, { replies: [], reactions: [], textEdits, markups }),
+    );
+
+    expect(textEdits).toEqual([]);
+    expect(markups.map((m) => m.inline_keyboard)).toEqual([
+      [[{ text: "Yes", disabled: {} }], [{ text: "✓ No", style: "success", disabled: {} }]],
+    ]);
   });
 });
