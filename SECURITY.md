@@ -70,11 +70,19 @@ A `PreToolUse` SDK hook (`src/session.ts`, backed by `evaluateToolUse` in `src/s
 
 How far the internal-spawn coverage reaches is unverified. A skill that runs in a subagent is the case it leaves open; see the `Skill` note in `src/security.ts`.
 
-Because `options.tools` does not govern MCP tools, the hook's default-deny exempts the `mcp__` prefix and those calls continue to the argument branch below.
+Because `options.tools` does not govern MCP tools, the hook's default-deny admits an `mcp__<server>__<tool>` name only if `<server>` is a key in `mcp-config.ts`. Those calls continue to the argument branch below. The gate also refuses a name in which either part contains `__` or starts or ends with `_`. If the gate accepts those forms, a name can identify two server/tool pairs: `mcp__ask-user__x__run` may come from an unconfigured server `ask-user__x`.
+
+The bot needs this rule because the CLI serves `mcp__` tools from other sources too:
+
+| Source                                 | Probe result with `strictMcpConfig: true`                                 |
+| -------------------------------------- | ------------------------------------------------------------------------- |
+| A plugin enabled in `settings.json`    | Yes: the 2026-10-17 pod probe lists `mcp__explain-as__show` (CLI 2.1.301) |
+| A claude.ai connector (Gmail, Drive …) | No: 0 tools with it on, 58 with it off (Mac, CLI 2.1.302)                 |
 
 It denies:
 
 - Any built-in tool absent from `ALLOWED_BUILTIN_TOOLS`. The gate defaults to deny, so it refuses a tool a CLI bump introduces before anyone classifies it
+- Any MCP tool whose server is not a key in `mcp-config.ts`
 - Tools in `DENIED_TOOLS`
 - `WebFetch` with a non-string `url`, and — when `url` is a non-empty string — a non-`http(s)` scheme, an unparseable URL, `localhost` / `*.localhost` / `*.local` / `*.internal` / `metadata.google.internal`, or a host resolving into `0/8`, `10/8`, `127/8`, `169.254/16`, `172.16/12`, `192.168/16`, `::1`, `::`, `fe80::/10` or `fc00::/7`. Domain names are resolved and every returned address re-checked, so `evil.example.com A 169.254.169.254` is caught; resolution failure blocks. **Not** a full public/private classifier — CGNAT (`100.64/10`) and other reserved ranges are not covered, and active DNS rebinding needs IP pinning the SDK does not expose. Egress policy is the backstop.
 - `Bash` commands failing the command-safety checks in Layer 6
@@ -82,9 +90,9 @@ It denies:
 - Within those same four tools, denied by name even inside an allowed path: credential stores (read and write), and the bot's own session, restart and audit files (read and write — reading exfils conversations, writing is DoS)
 - Code-execution control files (`settings*.json`, `.claude/hooks/**`, `.claude/plugins/**`, `.mcp.json`) — **write only**. `Read` is deliberately exempt so Claude can inspect its own config; the sandbox's `denyWrite` covers the Bash path separately
 - `Grep`/`Glob` with a search path outside the allowlist. Note this branch checks `isPathAllowed` only; the named runtime-file denials above do not apply to it
-- Any **MCP** tool (`mcp__server__tool`) called with a `file_path` argument, on the same terms as `Read` but without the `$HOME/.claude/` exemption — credential stores, the bot's runtime files, and anything outside `ALLOWED_PATHS` + `TEMP_PATHS`. This exists for the bundled `send_file`, which reads a path and publishes it to Telegram: the same shape as `Artifact` in `DENIED_TOOLS`. The branch keys on the _argument_, not on `mcp__send-file__send_file` — the server half of that name comes from whatever key `mcp-config.ts` uses, so renaming it must not reopen the hole, and any future MCP taking a `file_path` is covered without a code change
+- Any configured **MCP** tool (`mcp__server__tool`) called with a `file_path` argument, on the same terms as `Read` but without the `$HOME/.claude/` exemption — credential stores, the bot's runtime files, and anything outside `ALLOWED_PATHS` + `TEMP_PATHS`. This exists for the bundled `send_file`, which reads a path and publishes it to Telegram: the same shape as `Artifact` in `DENIED_TOOLS`. The branch keys on the _argument_, not on `mcp__send-file__send_file` — the server half of that name comes from whatever key `mcp-config.ts` uses, so renaming it must not reopen the hole, and any future MCP taking a `file_path` is covered without a code change
 
-`session.ts` registers the hook without a matcher, so it sees MCP tools as well as built-ins. That matters because every other branch keys on a built-in tool name: before the MCP branch existed, `send_file` reached the allow tail without any check. The default-deny above does not change that route — an MCP call skips it, runs the `file_path` branch, and can still reach the allow tail.
+`session.ts` registers the hook without a matcher, so it sees MCP tools as well as built-ins. That matters because the branches for built-in tools do not check MCP arguments. A configured MCP call passes the default-deny and runs the `file_path` branch. If it has no `file_path`, it reaches the allow tail with no argument check.
 
 Every branch keys on the name the runtime serves, which is not the name `sdk-tools.d.ts` declares:
 
