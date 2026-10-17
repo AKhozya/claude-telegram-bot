@@ -132,14 +132,20 @@ console.log("Starting bot...");
 const botInfo = await bot.api.getMe();
 console.log(`Bot started: @${botInfo.username}`);
 
-await bot.api.setMyCommands([
-  { command: "new", description: "Start a new Claude session" },
-  { command: "stop", description: "Stop the current query" },
-  { command: "status", description: "Show session status" },
-  { command: "resume", description: "Resume a saved session" },
-  { command: "retry", description: "Retry the last message" },
-  { command: "restart", description: "Restart the bot process" },
-]);
+// Polling does not depend on the command menu, so a failed registration must not stop startup.
+try {
+  await bot.api.setMyCommands([
+    { command: "start", description: "Show status and commands" },
+    { command: "new", description: "Start a new Claude session" },
+    { command: "stop", description: "Stop the current query" },
+    { command: "status", description: "Show session status" },
+    { command: "resume", description: "Resume a saved session" },
+    { command: "retry", description: "Retry the last message" },
+    { command: "restart", description: "Restart the bot process" },
+  ]);
+} catch (e) {
+  console.warn("Failed to register command menu:", e);
+}
 
 if (existsSync(RESTART_FILE)) {
   try {

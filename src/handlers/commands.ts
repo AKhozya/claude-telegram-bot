@@ -126,11 +126,11 @@ export async function handleResume(ctx: Context): Promise<void> {
 
   const buttons = sessions.map((s) => {
     const date = new Date(s.saved_at);
-    const dateStr = date.toLocaleDateString("it-IT", {
+    const dateStr = date.toLocaleDateString("en-GB", {
       day: "2-digit",
       month: "2-digit",
     });
-    const timeStr = date.toLocaleTimeString("it-IT", {
+    const timeStr = date.toLocaleTimeString("en-GB", {
       hour: "2-digit",
       minute: "2-digit",
     });

@@ -19,6 +19,21 @@ test("** stays bold and does not leak literal asterisks (pass ordering)", () => 
   expect(convertMarkdownToHtml("_w_")).toContain("<i>w</i>");
 });
 
+// If Claude emits `room_abcd_efgh` outside backticks, the converter must keep its underscores.
+test("underscores inside a word are not emphasis", () => {
+  expect(convertMarkdownToHtml("see room_abcd_efgh now")).toBe("see room_abcd_efgh now");
+  expect(convertMarkdownToHtml("set my__var__name")).toBe("set my__var__name");
+  expect(convertMarkdownToHtml("a ___big___ deal")).toBe("a <b><i>big</i></b> deal");
+  expect(convertMarkdownToHtml("call _private_helper")).toBe("call _private_helper");
+  expect(convertMarkdownToHtml("call __dunder__x")).toBe("call __dunder__x");
+  expect(convertMarkdownToHtml("call ___dunder___x")).toBe("call ___dunder___x");
+  expect(convertMarkdownToHtml("the foo_bar_ key")).toBe("the foo_bar_ key");
+  expect(convertMarkdownToHtml("the foo__bar__ key")).toBe("the foo__bar__ key");
+  expect(convertMarkdownToHtml("the foo___bar___ key")).toBe("the foo___bar___ key");
+  expect(convertMarkdownToHtml("an _aside_, then")).toBe("an <i>aside</i>, then");
+  expect(convertMarkdownToHtml("(__loud__)")).toBe("(<b>loud</b>)");
+});
+
 test("inline code containing $& survives verbatim (no pattern corruption)", () => {
   const out = convertMarkdownToHtml("run `echo $&` now");
   expect(out).toContain("<code>echo $&amp;</code>");
