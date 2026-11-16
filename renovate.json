@@ -2,7 +2,9 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", ":automergeRequireAllStatusChecks"],
   "schedule": ["after 6pm and before 11pm"],
-  "dependencyDashboard": true,
+  "dependencyDashboard": {
+    "enabled": true
+  },
   "timezone": "Europe/London",
   "lockFileMaintenance": {
     "enabled": true,
