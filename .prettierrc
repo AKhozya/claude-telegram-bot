@@ -1,3 +1,4 @@
 {
-  "printWidth": 100
+  "printWidth": 100,
+  "overrides": [{ "files": "renovate.json", "options": { "printWidth": 80 } }]
 }
