@@ -46,11 +46,7 @@
     },
     {
       "description": "Anthropic Agent SDK stack — grouped + manual. agent-sdk peers @modelcontextprotocol/sdk ^1.29 and zod ^4 (so zod's major is pinned by it); it is 0.x, so minors are breaking, and tests miss runtime paths (setModel saga). Review by hand. Listed last so it overrides the automerge rules above.",
-      "matchPackageNames": [
-        "@anthropic-ai/claude-agent-sdk",
-        "@modelcontextprotocol/sdk",
-        "zod"
-      ],
+      "matchPackageNames": ["@anthropic-ai/claude-agent-sdk", "@modelcontextprotocol/sdk", "zod"],
       "groupName": "anthropic-ai sdk stack",
       "automerge": false
     },
