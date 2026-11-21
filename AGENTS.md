@@ -16,7 +16,7 @@ pre-commit install # One-time per clone: installs the git hooks below
 
 ## Architecture
 
-This is a Telegram bot that lets you control Claude Code from your phone via text, photos, documents, video and voice. Built with Bun and grammY. About 4,100 code lines in `src/` excluding its tests, and about 9,800 across the repo including them and the two MCP servers. Re-derive rather than trust those figures: `tokei src --exclude '*.test.ts' -t=TypeScript` for the first, `tokei --exclude node_modules -t=TypeScript` for the second.
+This is a Telegram bot that lets you control Claude Code from your phone via text, photos, documents, video and voice. Built with Bun and grammY.
 
 ### Message Flow
 
@@ -94,9 +94,23 @@ Redis `FLUSHALL`) and barely overlap `BLOCKED_PATTERNS`, which is why both run.
 A near-identical `validate-safe-bash.sh` lives in the dotfiles repo for the Mac. Separate
 files: a rule added to one does not reach the other.
 
-The other three are wired through `settings.json` by the deployment's init container and
+The other three (`flux-push-reminder.sh`, `session-pull.sh`, `context-mode-cache-heal.mjs`)
+are wired through `settings.json` by the deployment's init container and
 are conveniences, not controls — losing one until the next restart degrades context or a
 reminder, and denies nothing.
+
+The init container `chezmoi-init` checks all four scripts before it writes `settings.json`.
+If one is missing from `/app/hooks/` or is not executable, `chezmoi-init` exits with
+status 1. That stops the bot container from starting. The deployment pins the image by
+tag. If you remove a hook, make the edits below to the homelab repo's
+`apps/claude-telegram/deployment.yaml` in the commit that updates the image tag, or in an
+earlier commit:
+
+| If you remove           | Remove it from `deployment.yaml` here                                                               |
+| ----------------------- | --------------------------------------------------------------------------------------------------- |
+| any of the four         | the check loop in `chezmoi-init`                                                                    |
+| one of the three above  | also the hooks object that `chezmoi-init` writes to `settings.json`                                 |
+| `validate-safe-bash.sh` | also the `SAFETY_HOOK` value. If `SAFETY_HOOK` names a missing file, the bot denies every Bash call |
 
 ### Configuration
 
@@ -154,7 +168,7 @@ servers while a locally built one baked whichever config that machine happened t
 
 **Streaming pattern**: All handlers use `createStatusCallback()` from `streaming.ts` and `session.sendMessageStreaming()` for live updates.
 
-**Before committing**: git hooks enforce the gates (`.pre-commit-config.yaml`, one-time `pre-commit install` per clone). Commit runs Prettier on staged files plus a gitleaks staged-diff scan; push runs `bun run typecheck && bun test`. The Prettier hook uses `--write`: a mis-formatted commit fails once with the files already fixed — re-stage and re-commit. A green typecheck does not prove the bot runs — the suite is the gate that matters, and neither covers the Telegram wire. CI repeats all of it, pins Bun 1.3.14, adds a full-history gitleaks scan, and compiles the standalone binary as a bundling smoke test.
+**Before committing**: git hooks enforce the gates (`.pre-commit-config.yaml`, one-time `pre-commit install` per clone). Commit runs Prettier on staged files plus a gitleaks staged-diff scan; push runs `bun run typecheck && bun test`. The Prettier hook uses `--write`: a mis-formatted commit fails once with the files already fixed — re-stage and re-commit. A green typecheck does not prove the bot runs — the suite is the gate that matters, and neither covers the Telegram wire. CI repeats all of it, pins Bun (`bun-version` in `.github/workflows/ci.yml`), adds a full-history gitleaks scan, and compiles the standalone binary as a bundling smoke test.
 
 **Test env**: `bunfig.toml` preloads `test-preload.ts`, which sets `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS`. `config.ts` reads both at module-eval time and exits without them, so no test file needs to set them itself. The same file redirects `AUDIT_LOG_PATH` and `TEMP_DIR`: left at their defaults, a test run appends to the running bot's own audit log and writes into its download directory.
 

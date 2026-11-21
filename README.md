@@ -47,7 +47,7 @@ bun run src/index.ts
 
 ### Prerequisites
 
-- **Bun 1.3+** - [Install Bun](https://bun.sh/). CI pins 1.3.14 and the container image ships `oven/bun:1.3-alpine`
+- **Bun 1.3+** - [Install Bun](https://bun.sh/). CI pins the version in `bun-version` in `.github/workflows/ci.yml`. The `Dockerfile` names the container image's `oven/bun` base
 - **Claude Agent SDK** - `@anthropic-ai/claude-agent-sdk` (installed via bun install)
 - **Telegram Bot Token** from [@BotFather](https://t.me/BotFather)
 - **ffmpeg and whisper-cli** (optional, for transcription) - `brew install ffmpeg whisper-cpp`. Set `WHISPER_MODEL` to a downloaded ggml model. Without them, voice and audio messages get a reply saying transcription isn't available, videos still reach Claude with their audio marked untranscribed, and everything else is unaffected
