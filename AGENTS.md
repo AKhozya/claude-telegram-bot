@@ -218,6 +218,6 @@ cp launchagent/com.claude-telegram-ts.plist.template ~/Library/LaunchAgents/com.
 launchctl load ~/Library/LaunchAgents/com.claude-telegram-ts.plist
 
 # Logs
-tail -f /tmp/claude-telegram-bot-ts.log
-tail -f /tmp/claude-telegram-bot-ts.err
+tail -f /tmp/claude-telegram-bot.log
+tail -f /tmp/claude-telegram-bot.err
 ```

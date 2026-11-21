@@ -162,8 +162,8 @@ The bot starts on login and restarts if it crashes.
 **Logs:**
 
 ```bash
-tail -f /tmp/claude-telegram-bot-ts.log   # stdout
-tail -f /tmp/claude-telegram-bot-ts.err   # stderr
+tail -f /tmp/claude-telegram-bot.log   # stdout
+tail -f /tmp/claude-telegram-bot.err   # stderr
 ```
 
 **Shell aliases:** If running as a service, these aliases make it easy to manage the bot (add to `~/.zshrc` or `~/.bashrc`):
@@ -173,7 +173,7 @@ alias cbot='launchctl list | grep com.claude-telegram-ts'
 alias cbot-stop='launchctl bootout gui/$(id -u)/com.claude-telegram-ts 2>/dev/null && echo "Stopped"'
 alias cbot-start='launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claude-telegram-ts.plist 2>/dev/null && echo "Started"'
 alias cbot-restart='launchctl kickstart -k gui/$(id -u)/com.claude-telegram-ts && echo "Restarted"'
-alias cbot-logs='tail -f /tmp/claude-telegram-bot-ts.log'
+alias cbot-logs='tail -f /tmp/claude-telegram-bot.log'
 ```
 
 ## Development
@@ -212,7 +212,7 @@ Because the bot runs the Agent SDK with `permissionMode: bypassPermissions`, lay
 
 - Verify your user ID is in `TELEGRAM_ALLOWED_USERS`
 - Check the bot token is correct
-- Look at logs: `tail -f /tmp/claude-telegram-bot-ts.err`
+- Look at logs: `tail -f /tmp/claude-telegram-bot.err`
 - Ensure the bot process is running
 
 **Claude authentication issues**
