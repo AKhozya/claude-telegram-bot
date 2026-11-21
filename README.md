@@ -47,7 +47,7 @@ bun run src/index.ts
 
 ### Prerequisites
 
-- **Bun 1.3+** - [Install Bun](https://bun.sh/). CI pins 1.3.14 and the container image ships `oven/bun:1.3-alpine`
+- **Bun 1.3+** - [Install Bun](https://bun.sh/). CI pins the version in `bun-version` in `.github/workflows/ci.yml`. The `Dockerfile` names the container image's `oven/bun` base
 - **Claude Agent SDK** - `@anthropic-ai/claude-agent-sdk` (installed via bun install)
 - **Telegram Bot Token** from [@BotFather](https://t.me/BotFather)
 - **ffmpeg and whisper-cli** (optional, for transcription) - `brew install ffmpeg whisper-cpp`. Set `WHISPER_MODEL` to a downloaded ggml model. Without them, voice and audio messages get a reply saying transcription isn't available, videos still reach Claude with their audio marked untranscribed, and everything else is unaffected
@@ -162,8 +162,8 @@ The bot starts on login and restarts if it crashes.
 **Logs:**
 
 ```bash
-tail -f /tmp/claude-telegram-bot-ts.log   # stdout
-tail -f /tmp/claude-telegram-bot-ts.err   # stderr
+tail -f /tmp/claude-telegram-bot.log   # stdout
+tail -f /tmp/claude-telegram-bot.err   # stderr
 ```
 
 **Shell aliases:** If running as a service, these aliases make it easy to manage the bot (add to `~/.zshrc` or `~/.bashrc`):
@@ -173,7 +173,7 @@ alias cbot='launchctl list | grep com.claude-telegram-ts'
 alias cbot-stop='launchctl bootout gui/$(id -u)/com.claude-telegram-ts 2>/dev/null && echo "Stopped"'
 alias cbot-start='launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.claude-telegram-ts.plist 2>/dev/null && echo "Started"'
 alias cbot-restart='launchctl kickstart -k gui/$(id -u)/com.claude-telegram-ts && echo "Restarted"'
-alias cbot-logs='tail -f /tmp/claude-telegram-bot-ts.log'
+alias cbot-logs='tail -f /tmp/claude-telegram-bot.log'
 ```
 
 ## Development
@@ -212,7 +212,7 @@ Because the bot runs the Agent SDK with `permissionMode: bypassPermissions`, lay
 
 - Verify your user ID is in `TELEGRAM_ALLOWED_USERS`
 - Check the bot token is correct
-- Look at logs: `tail -f /tmp/claude-telegram-bot-ts.err`
+- Look at logs: `tail -f /tmp/claude-telegram-bot.err`
 - Ensure the bot process is running
 
 **Claude authentication issues**
